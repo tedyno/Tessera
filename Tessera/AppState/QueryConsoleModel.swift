@@ -1,10 +1,11 @@
 import SwiftUI
 import DBKit
 import DBDriverPostgres
+import DBDriverMySQL
 
-/// Drives one query console: holds the driver, opens a connection for a chosen
-/// profile, runs SQL, publishes results. Secrets come from the Keychain via the
-/// caller; this model never stores them.
+/// Drives one query console: opens a connection for a chosen profile (Postgres or
+/// MySQL), runs SQL, publishes results and the schema tree. Secrets come from the
+/// Keychain via the caller; this model never stores them.
 @MainActor
 @Observable
 final class QueryConsoleModel {
@@ -30,29 +31,32 @@ final class QueryConsoleModel {
     private(set) var connectionName: String?
     private(set) var schema: DatabaseTree?
 
-    private let driver = PostgresDriver()
+    private var driver: (any DatabaseDriver)?
 
     var isBusy: Bool { status == .connecting || status == .running }
 
-    /// Opens a connection for the given profile (Postgres only for now).
+    /// Opens a connection for the given profile, picking the driver by engine.
     /// Without an SSH tunnel the endpoint is the profile host directly; Phase 5
-    /// will point it at the local end of the tunnel.
+    /// points it at the local end of the tunnel.
     func open(profile: ConnectionProfile, secrets: Secrets) async {
-        guard profile.kind == .postgres else {
-            status = .failed("\(profile.kind.displayName) is not supported yet (Phase 4).")
-            return
-        }
+        await driver?.close()
         connectionName = profile.name
         result = nil
         elapsedMS = nil
         schema = nil
         status = .connecting
+
+        let driver: any DatabaseDriver = switch profile.kind {
+        case .postgres: PostgresDriver()
+        case .mysql: MySQLDriver()
+        }
+        self.driver = driver
+
         do {
             try await driver.connect(
                 profile: profile,
                 secrets: secrets,
-                endpoint: NetworkEndpoint(host: profile.host, port: profile.port)
-            )
+                endpoint: NetworkEndpoint(host: profile.host, port: profile.port))
             status = .ready
             schema = try? await driver.fetchSchema()
         } catch {
@@ -60,20 +64,19 @@ final class QueryConsoleModel {
         }
     }
 
-    /// Refreshes the schema tree for the active connection.
     func refreshSchema() async {
+        guard let driver else { return }
         schema = try? await driver.fetchSchema()
     }
 
-    /// Sets the editor to `SELECT *` for a table and runs it (e.g. from a
-    /// double-click in the schema tree).
+    /// Sets the editor to `SELECT *` for a table and runs it.
     func selectAll(schema: String, table: String) async {
         sql = "SELECT * FROM \(schema).\(table) LIMIT 200;"
         await run()
     }
 
     func run() async {
-        guard status == .ready else { return }
+        guard status == .ready, let driver else { return }
         status = .running
         do {
             let queryResult = try await driver.execute(sql)

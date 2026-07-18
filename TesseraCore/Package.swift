@@ -11,11 +11,13 @@ let package = Package(
         .library(name: "DBPersistence", targets: ["DBPersistence"]),
         // Keychain-backed secret storage.
         .library(name: "DBSecurity", targets: ["DBSecurity"]),
-        // PostgreSQL driver implementing DBKit's DatabaseDriver.
+        // Database drivers implementing DBKit's DatabaseDriver.
         .library(name: "DBDriverPostgres", targets: ["DBDriverPostgres"]),
+        .library(name: "DBDriverMySQL", targets: ["DBDriverMySQL"]),
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.21.0"),
+        .package(url: "https://github.com/vapor/mysql-nio.git", from: "1.7.2"),
     ],
     targets: [
         .target(name: "DBKit"),
@@ -28,6 +30,13 @@ let package = Package(
                 .product(name: "PostgresNIO", package: "postgres-nio"),
             ]
         ),
+        .target(
+            name: "DBDriverMySQL",
+            dependencies: [
+                "DBKit",
+                .product(name: "MySQLNIO", package: "mysql-nio"),
+            ]
+        ),
         .testTarget(
             name: "TesseraCoreTests",
             dependencies: ["DBKit", "DBPersistence", "DBSecurity"]
@@ -35,6 +44,10 @@ let package = Package(
         .testTarget(
             name: "DBDriverPostgresTests",
             dependencies: ["DBDriverPostgres", "DBKit"]
+        ),
+        .testTarget(
+            name: "DBDriverMySQLTests",
+            dependencies: ["DBDriverMySQL", "DBKit"]
         ),
     ]
 )
