@@ -1,6 +1,19 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import DBKit
 import DBPersistence
+
+extension UTType {
+    static let tesseraOrganizerNode = UTType(exportedAs: "io.github.tedyno.tessera.organizer-node")
+}
+
+/// Lightweight drag payload carrying a tree node's id for reordering.
+struct DraggedNode: Codable, Transferable {
+    let id: UUID
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .tesseraOrganizerNode)
+    }
+}
 
 /// Column 1 — the connection organizer tree (Workspace → Project → Folder →
 /// Connection) with CRUD via context menus and a bottom "+" menu. Drag & drop
@@ -25,12 +38,15 @@ struct OrganizerSidebar: View {
             ForEach(model.organizer.workspaces) { workspace in
                 Section {
                     OutlineGroup(workspace.children, children: \.children) { node in
-                        nodeLabel(node)
-                            .contextMenu { nodeMenu(node) }
+                        rowView(node)
                     }
                 } header: {
                     Text(workspace.name)
                         .contextMenu { workspaceMenu(workspace) }
+                        .dropDestination(for: DraggedNode.self) { items, _ in
+                            guard let dragged = items.first else { return false }
+                            return model.move(nodeID: dragged.id, toParent: workspace.id)
+                        }
                 }
             }
         }
@@ -44,6 +60,21 @@ struct OrganizerSidebar: View {
     }
 
     // MARK: Rows
+
+    @ViewBuilder
+    private func rowView(_ node: OrganizerNode) -> some View {
+        let row = nodeLabel(node)
+            .contextMenu { nodeMenu(node) }
+            .draggable(DraggedNode(id: node.id))
+        if node.isContainer {
+            row.dropDestination(for: DraggedNode.self) { items, _ in
+                guard let dragged = items.first else { return false }
+                return model.move(nodeID: dragged.id, toParent: node.id)
+            }
+        } else {
+            row
+        }
+    }
 
     @ViewBuilder
     private func nodeLabel(_ node: OrganizerNode) -> some View {

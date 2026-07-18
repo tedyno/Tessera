@@ -51,6 +51,15 @@ extension OrganizerDocument {
         return out
     }
 
+    /// All node ids nested under `id` (excluding `id` itself). Used to prevent
+    /// dropping a container into its own subtree.
+    public func descendants(of id: UUID) -> Set<UUID> {
+        guard let node = node(id: id), let children = node.children else { return [] }
+        var out: Set<UUID> = []
+        Self.collectIDs(children, into: &out)
+        return out
+    }
+
     // MARK: Mutations
 
     public mutating func rename(_ id: UUID, to name: String) {
@@ -109,6 +118,13 @@ extension OrganizerDocument {
             if let children = node.children, let found = find(id, in: children) { return found }
         }
         return nil
+    }
+
+    private static func collectIDs(_ nodes: [OrganizerNode], into out: inout Set<UUID>) {
+        for node in nodes {
+            out.insert(node.id)
+            if let children = node.children { collectIDs(children, into: &out) }
+        }
     }
 
     private static func collectRefs(_ profileID: UUID, in nodes: [OrganizerNode], into out: inout [ConnectionRef]) {

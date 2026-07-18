@@ -129,6 +129,22 @@ final class ConnectionsModel {
         saveOrganizer()
     }
 
+    /// Moves a node under a new parent container. Rejects no-op moves and moving a
+    /// container into its own subtree.
+    @discardableResult
+    func move(nodeID: UUID, toParent parentID: UUID) -> Bool {
+        guard nodeID != parentID else { return false }
+        guard !organizer.descendants(of: nodeID).contains(parentID) else { return false }
+        guard let removed = organizer.remove(nodeID) else { return false }
+        if !organizer.append(removed, toParent: parentID) {
+            organizer.append(removed, toParent: defaultParentID ?? UUID())
+            saveOrganizer()
+            return false
+        }
+        saveOrganizer()
+        return true
+    }
+
     func deleteWorkspace(_ id: UUID) {
         organizer.workspaces.removeAll { $0.id == id }
         saveOrganizer()
