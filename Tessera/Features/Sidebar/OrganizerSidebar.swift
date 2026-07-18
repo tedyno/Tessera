@@ -41,12 +41,17 @@ struct OrganizerSidebar: View {
                         rowView(node)
                     }
                 } header: {
-                    Text(workspace.name)
-                        .contextMenu { workspaceMenu(workspace) }
-                        .dropDestination(for: DraggedNode.self) { items, _ in
-                            guard let dragged = items.first else { return false }
-                            return model.move(nodeID: dragged.id, toParent: workspace.id)
-                        }
+                    HStack {
+                        Text(workspace.name)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .contextMenu { workspaceMenu(workspace) }
+                    .dropDestination(for: DraggedNode.self) { items, _ in
+                        guard let dragged = items.first else { return false }
+                        return model.move(nodeID: dragged.id, toParent: workspace.id)
+                    }
                 }
             }
         }
@@ -107,7 +112,17 @@ struct OrganizerSidebar: View {
         } else {
             Button("Connect") { selection = node.id }
         }
+        moveMenu(node)
         Button("Delete", role: .destructive) { model.deleteNode(node.id) }
+    }
+
+    @ViewBuilder
+    private func moveMenu(_ node: OrganizerNode) -> some View {
+        Menu("Move to") {
+            ForEach(model.organizer.workspaces) { workspace in
+                Button(workspace.name) { model.move(nodeID: node.id, toParent: workspace.id) }
+            }
+        }
     }
 
     @ViewBuilder

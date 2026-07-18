@@ -2,10 +2,11 @@ import SwiftUI
 import DBKit
 
 /// Column 2 — the schema of the active connection (Database → Schema → Table →
-/// Column). Phase 0: a static tree from sample data; in Phase 3 it is filled by
-/// a `SchemaProvider` from the live session with lazy branch loading.
+/// Column). Phase 2b: still a static sample tree; Phase 3 fills it from a live
+/// `SchemaProvider`. Double-clicking a table runs `SELECT *` via `onOpenTable`.
 struct SchemaSidebar: View {
     let tree: DatabaseTree
+    var onOpenTable: (_ schema: String, _ table: String) -> Void
 
     var body: some View {
         List {
@@ -14,7 +15,7 @@ struct SchemaSidebar: View {
                     ForEach(tree.schemas) { namespace in
                         DisclosureGroup {
                             ForEach(namespace.tables) { table in
-                                tableNode(table)
+                                tableNode(namespace: namespace.name, table: table)
                             }
                         } label: {
                             Label(namespace.name, systemImage: "circle.grid.2x2")
@@ -30,9 +31,9 @@ struct SchemaSidebar: View {
     }
 
     @ViewBuilder
-    private func tableNode(_ table: SchemaTable) -> some View {
+    private func tableNode(namespace: String, table: SchemaTable) -> some View {
         if table.columns.isEmpty {
-            tableLabel(table)
+            tableLabel(namespace: namespace, table: table)
         } else {
             DisclosureGroup {
                 ForEach(table.columns) { column in
@@ -48,13 +49,18 @@ struct SchemaSidebar: View {
                     }
                 }
             } label: {
-                tableLabel(table)
+                tableLabel(namespace: namespace, table: table)
             }
         }
     }
 
-    private func tableLabel(_ table: SchemaTable) -> some View {
+    private func tableLabel(namespace: String, table: SchemaTable) -> some View {
         Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
             .foregroundStyle(table.kind == .view ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                TapGesture(count: 2).onEnded { onOpenTable(namespace, table.name) }
+            )
+            .help("Double-click to SELECT *")
     }
 }

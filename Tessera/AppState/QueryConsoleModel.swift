@@ -57,6 +57,13 @@ final class QueryConsoleModel {
         }
     }
 
+    /// Sets the editor to `SELECT *` for a table and runs it (e.g. from a
+    /// double-click in the schema tree).
+    func selectAll(schema: String, table: String) async {
+        sql = "SELECT * FROM \(schema).\(table) LIMIT 200;"
+        await run()
+    }
+
     func run() async {
         guard status == .ready else { return }
         status = .running

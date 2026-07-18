@@ -16,8 +16,10 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 320)
         } content: {
-            SchemaSidebar(tree: sample.schema)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
+            SchemaSidebar(tree: sample.schema) { schema, table in
+                Task { await console.selectAll(schema: schema, table: table) }
+            }
+            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
         } detail: {
             DetailView(model: console)
                 .navigationSplitViewColumnWidth(min: 480, ideal: 760)
