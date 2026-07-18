@@ -55,7 +55,7 @@ struct DetailView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
-            .disabled(model.isBusy)
+            .disabled(model.status != .ready)
             .keyboardShortcut(.return, modifiers: .command)
 
             Button { } label: { Label("Stop", systemImage: "stop.fill") }

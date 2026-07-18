@@ -1,53 +1,60 @@
 import SwiftUI
 import DBKit
-import DBPersistence
 
-/// Column 1 — the user's connection organizer (Workspace → Project → Folder →
-/// Connection). Phase 0: read-only tree from sample data. CRUD, rename and
-/// drag & drop arrive in Phase 2b.
+/// Column 1 — the connection organizer. Phase 2a: a flat list of saved
+/// connections with selection, add (+) and delete. Phase 2b turns this into the
+/// Workspace → Project → Folder → Connection tree with drag & drop.
 struct OrganizerSidebar: View {
-    let document: OrganizerDocument
-    let profiles: [UUID: ConnectionProfile]
+    let connections: ConnectionsModel
     @Binding var selection: UUID?
+    var onAdd: () -> Void
 
     var body: some View {
         List(selection: $selection) {
-            ForEach(document.workspaces) { workspace in
-                Section(workspace.name) {
-                    OutlineGroup(workspace.children, children: \.children) { node in
-                        nodeLabel(node)
+            Section("Connections") {
+                if connections.profiles.isEmpty {
+                    Text("No connections")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                } else {
+                    ForEach(connections.profiles) { profile in
+                        Label {
+                            Text(profile.name)
+                        } icon: {
+                            RoundedRectangle(cornerRadius: 2.5)
+                                .fill(color(for: profile.kind))
+                                .frame(width: 9, height: 9)
+                        }
+                        .tag(profile.id)
+                        .contextMenu {
+                            Button("Delete", role: .destructive) {
+                                connections.delete(profile)
+                            }
+                        }
                     }
                 }
             }
         }
         .listStyle(.sidebar)
-    }
-
-    @ViewBuilder
-    private func nodeLabel(_ node: OrganizerNode) -> some View {
-        switch node {
-        case .project(let project):
-            Label(project.name, systemImage: "square.stack.3d.up.fill")
-        case .folder(let folder):
-            Label(folder.name, systemImage: "folder.fill")
-                .foregroundStyle(.tint)
-        case .connection(let ref):
-            let profile = profiles[ref.profileID]
-            Label {
-                Text(profile?.name ?? String(localized: "Connection"))
-            } icon: {
-                RoundedRectangle(cornerRadius: 2.5)
-                    .fill(color(for: profile?.kind))
-                    .frame(width: 9, height: 9)
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Button(action: onAdd) {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.borderless)
+                .help("New connection")
+                Spacer()
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.bar)
         }
     }
 
-    private func color(for kind: DatabaseKind?) -> Color {
+    private func color(for kind: DatabaseKind) -> Color {
         switch kind {
         case .postgres: .blue
         case .mysql: .orange
-        case nil: .secondary
         }
     }
 }

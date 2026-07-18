@@ -2,9 +2,9 @@ import SwiftUI
 import DBKit
 import DBDriverPostgres
 
-/// Drives one query console: holds the driver, runs SQL, publishes results.
-/// Phase 1 uses a hardcoded local connection; Phase 2 replaces it with real
-/// connection management and Keychain-backed secrets.
+/// Drives one query console: holds the driver, opens a connection for a chosen
+/// profile, runs SQL, publishes results. Secrets come from the Keychain via the
+/// caller; this model never stores them.
 @MainActor
 @Observable
 final class QueryConsoleModel {
@@ -27,21 +27,23 @@ final class QueryConsoleModel {
     private(set) var status: Status = .idle
     private(set) var result: QueryResult?
     private(set) var elapsedMS: Int?
+    private(set) var connectionName: String?
 
     private let driver = PostgresDriver()
 
-    // TEMPORARY: hardcoded local connection (Phase 1 happy path). Requires a local
-    // Postgres reachable at 127.0.0.1:5432. Replaced in Phase 2.
-    private let profile = ConnectionProfile(
-        name: "local", kind: .postgres, host: "127.0.0.1", port: 5432,
-        database: "shop", username: "tessera", tlsMode: .disable
-    )
-    private let secrets = Secrets(databasePassword: "tessera")
-
     var isBusy: Bool { status == .connecting || status == .running }
 
-    func connectIfNeeded() async {
-        guard status == .idle || isFailed else { return }
+    /// Opens a connection for the given profile (Postgres only for now).
+    /// Without an SSH tunnel the endpoint is the profile host directly; Phase 5
+    /// will point it at the local end of the tunnel.
+    func open(profile: ConnectionProfile, secrets: Secrets) async {
+        guard profile.kind == .postgres else {
+            status = .failed("\(profile.kind.displayName) is not supported yet (Phase 4).")
+            return
+        }
+        connectionName = profile.name
+        result = nil
+        elapsedMS = nil
         status = .connecting
         do {
             try await driver.connect(
@@ -56,7 +58,6 @@ final class QueryConsoleModel {
     }
 
     func run() async {
-        if status == .idle || isFailed { await connectIfNeeded() }
         guard status == .ready else { return }
         status = .running
         do {
@@ -67,11 +68,6 @@ final class QueryConsoleModel {
         } catch {
             status = .failed(Self.message(for: error))
         }
-    }
-
-    private var isFailed: Bool {
-        if case .failed = status { return true }
-        return false
     }
 
     var errorMessage: String? {

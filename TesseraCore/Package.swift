@@ -9,6 +9,8 @@ let package = Package(
         .library(name: "DBKit", targets: ["DBKit"]),
         // Organizer and connection-profile persistence (JSON), depends only on DBKit.
         .library(name: "DBPersistence", targets: ["DBPersistence"]),
+        // Keychain-backed secret storage.
+        .library(name: "DBSecurity", targets: ["DBSecurity"]),
         // PostgreSQL driver implementing DBKit's DatabaseDriver.
         .library(name: "DBDriverPostgres", targets: ["DBDriverPostgres"]),
     ],
@@ -18,6 +20,7 @@ let package = Package(
     targets: [
         .target(name: "DBKit"),
         .target(name: "DBPersistence", dependencies: ["DBKit"]),
+        .target(name: "DBSecurity", dependencies: ["DBKit"]),
         .target(
             name: "DBDriverPostgres",
             dependencies: [
@@ -27,7 +30,7 @@ let package = Package(
         ),
         .testTarget(
             name: "TesseraCoreTests",
-            dependencies: ["DBKit", "DBPersistence"]
+            dependencies: ["DBKit", "DBPersistence", "DBSecurity"]
         ),
         .testTarget(
             name: "DBDriverPostgresTests",

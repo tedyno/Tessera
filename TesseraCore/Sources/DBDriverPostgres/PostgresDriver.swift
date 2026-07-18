@@ -13,6 +13,9 @@ public actor PostgresDriver: DatabaseDriver {
     public init() {}
 
     public func connect(profile: ConnectionProfile, secrets: Secrets, endpoint: NetworkEndpoint) async throws {
+        // Drop any prior connection so re-opening a driver is clean.
+        await close()
+
         let config = PostgresClient.Configuration(
             host: endpoint.host,
             port: endpoint.port,
