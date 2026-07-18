@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import DBKit
 import DBDriverPostgres
 
@@ -76,7 +77,10 @@ struct NewConnectionView: View {
                         if sshAuth == .password {
                             SecureField("SSH password", text: $sshPassword)
                         } else {
-                            TextField("Key path", text: $sshKeyPath)
+                            HStack {
+                                TextField("Key path", text: $sshKeyPath)
+                                Button("Choose…") { chooseKeyFile() }
+                            }
                             SecureField("Key passphrase (optional)", text: $sshPassphrase)
                         }
                     }
@@ -137,6 +141,21 @@ struct NewConnectionView: View {
             databasePassword: password.isEmpty ? nil : password,
             sshPassword: (sshEnabled && sshAuth == .password && !sshPassword.isEmpty) ? sshPassword : nil,
             sshPassphrase: (sshEnabled && sshAuth == .privateKey && !sshPassphrase.isEmpty) ? sshPassphrase : nil)
+    }
+
+    private func chooseKeyFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Private Key"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
+        panel.treatsFilePackagesAsDirectories = true
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".ssh", isDirectory: true)
+        if panel.runModal() == .OK, let url = panel.url {
+            sshKeyPath = url.path
+        }
     }
 
     private func runTest() {
