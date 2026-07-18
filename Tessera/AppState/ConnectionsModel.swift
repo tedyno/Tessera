@@ -3,64 +3,138 @@ import DBKit
 import DBPersistence
 import DBSecurity
 
-/// Owns the saved connection profiles: loads/persists them to JSON and stores
-/// their secrets in the Keychain. The organizer tree (Phase 2b) will sit on top
-/// of this flat profile list.
+/// Owns saved connection profiles and the organizer tree (Workspace → Project →
+/// Folder → Connection). Persists profiles and the organizer to JSON and secrets
+/// to the Keychain.
 @MainActor
 @Observable
 final class ConnectionsModel {
     private(set) var profiles: [ConnectionProfile] = []
+    private(set) var organizer = OrganizerDocument()
 
-    private let store: ProfileStore
+    private let profileStore: ProfileStore
+    private let organizerStore: OrganizerStore
     private let secretsStore: ProfileSecretsStore
 
     init() {
-        let url = (try? ProfileStore.defaultURL())
-            ?? FileManager.default.temporaryDirectory.appendingPathComponent("tessera-profiles.json")
-        self.store = ProfileStore(fileURL: url)
+        let dir = FileManager.default.temporaryDirectory
+        self.profileStore = ProfileStore(
+            fileURL: (try? ProfileStore.defaultURL()) ?? dir.appendingPathComponent("tessera-profiles.json"))
+        self.organizerStore = OrganizerStore(
+            fileURL: (try? OrganizerStore.defaultURL()) ?? dir.appendingPathComponent("tessera-organizer.json"))
         self.secretsStore = ProfileSecretsStore()
-        reload()
-        seedLocalIfEmpty()
+        loadAll()
     }
 
-    func reload() {
-        profiles = (try? store.load()) ?? []
+    // MARK: Loading / seeding
+
+    private func loadAll() {
+        profiles = (try? profileStore.load()) ?? []
+        organizer = (try? organizerStore.load()) ?? OrganizerDocument()
+        if profiles.isEmpty { seedLocalProfile() }
+        if organizer.workspaces.isEmpty {
+            let refs = profiles.map { OrganizerNode.connection(ConnectionRef(profileID: $0.id)) }
+            organizer.workspaces = [Workspace(name: "My Connections", children: refs)]
+            saveOrganizer()
+        }
     }
 
-    func profile(id: UUID) -> ConnectionProfile? {
-        profiles.first { $0.id == id }
+    /// Dev convenience: a connection to the local Docker Postgres on first run.
+    private func seedLocalProfile() {
+        let profile = ConnectionProfile(
+            name: "Local (Docker)", kind: .postgres, host: "127.0.0.1", port: 5432,
+            database: "shop", username: "tessera", tlsMode: .disable)
+        try? secretsStore.save(for: profile, secrets: Secrets(databasePassword: "tessera"))
+        profiles = [profile]
+        try? profileStore.save(profiles)
     }
+
+    // MARK: Lookups
+
+    func profile(id: UUID) -> ConnectionProfile? { profiles.first { $0.id == id } }
+
+    func profileID(forNode nodeID: UUID) -> UUID? { organizer.profileID(forNode: nodeID) }
 
     func secrets(for profile: ConnectionProfile) -> Secrets {
         (try? secretsStore.load(for: profile)) ?? Secrets()
     }
 
-    @discardableResult
-    func add(_ profile: ConnectionProfile, secrets: Secrets) -> Bool {
-        do {
-            try secretsStore.save(for: profile, secrets: secrets)
-            profiles.append(profile)
-            try store.save(profiles)
-            return true
-        } catch {
-            return false
+    private var defaultParentID: UUID? { organizer.workspaces.first?.id }
+
+    /// The node id of the first connection in the tree (for initial selection).
+    var firstConnectionNodeID: UUID? {
+        func scan(_ nodes: [OrganizerNode]) -> UUID? {
+            for node in nodes {
+                if case .connection = node { return node.id }
+                if let children = node.children, let found = scan(children) { return found }
+            }
+            return nil
         }
+        for workspace in organizer.workspaces {
+            if let found = scan(workspace.children) { return found }
+        }
+        return nil
     }
 
-    func delete(_ profile: ConnectionProfile) {
-        try? secretsStore.deleteAll(for: profile)
-        profiles.removeAll { $0.id == profile.id }
-        try? store.save(profiles)
+    // MARK: Mutations
+
+    /// Adds a connection and returns the new tree node's id.
+    @discardableResult
+    func addConnection(_ profile: ConnectionProfile, secrets: Secrets, into parentID: UUID? = nil) -> UUID {
+        try? secretsStore.save(for: profile, secrets: secrets)
+        profiles.append(profile)
+        try? profileStore.save(profiles)
+        let ref = ConnectionRef(profileID: profile.id)
+        organizer.append(.connection(.init(id: ref.id, profileID: profile.id)),
+                         toParent: parentID ?? defaultParentID ?? UUID())
+        saveOrganizer()
+        return ref.id
     }
 
-    /// Dev convenience: seed a connection to the local Docker Postgres on first
-    /// run so the app is usable immediately. Remove once real onboarding exists.
-    private func seedLocalIfEmpty() {
-        guard profiles.isEmpty else { return }
-        let profile = ConnectionProfile(
-            name: "Local (Docker)", kind: .postgres, host: "127.0.0.1", port: 5432,
-            database: "shop", username: "tessera", tlsMode: .disable
-        )
-        add(profile, secrets: Secrets(databasePassword: "tessera"))
+    func addFolder(name: String, into parentID: UUID?) {
+        guard let parentID = parentID ?? defaultParentID else { return }
+        organizer.append(.folder(Folder(name: name)), toParent: parentID)
+        saveOrganizer()
+    }
+
+    func addProject(name: String, into workspaceID: UUID?) {
+        guard let workspaceID = workspaceID ?? defaultParentID else { return }
+        organizer.append(.project(Project(name: name)), toParent: workspaceID)
+        saveOrganizer()
+    }
+
+    func addWorkspace(name: String) {
+        organizer.workspaces.append(Workspace(name: name))
+        saveOrganizer()
+    }
+
+    func rename(_ id: UUID, to name: String) {
+        guard !name.isEmpty else { return }
+        organizer.rename(id, to: name)
+        saveOrganizer()
+    }
+
+    /// Deletes a node. If it is a connection whose profile no longer has any refs,
+    /// the profile and its secrets are removed too.
+    func deleteNode(_ id: UUID) {
+        let profileID = organizer.profileID(forNode: id)
+        organizer.remove(id)
+        if let profileID, organizer.refs(toProfile: profileID).isEmpty {
+            if let profile = profile(id: profileID) {
+                try? secretsStore.deleteAll(for: profile)
+            }
+            profiles.removeAll { $0.id == profileID }
+            try? profileStore.save(profiles)
+        }
+        saveOrganizer()
+    }
+
+    func deleteWorkspace(_ id: UUID) {
+        organizer.workspaces.removeAll { $0.id == id }
+        saveOrganizer()
+    }
+
+    private func saveOrganizer() {
+        try? organizerStore.save(organizer)
     }
 }

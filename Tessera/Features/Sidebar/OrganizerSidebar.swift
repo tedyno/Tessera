@@ -1,60 +1,162 @@
 import SwiftUI
 import DBKit
+import DBPersistence
 
-/// Column 1 — the connection organizer. Phase 2a: a flat list of saved
-/// connections with selection, add (+) and delete. Phase 2b turns this into the
-/// Workspace → Project → Folder → Connection tree with drag & drop.
+/// Column 1 — the connection organizer tree (Workspace → Project → Folder →
+/// Connection) with CRUD via context menus and a bottom "+" menu. Drag & drop
+/// reordering is the remaining Phase 2b step.
 struct OrganizerSidebar: View {
-    let connections: ConnectionsModel
+    let model: ConnectionsModel
     @Binding var selection: UUID?
-    var onAdd: () -> Void
+    /// Opens the New Connection sheet targeting the given parent container.
+    var onNewConnection: (UUID?) -> Void
+
+    private enum PendingEdit {
+        case rename(id: UUID, current: String)
+        case newFolder(parent: UUID)
+        case newProject(workspace: UUID)
+        case newWorkspace
+    }
+    @State private var pending: PendingEdit?
+    @State private var editText = ""
 
     var body: some View {
         List(selection: $selection) {
-            Section("Connections") {
-                if connections.profiles.isEmpty {
-                    Text("No connections")
-                        .foregroundStyle(.secondary)
-                        .font(.callout)
-                } else {
-                    ForEach(connections.profiles) { profile in
-                        Label {
-                            Text(profile.name)
-                        } icon: {
-                            RoundedRectangle(cornerRadius: 2.5)
-                                .fill(color(for: profile.kind))
-                                .frame(width: 9, height: 9)
-                        }
-                        .tag(profile.id)
-                        .contextMenu {
-                            Button("Delete", role: .destructive) {
-                                connections.delete(profile)
-                            }
-                        }
+            ForEach(model.organizer.workspaces) { workspace in
+                Section {
+                    OutlineGroup(workspace.children, children: \.children) { node in
+                        nodeLabel(node)
+                            .contextMenu { nodeMenu(node) }
                     }
+                } header: {
+                    Text(workspace.name)
+                        .contextMenu { workspaceMenu(workspace) }
                 }
             }
         }
         .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom) {
-            HStack {
-                Button(action: onAdd) {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.borderless)
-                .help("New connection")
-                Spacer()
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.bar)
+        .safeAreaInset(edge: .bottom) { bottomBar }
+        .alert(alertTitle, isPresented: pendingBinding) {
+            TextField("Name", text: $editText)
+            Button("OK", action: commit)
+            Button("Cancel", role: .cancel) { pending = nil }
         }
     }
 
-    private func color(for kind: DatabaseKind) -> Color {
+    // MARK: Rows
+
+    @ViewBuilder
+    private func nodeLabel(_ node: OrganizerNode) -> some View {
+        switch node {
+        case .project(let project):
+            Label(project.name, systemImage: "square.stack.3d.up.fill")
+        case .folder(let folder):
+            Label(folder.name, systemImage: "folder.fill").foregroundStyle(.tint)
+        case .connection(let ref):
+            let profile = model.profile(id: ref.profileID)
+            Label {
+                Text(profile?.name ?? "Connection")
+            } icon: {
+                RoundedRectangle(cornerRadius: 2.5)
+                    .fill(color(for: profile?.kind))
+                    .frame(width: 9, height: 9)
+            }
+        }
+    }
+
+    // MARK: Menus
+
+    @ViewBuilder
+    private func nodeMenu(_ node: OrganizerNode) -> some View {
+        if node.isContainer {
+            Button("New Connection") { onNewConnection(node.id) }
+            Button("New Folder") { startNewFolder(parent: node.id) }
+            Divider()
+            Button("Rename") { startRename(id: node.id, current: node.displayName ?? "") }
+        } else {
+            Button("Connect") { selection = node.id }
+        }
+        Button("Delete", role: .destructive) { model.deleteNode(node.id) }
+    }
+
+    @ViewBuilder
+    private func workspaceMenu(_ workspace: Workspace) -> some View {
+        Button("New Connection") { onNewConnection(workspace.id) }
+        Button("New Folder") { startNewFolder(parent: workspace.id) }
+        Button("New Project") { startNewProject(workspace: workspace.id) }
+        Divider()
+        Button("Rename") { startRename(id: workspace.id, current: workspace.name) }
+        Button("Delete Workspace", role: .destructive) { model.deleteWorkspace(workspace.id) }
+    }
+
+    private var bottomBar: some View {
+        HStack {
+            Menu {
+                Button("New Connection") { onNewConnection(model.organizer.workspaces.first?.id) }
+                Button("New Folder") { startNewFolder(parent: model.organizer.workspaces.first?.id) }
+                Divider()
+                Button("New Workspace") { pending = .newWorkspace; editText = "" }
+            } label: {
+                Image(systemName: "plus")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Add")
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.bar)
+    }
+
+    // MARK: Alert plumbing
+
+    private var pendingBinding: Binding<Bool> {
+        Binding(get: { pending != nil }, set: { if !$0 { pending = nil } })
+    }
+
+    private var alertTitle: String {
+        switch pending {
+        case .rename: "Rename"
+        case .newFolder: "New Folder"
+        case .newProject: "New Project"
+        case .newWorkspace: "New Workspace"
+        case nil: ""
+        }
+    }
+
+    private func commit() {
+        switch pending {
+        case .rename(let id, _): model.rename(id, to: editText)
+        case .newFolder(let parent): model.addFolder(name: editText, into: parent)
+        case .newProject(let workspace): model.addProject(name: editText, into: workspace)
+        case .newWorkspace: model.addWorkspace(name: editText)
+        case nil: break
+        }
+        pending = nil
+    }
+
+    private func startRename(id: UUID, current: String) {
+        editText = current
+        pending = .rename(id: id, current: current)
+    }
+
+    private func startNewFolder(parent: UUID?) {
+        guard let parent else { return }
+        editText = ""
+        pending = .newFolder(parent: parent)
+    }
+
+    private func startNewProject(workspace: UUID) {
+        editText = ""
+        pending = .newProject(workspace: workspace)
+    }
+
+    private func color(for kind: DatabaseKind?) -> Color {
         switch kind {
         case .postgres: .blue
         case .mysql: .orange
+        case nil: .secondary
         }
     }
 }
