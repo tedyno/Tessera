@@ -48,6 +48,29 @@ final class PostgresDriverTests: XCTestCase {
         XCTAssertTrue(row[4].isNull)
     }
 
+    func testFetchSchema() async throws {
+        let (profile, secrets, endpoint) = try makeProfileOrSkip()
+        let driver = PostgresDriver()
+        try await driver.connect(profile: profile, secrets: secrets, endpoint: endpoint)
+        defer { Task { await driver.close() } }
+
+        _ = try await driver.execute("CREATE SCHEMA IF NOT EXISTS public")
+        _ = try await driver.execute("DROP TABLE IF EXISTS schema_probe")
+        _ = try await driver.execute("""
+            CREATE TABLE schema_probe (id bigint PRIMARY KEY, label text NOT NULL, note text)
+            """)
+        defer { Task { _ = try? await driver.execute("DROP TABLE IF EXISTS schema_probe") } }
+
+        let tree = try await driver.fetchSchema()
+        let publicSchema = tree.schemas.first { $0.name == "public" }
+        XCTAssertNotNil(publicSchema)
+        let probe = publicSchema?.tables.first { $0.name == "schema_probe" }
+        XCTAssertNotNil(probe)
+        XCTAssertEqual(probe?.columns.map(\.name), ["id", "label", "note"])
+        XCTAssertEqual(probe?.columns.first { $0.name == "id" }?.isPrimaryKey, true)
+        XCTAssertEqual(probe?.columns.first { $0.name == "label" }?.isNullable, false)
+    }
+
     func testMultipleRows() async throws {
         let (profile, secrets, endpoint) = try makeProfileOrSkip()
         let driver = PostgresDriver()

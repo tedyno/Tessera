@@ -28,6 +28,7 @@ final class QueryConsoleModel {
     private(set) var result: QueryResult?
     private(set) var elapsedMS: Int?
     private(set) var connectionName: String?
+    private(set) var schema: DatabaseTree?
 
     private let driver = PostgresDriver()
 
@@ -44,6 +45,7 @@ final class QueryConsoleModel {
         connectionName = profile.name
         result = nil
         elapsedMS = nil
+        schema = nil
         status = .connecting
         do {
             try await driver.connect(
@@ -52,9 +54,15 @@ final class QueryConsoleModel {
                 endpoint: NetworkEndpoint(host: profile.host, port: profile.port)
             )
             status = .ready
+            schema = try? await driver.fetchSchema()
         } catch {
             status = .failed(Self.message(for: error))
         }
+    }
+
+    /// Refreshes the schema tree for the active connection.
+    func refreshSchema() async {
+        schema = try? await driver.fetchSchema()
     }
 
     /// Sets the editor to `SELECT *` for a table and runs it (e.g. from a

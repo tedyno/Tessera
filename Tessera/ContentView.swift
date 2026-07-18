@@ -6,7 +6,6 @@ struct ContentView: View {
     @State private var selection: UUID?
     @State private var showingNewConnection = false
     @State private var newConnectionParent: UUID?
-    private let sample = SampleData.demo
 
     var body: some View {
         NavigationSplitView {
@@ -16,7 +15,7 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 320)
         } content: {
-            SchemaSidebar(tree: sample.schema) { schema, table in
+            SchemaSidebar(tree: console.schema) { schema, table in
                 Task { await console.selectAll(schema: schema, table: table) }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)

@@ -2,32 +2,39 @@ import SwiftUI
 import DBKit
 
 /// Column 2 — the schema of the active connection (Database → Schema → Table →
-/// Column). Phase 2b: still a static sample tree; Phase 3 fills it from a live
-/// `SchemaProvider`. Double-clicking a table runs `SELECT *` via `onOpenTable`.
+/// Column), fetched live after connecting. Double-clicking a table runs
+/// `SELECT *` via `onOpenTable`.
 struct SchemaSidebar: View {
-    let tree: DatabaseTree
+    let tree: DatabaseTree?
     var onOpenTable: (_ schema: String, _ table: String) -> Void
 
     var body: some View {
-        List {
-            Section("Schema") {
-                DisclosureGroup {
-                    ForEach(tree.schemas) { namespace in
+        Group {
+            if let tree {
+                List {
+                    Section("Schema") {
                         DisclosureGroup {
-                            ForEach(namespace.tables) { table in
-                                tableNode(namespace: namespace.name, table: table)
+                            ForEach(tree.schemas) { namespace in
+                                DisclosureGroup {
+                                    ForEach(namespace.tables) { table in
+                                        tableNode(namespace: namespace.name, table: table)
+                                    }
+                                } label: {
+                                    Label(namespace.name, systemImage: "circle.grid.2x2")
+                                }
                             }
                         } label: {
-                            Label(namespace.name, systemImage: "circle.grid.2x2")
+                            Label(tree.databaseName, systemImage: "cylinder.split.1x2")
+                                .foregroundStyle(.tint)
                         }
                     }
-                } label: {
-                    Label(tree.databaseName, systemImage: "cylinder.split.1x2")
-                        .foregroundStyle(.tint)
                 }
+                .listStyle(.sidebar)
+            } else {
+                ContentUnavailableView("No schema", systemImage: "cylinder.split.1x2",
+                                       description: Text("Connect to a database to browse its schema."))
             }
         }
-        .listStyle(.sidebar)
     }
 
     @ViewBuilder

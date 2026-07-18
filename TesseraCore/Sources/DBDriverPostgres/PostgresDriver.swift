@@ -9,6 +9,7 @@ import NIOSSL
 public actor PostgresDriver: DatabaseDriver {
     private var client: PostgresClient?
     private var runTask: Task<Void, Never>?
+    private var databaseName: String?
 
     public init() {}
 
@@ -30,6 +31,7 @@ public actor PostgresDriver: DatabaseDriver {
         let task = Task { await client.run() }
         self.client = client
         self.runTask = task
+        self.databaseName = profile.database
 
         do {
             // Fail fast if the connection/auth is bad.
@@ -72,8 +74,63 @@ public actor PostgresDriver: DatabaseDriver {
     }
 
     public func fetchSchema() async throws -> DatabaseTree {
-        // Implemented in Phase 3.
-        throw DatabaseError.unsupported("fetchSchema")
+        guard client != nil else { throw DatabaseError.notConnected }
+
+        let tablesResult = try await execute("""
+            SELECT table_schema, table_name, table_type
+            FROM information_schema.tables
+            WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY table_schema, table_name
+            """)
+        let columnsResult = try await execute("""
+            SELECT table_schema, table_name, column_name, data_type, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY table_schema, table_name, ordinal_position
+            """)
+        let pkResult = try await execute("""
+            SELECT tc.table_schema, tc.table_name, kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+            """)
+
+        var primaryKeys: Set<String> = []
+        for row in pkResult.rows where row.count >= 3 {
+            primaryKeys.insert("\(row[0].text ?? "").\(row[1].text ?? "").\(row[2].text ?? "")")
+        }
+
+        struct TableKey: Hashable { let schema: String; let table: String }
+        var columnsByTable: [TableKey: [SchemaColumn]] = [:]
+        for row in columnsResult.rows where row.count >= 5 {
+            let schema = row[0].text ?? ""
+            let table = row[1].text ?? ""
+            let name = row[2].text ?? ""
+            let key = TableKey(schema: schema, table: table)
+            columnsByTable[key, default: []].append(
+                SchemaColumn(
+                    name: name,
+                    dataType: row[3].text ?? "",
+                    isPrimaryKey: primaryKeys.contains("\(schema).\(table).\(name)"),
+                    isNullable: (row[4].text ?? "YES") == "YES"))
+        }
+
+        var schemaOrder: [String] = []
+        var tablesBySchema: [String: [SchemaTable]] = [:]
+        for row in tablesResult.rows where row.count >= 3 {
+            let schema = row[0].text ?? ""
+            let table = row[1].text ?? ""
+            let kind: SchemaTable.Kind = (row[2].text ?? "") == "VIEW" ? .view : .table
+            if tablesBySchema[schema] == nil { schemaOrder.append(schema) }
+            tablesBySchema[schema, default: []].append(
+                SchemaTable(name: table, kind: kind,
+                            columns: columnsByTable[TableKey(schema: schema, table: table)] ?? []))
+        }
+
+        let namespaces = schemaOrder.map { SchemaNamespace(name: $0, tables: tablesBySchema[$0] ?? []) }
+        return DatabaseTree(databaseName: databaseName ?? "database", schemas: namespaces)
     }
 
     public func close() async {
