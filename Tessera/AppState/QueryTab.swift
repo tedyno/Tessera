@@ -11,6 +11,14 @@ struct EditSource: Equatable {
     var autoIncrementColumns: [String]
 }
 
+/// The cell shown in the value inspector when exactly one cell is selected.
+struct InspectedCell: Equatable {
+    var column: String
+    var typeName: String
+    /// nil means SQL NULL (distinct from an empty string).
+    var value: String?
+}
+
 /// A new row queued for insertion. `values` holds only the columns the user set;
 /// unset (and auto-increment) columns are left to the database.
 struct PendingInsert: Identifiable, Equatable {
@@ -89,6 +97,10 @@ final class QueryTab: Identifiable {
     var cursorPosition = 0
     /// Set to scroll the results grid to a column by name after a query runs.
     var scrollToColumn: String?
+
+    /// The single selected cell mirrored for the value inspector (nil = no single
+    /// selection). Set by the grid, read by the inspector panel.
+    var inspected: InspectedCell?
 
     /// The in-flight run, so a Stop button can cancel it.
     @ObservationIgnored var task: Task<Void, Never>?

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import DBKit
 
 /// A connection a tab can be pointed at, for the tab's connection picker.
@@ -24,6 +25,9 @@ struct DetailView: View {
     var connectionOptions: [ConnectionOption] = []
     var onSelectConnection: (UUID) -> Void = { _ in }
 
+    /// Whether the value inspector panel is shown below the results grid.
+    @State private var showInspector = false
+
     var body: some View {
         VStack(spacing: 0) {
             tabBar
@@ -44,6 +48,10 @@ struct DetailView: View {
                 Divider()
                 resultsArea
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if showInspector, let tab = model.activeTab, tab.result != nil {
+                    Divider()
+                    inspectorPanel(tab)
+                }
                 if let tab = model.activeTab, tab.hasEdits {
                     Divider()
                     pendingPanel(tab)
@@ -467,6 +475,67 @@ struct DetailView: View {
         .background((isError ? Color.red : Color.green).opacity(0.12))
     }
 
+    // MARK: Value inspector
+
+    @ViewBuilder
+    private func inspectorPanel(_ tab: QueryTab) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let cell = tab.inspected {
+                HStack(spacing: 6) {
+                    Text(cell.column).font(.caption.bold())
+                    if !cell.typeName.isEmpty {
+                        Text(cell.typeName).font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if let value = cell.value {
+                        Text("\(value.count) chars").font(.caption2).foregroundStyle(.tertiary)
+                        Button { copyToPasteboard(value) } label: {
+                            Image(systemName: "doc.on.doc")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Copy value")
+                    }
+                }
+                Divider()
+                ScrollView {
+                    Group {
+                        if let value = cell.value {
+                            Text(inspectorText(value)).font(.callout.monospaced())
+                        } else {
+                            Text("NULL").font(.callout.monospaced().italic()).foregroundStyle(.secondary)
+                        }
+                    }
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                Text("Select a single cell to inspect its value.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .padding(10)
+        .frame(height: 150)
+        .background(.background)
+    }
+
+    /// Pretty-prints a value that is valid JSON; otherwise returns it unchanged.
+    private func inspectorText(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{" || trimmed.first == "[",
+              let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let pretty = try? JSONSerialization.data(withJSONObject: object,
+                                                       options: [.prettyPrinted, .sortedKeys]),
+              let string = String(data: pretty, encoding: .utf8) else { return raw }
+        return string
+    }
+
+    private func copyToPasteboard(_ string: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
+    }
+
     private var statusBar: some View {
         HStack(spacing: 14) {
             switch model.status {
@@ -516,6 +585,13 @@ struct DetailView: View {
             }
             Spacer()
             if model.activeTab?.result != nil {
+                Button { showInspector.toggle() } label: {
+                    Label("Inspect Cell", systemImage: "rectangle.and.text.magnifyingglass")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(showInspector ? Color.accentColor : .secondary)
+                .help("Show the value inspector for the selected cell")
                 Menu {
                     Button("CSV…") { onExportResult(.csv) }
                     Button("JSON…") { onExportResult(.json) }

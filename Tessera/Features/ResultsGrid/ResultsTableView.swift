@@ -264,6 +264,33 @@ struct ResultsTableView: NSViewRepresentable {
                 anchor = cell
             }
             reload(rows: old.union(selectionRows))
+            updateInspector()
+        }
+
+        /// Mirrors the single selected cell into `tab.inspected` for the value
+        /// inspector; clears it when the selection isn't exactly one cell.
+        private func updateInspector() {
+            guard let result = tab.result, selected.count == 1, let cell = selected.first,
+                  cell.col < result.columns.count else {
+                if tab.inspected != nil { tab.inspected = nil }
+                return
+            }
+            let column = result.columns[cell.col]
+            let value: String?
+            if isInsertRow(cell.row) {
+                let index = cell.row - fetchedRowCount
+                value = index < tab.pendingInserts.count ? tab.pendingInserts[index].values[column.name] : nil
+            } else if let edited = tab.edits[cell.row]?[column.name] {
+                value = edited
+            } else if cell.row < result.rows.count {
+                let cells = result.rows[cell.row]
+                value = cell.col < cells.count ? cells[cell.col].text : nil
+            } else {
+                value = nil
+            }
+            // Diff before writing: a blind set would loop with updateNSView.
+            let inspected = InspectedCell(column: column.name, typeName: column.typeName, value: value)
+            if tab.inspected != inspected { tab.inspected = inspected }
         }
 
         private static func rectangle(from a: CellPos, to b: CellPos) -> Set<CellPos> {
@@ -481,6 +508,7 @@ struct ResultsTableView: NSViewRepresentable {
             }
             tableView.reloadData()
             updateSortIndicator(tableView, result)
+            if selected.isEmpty, tab.inspected != nil { tab.inspected = nil }
 
             // Scroll a requested column into view (from a schema column double-click).
             if let target = tab.scrollToColumn,
