@@ -99,6 +99,8 @@ final class GridTableView: NSTableView {
 /// `tab.edits`, edited rows are highlighted, and ⌘↩ persists them via UPDATE.
 struct ResultsTableView: NSViewRepresentable {
     let tab: QueryTab
+    /// Called when a column header is clicked (full-table view sorting).
+    var onSort: (String) -> Void = { _ in }
 
     func makeNSView(context: Context) -> NSScrollView {
         let tableView = GridTableView()
@@ -128,11 +130,13 @@ struct ResultsTableView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
 
         context.coordinator.tableView = tableView
+        context.coordinator.onSort = onSort
         context.coordinator.configure(for: tab)
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        context.coordinator.onSort = onSort
         context.coordinator.configure(for: tab)
     }
 
@@ -142,6 +146,7 @@ struct ResultsTableView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
         private var tab: QueryTab
         weak var tableView: NSTableView?
+        var onSort: (String) -> Void = { _ in }
         private var columnsSignature: [String] = []
         private var selected: Set<CellPos> = []
         private var anchor: CellPos?
@@ -342,6 +347,7 @@ struct ResultsTableView: NSViewRepresentable {
                 }
             }
             tableView.reloadData()
+            updateSortIndicator(tableView, result)
 
             // Scroll a requested column into view (from a schema column double-click).
             if let target = tab.scrollToColumn,
@@ -350,6 +356,27 @@ struct ResultsTableView: NSViewRepresentable {
                 let editedTab = tab
                 DispatchQueue.main.async { editedTab.scrollToColumn = nil }
             }
+        }
+
+        func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
+            guard tab.isEditable, let result = tab.result,
+                  let index = Int(tableColumn.identifier.rawValue), index < result.columns.count else { return }
+            onSort(result.columns[index].name)
+        }
+
+        /// Draws the ascending/descending arrow on the sorted column's header.
+        private func updateSortIndicator(_ tableView: NSTableView, _ result: QueryResult) {
+            for column in tableView.tableColumns { tableView.setIndicatorImage(nil, in: column) }
+            guard let sortColumn = tab.sortColumn,
+                  let index = result.columns.firstIndex(where: { $0.name == sortColumn }),
+                  index < tableView.tableColumns.count else {
+                tableView.highlightedTableColumn = nil
+                return
+            }
+            let column = tableView.tableColumns[index]
+            let arrow = tab.sortAscending ? "NSAscendingSortIndicator" : "NSDescendingSortIndicator"
+            tableView.setIndicatorImage(NSImage(named: arrow), in: column)
+            tableView.highlightedTableColumn = column
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int {

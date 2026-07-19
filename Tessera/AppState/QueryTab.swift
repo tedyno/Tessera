@@ -42,6 +42,11 @@ final class QueryTab: Identifiable {
     var hasEdits: Bool { !edits.isEmpty || !pendingDeletes.isEmpty || !pendingInserts.isEmpty }
     var isEditable: Bool { editSource != nil }
 
+    /// Active header sort on a full-table view (nil = unsorted). Clicking a header
+    /// cycles ascending → descending → off.
+    var sortColumn: String?
+    var sortAscending = true
+
     /// Caret offset in the editor, used to run the statement under the cursor.
     var cursorPosition = 0
     /// Set to scroll the results grid to a column by name after a query runs.

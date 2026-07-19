@@ -180,7 +180,9 @@ struct DetailView: View {
                     errorBanner(message)
                     Divider()
                 }
-                ResultsTableView(tab: tab)
+                ResultsTableView(tab: tab) { column in
+                    Task { await model.sortByColumn(tab, column: column) }
+                }
             }
         } else if let message = model.activeTab?.errorMessage {
             ContentUnavailableView {

@@ -134,9 +134,10 @@ final class QueryConsoleModel {
         SQLStatements.resolve(sql: tab.sql, cursor: tab.cursorPosition)
     }
 
-    func run(_ tab: QueryTab, sqlToRun: String? = nil) async {
+    func run(_ tab: QueryTab, sqlToRun: String? = nil, preserveSort: Bool = false) async {
         guard status == .ready, let driver, !tab.isRunning else { return }
         let sql = sqlToRun ?? tab.sql
+        if !preserveSort { tab.sortColumn = nil }
         tab.isRunning = true
         tab.errorMessage = nil
         do {
@@ -170,7 +171,7 @@ final class QueryConsoleModel {
             tab.edits = [:]
             tab.pendingDeletes = []
             tab.pendingInserts = []
-            await run(tab, sqlToRun: tab.sql)
+            await run(tab, sqlToRun: tab.sql, preserveSort: true)
         } catch {
             tab.errorMessage = Self.message(for: error)
             tab.isRunning = false
@@ -231,6 +232,45 @@ final class QueryConsoleModel {
     func addInsertRow(_ tab: QueryTab) {
         guard tab.isEditable else { return }
         tab.pendingInserts.append(PendingInsert())
+    }
+
+    /// Header-click sorting on a full-table view: cycles ascending → descending →
+    /// off for the clicked column, rewriting the query's `ORDER BY` and re-running.
+    func sortByColumn(_ tab: QueryTab, column: String) async {
+        guard tab.isEditable, !tab.hasEdits else { return }
+        if tab.sortColumn == column {
+            if tab.sortAscending { tab.sortAscending = false }
+            else { tab.sortColumn = nil }
+        } else {
+            tab.sortColumn = column
+            tab.sortAscending = true
+        }
+        let newSQL = rewriteOrderBy(tab.sql, column: tab.sortColumn, ascending: tab.sortAscending)
+        tab.sql = newSQL
+        await run(tab, sqlToRun: newSQL, preserveSort: true)
+    }
+
+    /// Replaces the top-level `ORDER BY` of a full-table query (inserted before any
+    /// `LIMIT`/`OFFSET`). A nil column removes ordering entirely.
+    private func rewriteOrderBy(_ sql: String, column: String?, ascending: Bool) -> String {
+        var body = sql
+        var trailing = ""
+        if let semi = body.range(of: #"\s*;\s*$"#, options: .regularExpression) {
+            trailing = String(body[semi.lowerBound...])
+            body = String(body[..<semi.lowerBound])
+        }
+        if let existing = body.range(of: #"(?is)\s+ORDER\s+BY\s+.*?(?=(\s+LIMIT\b|\s+OFFSET\b|$))"#,
+                                     options: .regularExpression) {
+            body.removeSubrange(existing)
+        }
+        guard let column else { return body + trailing }
+        let clause = " ORDER BY \(quote(column)) \(ascending ? "ASC" : "DESC")"
+        if let tail = body.range(of: #"(?is)\s+(LIMIT|OFFSET)\b"#, options: .regularExpression) {
+            body.insert(contentsOf: clause, at: tail.lowerBound)
+        } else {
+            body += clause
+        }
+        return body + trailing
     }
 
     /// The UPDATE/DELETE statements that ⌘↩ would run for the tab's pending changes.
