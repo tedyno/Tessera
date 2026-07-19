@@ -77,10 +77,17 @@ struct ExportView: View {
                 }
                 GridRow {
                     Text("Output").gridColumnAlignment(.trailing).foregroundStyle(.secondary)
-                    HStack {
-                        Text(outputURL?.lastPathComponent ?? "— choose a file —")
-                            .foregroundStyle(outputURL == nil ? .secondary : .primary)
-                            .lineLimit(1).truncationMode(.middle)
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(outputURL?.lastPathComponent ?? "— choose a file —")
+                                .foregroundStyle(outputURL == nil ? .secondary : .primary)
+                                .lineLimit(1).truncationMode(.middle)
+                            if let folder = outputURL?.deletingLastPathComponent().path {
+                                Text(folder).font(.caption2).foregroundStyle(.tertiary)
+                                    .lineLimit(1).truncationMode(.middle)
+                            }
+                        }
+                        Spacer(minLength: 8)
                         Button("Choose…") { chooseOutput() }
                     }
                 }
@@ -153,6 +160,7 @@ struct ExportView: View {
     /// only when it still points at an executable; otherwise pick the installed binary
     /// whose major version best matches this connection's server.
     private func setup() {
+        if outputURL == nil { outputURL = defaultOutputURL }
         let override = UserDefaults.standard.string(forKey: defaultsKey)
         let serverMajor = context.serverVersion.flatMap(DumpTool.majorVersion)
         Task { @MainActor in
@@ -196,8 +204,14 @@ struct ExportView: View {
     private func chooseOutput() {
         let panel = NSSavePanel()
         if let sql = UTType(filenameExtension: "sql") { panel.allowedContentTypes = [sql] }
-        panel.nameFieldStringValue = defaultFileName
+        panel.directoryURL = outputURL?.deletingLastPathComponent() ?? ExportSettings.directory
+        panel.nameFieldStringValue = outputURL?.lastPathComponent ?? defaultFileName
         if panel.runModal() == .OK { outputURL = panel.url }
+    }
+
+    /// The pre-filled output: the default export folder + a canonical timestamped name.
+    private var defaultOutputURL: URL {
+        ExportSettings.directory.appendingPathComponent(defaultFileName)
     }
 
     private var defaultFileName: String {
@@ -207,7 +221,7 @@ struct ExportView: View {
         case .schema(let schema): base = schema
         case .tables(_, let tables): base = tables.first ?? context.database
         }
-        return "\(base).sql"
+        return ExportSettings.fileName(base: base)
     }
 
     private func runExport() {

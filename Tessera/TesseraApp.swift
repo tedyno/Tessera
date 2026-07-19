@@ -12,6 +12,10 @@ struct TesseraApp: App {
         .commands {
             TesseraCommands(app: app)
         }
+
+        Settings {
+            ExportSettingsView()
+        }
     }
 }
 
