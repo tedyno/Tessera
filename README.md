@@ -16,18 +16,19 @@ tunneling.
 - **Connection organization** — a Workspace → Project → Folder → Connection tree.
 - **Localized** — English base language, structured for additional languages via a String Catalog.
 
-## Planned features (MVP)
+## MVP status
 
 - [x] Domain core (models, protocols, organizer/profile persistence)
-- [x] UI skeleton — three-column window (organizer · schema · editor + results)
-- [ ] PostgreSQL connections and query execution
-- [ ] Secure credential storage in the Keychain
-- [ ] Schema browser (Database → Schema → Table → Column)
-- [ ] MySQL connections
-- [ ] SSH tunnel (password / private key)
-- [ ] Tabs and query history
-- [ ] SQL syntax highlighting
-- [ ] High-performance results table for large result sets
+- [x] Three-column window (organizer · schema · editor + results)
+- [x] PostgreSQL connections and query execution
+- [x] Secure credential storage in the Keychain
+- [x] Schema browser (Database → Schema → Table → Column), double-click a table to `SELECT *`
+- [x] MySQL connections
+- [x] SSH tunnel — password auth (private-key auth is not implemented yet)
+- [x] Connection organizer tree (Workspace → Project → Folder → Connection) with drag & drop
+- [x] Query tabs and searchable history
+- [x] SQL syntax highlighting and query cancellation
+- [x] Virtualized results grid for large result sets
 
 ## Tech stack
 
