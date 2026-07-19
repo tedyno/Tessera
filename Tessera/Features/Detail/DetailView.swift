@@ -423,6 +423,8 @@ struct DetailView: View {
                     let updates = tab.edits.keys.filter { !tab.pendingDeletes.contains($0) }.count
                     Text(pendingSummary(updates: updates, deletes: tab.pendingDeletes.count))
                         .foregroundStyle(.orange)
+                } else if let summary = model.activeTab?.scriptSummary {
+                    Text(summary).foregroundStyle(.green)
                 }
             }
             Spacer()

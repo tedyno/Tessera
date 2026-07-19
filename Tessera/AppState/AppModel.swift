@@ -361,6 +361,18 @@ final class AppModel {
 
     /// Loads a `.sql` file into a new console tab (bound to the active connection).
     func openSQLFile() {
+        guard let (url, text) = pickSQLFile() else { return }
+        loadFileIntoTab(url: url, text: text)
+    }
+
+    /// Loads a `.sql` file and runs every statement in it sequentially.
+    func runSQLFile() {
+        guard let (url, text) = pickSQLFile() else { return }
+        let tab = loadFileIntoTab(url: url, text: text)
+        tab?.task = Task { await console.runScript(tab!) }
+    }
+
+    private func pickSQLFile() -> (URL, String)? {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -368,12 +380,17 @@ final class AppModel {
         if let sql = UTType(filenameExtension: "sql") { types.insert(sql, at: 0) }
         panel.allowedContentTypes = types
         guard panel.runModal() == .OK, let url = panel.url,
-              let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return (url, text)
+    }
+
+    @discardableResult
+    private func loadFileIntoTab(url: URL, text: String) -> QueryTab? {
         console.addTab()
-        if let tab = console.activeTab {
-            tab.sql = text
-            tab.title = url.lastPathComponent
-        }
+        guard let tab = console.activeTab else { return nil }
+        tab.sql = text
+        tab.title = url.lastPathComponent
+        return tab
     }
 
     func toggleSidebar() {

@@ -120,6 +120,7 @@ final class QueryConsoleModel {
             let result = try await driver.execute(sql)
             tab.result = result
             tab.resultVersion &+= 1
+            tab.scriptSummary = nil
             tab.edits = [:]
             tab.pendingDeletes = []
             tab.pendingInserts = []
@@ -129,6 +130,42 @@ final class QueryConsoleModel {
             recordHistory(sql: sql, connectionName: session.name, rowCount: result.rows.count, elapsedMS: ms)
         } catch {
             tab.errorMessage = ConnectionSession.message(for: error)
+        }
+        tab.isRunning = false
+    }
+
+    /// Runs a multi-statement script (e.g. a loaded `.sql` file) against the tab's
+    /// session, statement by statement, stopping on the first error. Shows the last
+    /// result; on failure reports which statement failed.
+    func runScript(_ tab: QueryTab) async {
+        guard let session = tab.session, !tab.isRunning else { return }
+        let statements = SQLScript.statements(in: tab.sql)
+        guard !statements.isEmpty else { return }
+        tab.isRunning = true
+        tab.errorMessage = nil
+        guard await ensureReady(session), let driver = session.driver else {
+            tab.errorMessage = session.errorMessage ?? "Not connected"
+            tab.isRunning = false
+            return
+        }
+        var lastResult: QueryResult?
+        var executed = 0
+        do {
+            for statement in statements {
+                lastResult = try await driver.execute(statement)
+                executed += 1
+                recordHistory(sql: statement, connectionName: session.name,
+                              rowCount: lastResult?.rows.count ?? 0, elapsedMS: nil)
+            }
+            tab.result = lastResult ?? QueryResult()
+            tab.resultVersion &+= 1
+            tab.edits = [:]; tab.pendingDeletes = []; tab.pendingInserts = []
+            tab.editSource = nil   // a script isn't a single editable table view
+            tab.scriptSummary = "Executed \(executed) statement\(executed == 1 ? "" : "s")"
+        } catch {
+            tab.scriptSummary = nil
+            tab.errorMessage = "Statement \(executed + 1) of \(statements.count) failed:\n"
+                + ConnectionSession.message(for: error)
         }
         tab.isRunning = false
     }

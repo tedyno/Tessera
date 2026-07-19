@@ -54,6 +54,9 @@ struct TesseraCommands: Commands {
 
             Button("Open SQL File…") { app.openSQLFile() }
                 .keyboardShortcut("o", modifiers: .command)
+            Button("Run SQL File…") { app.runSQLFile() }
+                .keyboardShortcut("r", modifiers: [.shift, .command])
+                .disabled(!app.isConnected)
 
             Button("Add Row") { app.addRowToActiveTab() }
                 .keyboardShortcut("n", modifiers: .command)

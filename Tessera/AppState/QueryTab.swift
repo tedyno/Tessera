@@ -65,6 +65,8 @@ final class QueryTab: Identifiable {
     var elapsedMS: Int?
     var isRunning = false
     var errorMessage: String?
+    /// Summary after running a multi-statement script (e.g. "Executed 12 statements").
+    var scriptSummary: String?
 
     /// Set when the result maps to a single table with a primary key; enables
     /// editing. `edits` holds pending, unsaved cell changes: row → column → value.
