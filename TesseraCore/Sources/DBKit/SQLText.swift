@@ -25,6 +25,45 @@ public enum SQLText {
         return pool.filter { $0.lowercased().hasPrefix(lower) && $0.lowercased() != lower }
     }
 
+    /// Blanks the contents of string literals and comments (length preserved) so
+    /// keyword matching can't be fooled by text inside them.
+    public static func maskLiteralsAndComments(_ text: String) -> String {
+        var output = ""
+        output.reserveCapacity(text.count)
+        let characters = Array(text)
+        var index = 0
+        while index < characters.count {
+            let character = characters[index]
+            let next: Character? = index + 1 < characters.count ? characters[index + 1] : nil
+
+            if character == "-", next == "-" {                    // -- line comment
+                while index < characters.count, characters[index] != "\n" {
+                    output.append(" "); index += 1
+                }
+                continue
+            }
+            if character == "/", next == "*" {                    // /* block comment */
+                output.append(" "); output.append(" "); index += 2
+                while index < characters.count,
+                      !(characters[index] == "*" && index + 1 < characters.count && characters[index + 1] == "/") {
+                    output.append(" "); index += 1
+                }
+                if index < characters.count { output.append(" "); output.append(" "); index += 2 }
+                continue
+            }
+            if character == "'" {                                  // 'string literal'
+                output.append(character); index += 1
+                while index < characters.count {
+                    if characters[index] == "'" { output.append("'"); index += 1; break }
+                    output.append(" "); index += 1
+                }
+                continue
+            }
+            output.append(character); index += 1
+        }
+        return output
+    }
+
     /// The range (UTF-16) of the identifier word ending at `caret` — the run of
     /// letters/digits/underscore immediately before it. Length 0 when the caret isn't
     /// after such a character.

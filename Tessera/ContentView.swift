@@ -94,6 +94,13 @@ struct ContentView: View {
         } message: { _ in
             Text("The cursor is inside a subselect.")
         }
+        .confirmationDialog("Run this destructive statement?",
+                            isPresented: $app.showingDestructiveConfirm, titleVisibility: .visible) {
+            Button("Run Anyway", role: .destructive) { app.confirmDestructiveRun() }
+            Button("Cancel", role: .cancel) { app.cancelDestructiveRun() }
+        } message: {
+            Text(app.destructiveSummary)
+        }
         .sheet(item: $app.exportTarget) { target in
             if let context = app.exportContext(for: target) {
                 ExportView(context: context, service: app.dumpService) { app.exportTarget = nil }

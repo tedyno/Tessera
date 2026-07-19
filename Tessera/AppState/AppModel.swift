@@ -39,6 +39,40 @@ final class AppModel {
     var showingReadOnlyConfirm = false
     @ObservationIgnored private var pendingCommitTab: QueryTab?
 
+    /// Confirmation before running a destructive statement (DROP / TRUNCATE /
+    /// DELETE or UPDATE without WHERE).
+    var showingDestructiveConfirm = false
+    var destructiveWarnings: [SQLSafety.Warning] = []
+    @ObservationIgnored private var pendingDestructiveSQL: String?
+
+    var destructiveSummary: String {
+        destructiveWarnings.map(\.risk.explanation).joined(separator: "\n")
+    }
+
+    /// Runs `sql` on the active tab, asking first when it looks destructive.
+    private func runChecked(_ sql: String, on tab: QueryTab) {
+        let warnings = SQLSafety.warnings(in: sql)
+        guard warnings.isEmpty else {
+            destructiveWarnings = warnings
+            pendingDestructiveSQL = sql
+            showingDestructiveConfirm = true
+            return
+        }
+        tab.task = Task { await console.run(tab, sqlToRun: sql) }
+    }
+
+    func confirmDestructiveRun() {
+        guard let sql = pendingDestructiveSQL, let tab = console.activeTab else { return }
+        pendingDestructiveSQL = nil
+        destructiveWarnings = []
+        tab.task = Task { await console.run(tab, sqlToRun: sql) }
+    }
+
+    func cancelDestructiveRun() {
+        pendingDestructiveSQL = nil
+        destructiveWarnings = []
+    }
+
     var currentIsReadOnly: Bool {
         guard let id = console.currentProfileID, let profile = connections.profile(id: id) else { return false }
         return profile.isReadOnly
@@ -270,8 +304,7 @@ final class AppModel {
         }
         switch console.resolveRunTarget(tab) {
         case .statement(let sql):
-            let target = sql.isEmpty ? tab.sql : sql
-            tab.task = Task { await console.run(tab, sqlToRun: target) }
+            runChecked(sql.isEmpty ? tab.sql : sql, on: tab)
         case .ambiguous(let choice):
             pendingRun = choice
             showingRunChoice = true
@@ -281,7 +314,7 @@ final class AppModel {
     func runResolved(_ sql: String) {
         guard let tab = console.activeTab else { return }
         pendingRun = nil
-        tab.task = Task { await console.run(tab, sqlToRun: sql) }
+        runChecked(sql, on: tab)
     }
 
     func confirmReadOnlyCommit() {
