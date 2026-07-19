@@ -26,6 +26,24 @@ struct SchemaSidebar: View {
     @State private var expanded: Set<String> = ["db"]
     @State private var highlightedID: String?
     @State private var showingFilter = false
+    @State private var searchText = ""
+
+    /// Lowercased, trimmed name filter; empty means "show everything".
+    private var query: String {
+        searchText.trimmingCharacters(in: .whitespaces).lowercased()
+    }
+
+    private func tableMatches(_ table: SchemaTable) -> Bool {
+        guard !query.isEmpty else { return true }
+        if table.name.lowercased().contains(query) { return true }
+        return table.columns.contains { $0.name.lowercased().contains(query) }
+    }
+
+    private func namespaceMatches(_ namespace: SchemaNamespace) -> Bool {
+        guard !query.isEmpty else { return true }
+        if namespace.name.lowercased().contains(query) { return true }
+        return namespace.tables.contains(where: tableMatches)
+    }
 
     var body: some View {
         Group {
@@ -34,7 +52,9 @@ struct SchemaSidebar: View {
                     List {
                         Section("Schema") {
                             DisclosureGroup(isExpanded: binding("db")) {
-                                ForEach(tree.schemas.filter { !hiddenSchemas.contains($0.name) }) { namespace in
+                                ForEach(tree.schemas.filter {
+                                    !hiddenSchemas.contains($0.name) && namespaceMatches($0)
+                                }) { namespace in
                                     schemaNode(namespace)
                                 }
                             } label: {
@@ -65,7 +85,7 @@ struct SchemaSidebar: View {
 
     private func schemaNode(_ namespace: SchemaNamespace) -> some View {
         DisclosureGroup(isExpanded: binding("s:\(namespace.name)")) {
-            ForEach(namespace.tables) { table in
+            ForEach(namespace.tables.filter(tableMatches)) { table in
                 tableNode(namespace: namespace.name, table: table)
             }
         } label: {
@@ -206,7 +226,8 @@ struct SchemaSidebar: View {
     // MARK: Expansion + reveal
 
     private func binding(_ key: String) -> Binding<Bool> {
-        Binding(get: { expanded.contains(key) },
+        // While filtering, force every branch open so matches are visible.
+        Binding(get: { expanded.contains(key) || !query.isEmpty },
                 set: { if $0 { expanded.insert(key) } else { expanded.remove(key) } })
     }
 
@@ -239,21 +260,36 @@ struct SchemaSidebar: View {
     // MARK: Filter
 
     private func filterBar(_ tree: DatabaseTree) -> some View {
-        HStack {
-            Button {
-                showingFilter.toggle()
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease.circle")
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
+                TextField("Filter tables & columns", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                }
             }
-            .buttonStyle(.borderless)
-            .help("Choose visible schemas")
-            .popover(isPresented: $showingFilter, arrowEdge: .bottom) {
-                schemaFilterList(tree)
+            HStack {
+                Button {
+                    showingFilter.toggle()
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("Choose visible schemas")
+                .popover(isPresented: $showingFilter, arrowEdge: .bottom) {
+                    schemaFilterList(tree)
+                }
+                let shown = tree.schemas.count - tree.schemas.filter { hiddenSchemas.contains($0.name) }.count
+                Text("\(shown) of \(tree.schemas.count) schemas")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
             }
-            let shown = tree.schemas.count - tree.schemas.filter { hiddenSchemas.contains($0.name) }.count
-            Text("\(shown) of \(tree.schemas.count) schemas")
-                .font(.caption).foregroundStyle(.secondary)
-            Spacer()
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
