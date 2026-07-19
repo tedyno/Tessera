@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import DBKit
 import DBDriverPostgres
+import DBDriverMySQL
 
 /// Sheet for creating a connection profile. Saves connection parameters to the
 /// profile store and the password/SSH secrets to the Keychain (via the caller).
@@ -216,19 +217,16 @@ struct NewConnectionView: View {
         let profile = makeProfile()
         let secrets = makeSecrets()
         Task {
-            guard profile.kind == .postgres else {
-                testState = .failed("MySQL test comes in Phase 4")
-                return
-            }
-            let driver = PostgresDriver()
+            let driver: any DatabaseDriver = profile.kind == .postgres ? PostgresDriver() : MySQLDriver()
             do {
                 try await driver.connect(
                     profile: profile, secrets: secrets,
                     endpoint: NetworkEndpoint(host: profile.host, port: profile.port))
+                let version = (try? await driver.serverVersion()) ?? ""
                 await driver.close()
-                testState = .ok("Connection OK")
+                testState = .ok(version.isEmpty ? "Connection OK" : "\(profile.kind.displayName) \(version)")
             } catch {
-                testState = .failed(String(describing: error).prefix(60).description)
+                testState = .failed(String(describing: error).prefix(80).description)
             }
         }
     }

@@ -73,6 +73,12 @@ public actor PostgresDriver: DatabaseDriver {
         }
     }
 
+    public func serverVersion() async throws -> String {
+        let result = try await execute("SHOW server_version")
+        let raw = result.rows.first?.first?.text ?? ""
+        return raw.split(separator: " ").first.map(String.init) ?? raw
+    }
+
     public func fetchSchema() async throws -> DatabaseTree {
         guard client != nil else { throw DatabaseError.notConnected }
 

@@ -165,6 +165,9 @@ struct DetailView: View {
             if isReadOnly {
                 Label("read-only", systemImage: "lock.fill").foregroundStyle(.orange)
             }
+            if let engine = model.engine, let version = model.serverVersion {
+                Text("\(engine.displayName) \(version)")
+            }
             if let name = model.connectionName {
                 Text(name).foregroundStyle(model.status == .ready ? .green : .secondary)
             }

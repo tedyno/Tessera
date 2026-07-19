@@ -22,6 +22,7 @@ final class QueryConsoleModel {
     private(set) var connectionName: String?
     private(set) var currentProfileID: UUID?
     private(set) var engine: DatabaseKind?
+    private(set) var serverVersion: String?
     private(set) var schema: DatabaseTree?
 
     var tabs: [QueryTab] = []
@@ -84,6 +85,7 @@ final class QueryConsoleModel {
         connectionName = profile.name
         currentProfileID = profile.id
         engine = profile.kind
+        serverVersion = nil
         schema = nil
         status = .connecting
 
@@ -107,6 +109,7 @@ final class QueryConsoleModel {
 
             try await driver.connect(profile: profile, secrets: secrets, endpoint: endpoint)
             status = .ready
+            serverVersion = try? await driver.serverVersion()
             schema = try? await driver.fetchSchema()
         } catch {
             status = .failed(Self.message(for: error))

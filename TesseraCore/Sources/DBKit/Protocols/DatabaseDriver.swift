@@ -20,5 +20,7 @@ public protocol DatabaseDriver: Sendable {
     func connect(profile: ConnectionProfile, secrets: Secrets, endpoint: NetworkEndpoint) async throws
     func fetchSchema() async throws -> DatabaseTree
     func execute(_ sql: String) async throws -> QueryResult
+    /// The database server version string (e.g. "16.3").
+    func serverVersion() async throws -> String
     func close() async
 }

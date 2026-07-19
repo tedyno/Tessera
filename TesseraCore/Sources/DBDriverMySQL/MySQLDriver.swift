@@ -84,6 +84,11 @@ public actor MySQLDriver: DatabaseDriver {
         }
     }
 
+    public func serverVersion() async throws -> String {
+        let result = try await execute("SELECT VERSION()")
+        return result.rows.first?.first?.text ?? "unknown"
+    }
+
     public func fetchSchema() async throws -> DatabaseTree {
         guard connection != nil else { throw DatabaseError.notConnected }
         let database = databaseName ?? ""
