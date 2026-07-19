@@ -8,6 +8,13 @@ final class DumpToolTests: XCTestCase {
         XCTAssertEqual(DumpTool.binaryName(for: .mysql), "mysqldump")
     }
 
+    func testMajorVersionParsing() {
+        XCTAssertEqual(DumpTool.majorVersion("pg_dump (PostgreSQL) 16.2"), 16)
+        XCTAssertEqual(DumpTool.majorVersion("mysqldump  Ver 8.0.35 for macos13.0 on arm64"), 8)
+        XCTAssertEqual(DumpTool.majorVersion("15.4"), 15)
+        XCTAssertNil(DumpTool.majorVersion("no digits here"))
+    }
+
     func testPasswordGoesToEnvironmentNotArgs() {
         XCTAssertEqual(DumpTool.environment(kind: .postgres, password: "secret"), ["PGPASSWORD": "secret"])
         XCTAssertEqual(DumpTool.environment(kind: .mysql, password: "secret"), ["MYSQL_PWD": "secret"])

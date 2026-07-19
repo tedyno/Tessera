@@ -19,6 +19,8 @@ struct ExportContext {
     let user: String
     let database: String
     let password: String?
+    /// The live server version string (e.g. "16.2"), used to pick a matching binary.
+    let serverVersion: String?
     var scope: DumpOptions.Scope
 }
 
@@ -65,7 +67,10 @@ struct ExportView: View {
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(.caption, design: .monospaced))
                                 .onChange(of: binaryPath) { _, _ in refreshVersion() }
+                                .onSubmit { persistOverride() }
                             Button("Browse…") { browseBinary() }
+                            Button("Detect") { setup() }
+                                .help("Search again for the binary")
                         }
                         binaryStatus
                     }
@@ -115,8 +120,18 @@ struct ExportView: View {
                     .font(.system(.caption2, design: .monospaced)).textSelection(.enabled)
                     .foregroundStyle(.secondary)
             }
-        } else if let detectedVersion {
-            Text(detectedVersion).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                if let detectedVersion {
+                    Text(detectedVersion).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if versionMismatch {
+                    Label("This client is older than the server (\(context.serverVersion ?? "?")) — "
+                          + "the dump may be refused. Install a matching \(binaryName).",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption2).foregroundStyle(.orange)
+                }
+            }
         }
     }
 
@@ -134,17 +149,36 @@ struct ExportView: View {
 
     // MARK: Actions
 
+    /// Runs every time the sheet opens: search fresh, preferring a manual override
+    /// only when it still points at an executable; otherwise pick the installed binary
+    /// whose major version best matches this connection's server.
     private func setup() {
-        let saved = UserDefaults.standard.string(forKey: defaultsKey)
-        binaryPath = service.locate(kind: context.kind, override: saved) ?? ""
-        refreshVersion()
+        let override = UserDefaults.standard.string(forKey: defaultsKey)
+        let serverMajor = context.serverVersion.flatMap(DumpTool.majorVersion)
+        Task { @MainActor in
+            binaryPath = await service.locateBest(
+                kind: context.kind, serverMajor: serverMajor, override: override) ?? ""
+            refreshVersion()
+        }
+    }
+
+    /// Warns when the chosen client is older than the server (e.g. pg_dump refuses).
+    private var versionMismatch: Bool {
+        guard let serverMajor = context.serverVersion.flatMap(DumpTool.majorVersion),
+              let clientMajor = detectedVersion.flatMap(DumpTool.majorVersion) else { return false }
+        return clientMajor < serverMajor
     }
 
     private func refreshVersion() {
-        UserDefaults.standard.set(binaryPath, forKey: defaultsKey)
         guard !binaryPath.isEmpty else { detectedVersion = nil; return }
         let path = binaryPath
         Task { detectedVersion = await service.version(binaryPath: path) }
+    }
+
+    /// Persists a path the user set by hand as the override for next time.
+    private func persistOverride() {
+        UserDefaults.standard.set(binaryPath, forKey: defaultsKey)
+        refreshVersion()
     }
 
     private func browseBinary() {
@@ -153,7 +187,10 @@ struct ExportView: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.showsHiddenFiles = true
-        if panel.runModal() == .OK, let url = panel.url { binaryPath = url.path }
+        if panel.runModal() == .OK, let url = panel.url {
+            binaryPath = url.path
+            persistOverride()
+        }
     }
 
     private func chooseOutput() {

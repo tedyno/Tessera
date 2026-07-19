@@ -10,16 +10,68 @@ final class DumpService {
     /// Resolves the binary path: an explicit override if it's executable, otherwise
     /// the first match on `$PATH` and the known install locations.
     func locate(kind: DatabaseKind, override: String?) -> String? {
-        let fileManager = FileManager.default
-        if let override, !override.isEmpty, fileManager.isExecutableFile(atPath: override) { return override }
+        if let override, !override.isEmpty, FileManager.default.isExecutableFile(atPath: override) { return override }
+        return candidateBinaries(kind: kind).first
+    }
+
+    /// Picks the best binary for a server of `serverMajor`: a valid manual override
+    /// wins; otherwise, among all installed binaries, the one whose major version
+    /// matches the server (or the lowest that is ≥ it, since e.g. pg_dump must be at
+    /// least as new as the server). Falls back to the newest, then the first found.
+    func locateBest(kind: DatabaseKind, serverMajor: Int?, override: String?) async -> String? {
+        if let override, !override.isEmpty, FileManager.default.isExecutableFile(atPath: override) { return override }
+        let candidates = candidateBinaries(kind: kind)
+        guard candidates.count > 1, let serverMajor else { return candidates.first }
+
+        var versioned: [(path: String, major: Int)] = []
+        for path in candidates {
+            if let output = await version(binaryPath: path), let major = DumpTool.majorVersion(output) {
+                versioned.append((path, major))
+            }
+        }
+        if let exact = versioned.first(where: { $0.major == serverMajor }) { return exact.path }
+        if let atLeast = versioned.filter({ $0.major >= serverMajor }).min(by: { $0.major < $1.major }) {
+            return atLeast.path
+        }
+        if let newest = versioned.max(by: { $0.major < $1.major }) { return newest.path }
+        return candidates.first
+    }
+
+    /// Every installed copy of the binary: `$PATH`, the known dirs, and versioned
+    /// Homebrew formulae (`postgresql@16`, `libpq`, `mysql@8`, …) and Postgres.app.
+    private func candidateBinaries(kind: DatabaseKind) -> [String] {
         let name = DumpTool.binaryName(for: kind)
+        let fileManager = FileManager.default
+        var paths: [String] = []
+        func add(dir: String) {
+            let candidate = (dir as NSString).appendingPathComponent(name)
+            if fileManager.isExecutableFile(atPath: candidate), !paths.contains(candidate) {
+                paths.append(candidate)
+            }
+        }
+
         let pathDirectories = (ProcessInfo.processInfo.environment["PATH"] ?? "")
             .split(separator: ":").map(String.init)
-        for directory in pathDirectories + DumpTool.searchDirectories {
-            let candidate = (directory as NSString).appendingPathComponent(name)
-            if fileManager.isExecutableFile(atPath: candidate) { return candidate }
+        (pathDirectories + DumpTool.searchDirectories).forEach { add(dir: $0) }
+
+        // Versioned / keg-only Homebrew formulae under opt/.
+        let formulaPrefixes = kind == .postgres ? ["postgresql", "libpq"] : ["mysql"]
+        for optRoot in ["/opt/homebrew/opt", "/usr/local/opt"] {
+            guard let entries = try? fileManager.contentsOfDirectory(atPath: optRoot) else { continue }
+            for entry in entries where formulaPrefixes.contains(where: { entry.hasPrefix($0) }) {
+                add(dir: (optRoot as NSString).appendingPathComponent(entry + "/bin"))
+            }
         }
-        return nil
+        // Postgres.app bundles one bin dir per major version.
+        if kind == .postgres {
+            let versionsRoot = "/Applications/Postgres.app/Contents/Versions"
+            if let versions = try? fileManager.contentsOfDirectory(atPath: versionsRoot) {
+                for version in versions {
+                    add(dir: (versionsRoot as NSString).appendingPathComponent(version + "/bin"))
+                }
+            }
+        }
+        return paths
     }
 
     /// The binary's `--version` string (e.g. "pg_dump (PostgreSQL) 16.2"), or nil.

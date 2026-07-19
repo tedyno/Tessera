@@ -341,6 +341,7 @@ final class AppModel {
             user: profile.username,
             database: session?.database ?? profile.database,
             password: (try? connections.loadSecrets(for: profile))?.databasePassword,
+            serverVersion: session?.serverVersion,
             scope: target.scope)
     }
 

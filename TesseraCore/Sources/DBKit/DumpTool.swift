@@ -27,19 +27,47 @@ public enum DumpTool {
         kind == .postgres ? "pg_dump" : "mysqldump"
     }
 
+    /// The major version from a server or `--version` string (e.g. "16.2" → 16,
+    /// "8.0.35" → 8). The first integer in the string.
+    public static func majorVersion(_ text: String) -> Int? {
+        guard let range = text.range(of: #"\d+"#, options: .regularExpression) else { return nil }
+        return Int(text[range])
+    }
+
     /// Directories searched for the binary (in order) when no explicit path is set.
+    /// Includes the keg-only Homebrew paths for `libpq` / `mysql-client`, which aren't
+    /// symlinked into `bin` unless the user runs `brew link`.
     public static let searchDirectories: [String] = [
         "/opt/homebrew/bin",                                            // Homebrew (Apple silicon)
         "/usr/local/bin",                                              // Homebrew (Intel) / manual
+        "/opt/homebrew/opt/libpq/bin",                                // keg-only libpq (Apple silicon)
+        "/usr/local/opt/libpq/bin",                                   // keg-only libpq (Intel)
+        "/opt/homebrew/opt/mysql-client/bin",                         // keg-only mysql-client (Apple silicon)
+        "/usr/local/opt/mysql-client/bin",                            // keg-only mysql-client (Intel)
         "/Applications/Postgres.app/Contents/Versions/latest/bin",     // Postgres.app
         "/usr/bin",
     ]
 
-    /// Homebrew formula that provides the binary, for the "please install" hint.
+    /// Complete, copy-pasteable install instructions for the missing binary — enough
+    /// for anyone to get it working, including the keg-only path to set by hand.
     public static func installHint(for kind: DatabaseKind) -> String {
         switch kind {
-        case .postgres: "brew install libpq   # provides pg_dump (then: brew link --force libpq)"
-        case .mysql: "brew install mysql-client   # provides mysqldump"
+        case .postgres:
+            """
+            Install pg_dump — in Terminal, run:
+              brew install libpq && brew link --force libpq
+            Then Browse to it (or paste the path):
+              /opt/homebrew/opt/libpq/bin/pg_dump   (Apple Silicon)
+              /usr/local/opt/libpq/bin/pg_dump      (Intel)
+            """
+        case .mysql:
+            """
+            Install mysqldump — in Terminal, run:
+              brew install mysql-client && brew link --force mysql-client
+            Then Browse to it (or paste the path):
+              /opt/homebrew/opt/mysql-client/bin/mysqldump   (Apple Silicon)
+              /usr/local/opt/mysql-client/bin/mysqldump      (Intel)
+            """
         }
     }
 
