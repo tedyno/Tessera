@@ -1,11 +1,15 @@
 import Foundation
 
-struct RunChoice: Equatable {
-    var subselect: String
-    var statement: String
+public struct RunChoice: Equatable, Sendable {
+    public var subselect: String
+    public var statement: String
+    public init(subselect: String, statement: String) {
+        self.subselect = subselect
+        self.statement = statement
+    }
 }
 
-enum SQLRunTarget: Equatable {
+public enum SQLRunTarget: Equatable, Sendable {
     /// A single unambiguous statement to run.
     case statement(String)
     /// The cursor sits inside a subselect — ask the user which to run.
@@ -15,9 +19,9 @@ enum SQLRunTarget: Equatable {
 /// Resolves which SQL to run from the editor text and cursor position: the
 /// statement (split on top-level `;`) containing the cursor, and — if the cursor
 /// is inside a parenthesized subselect — offers that subselect as an alternative.
-enum SQLStatements {
+public enum SQLStatements {
 
-    static func resolve(sql: String, cursor: Int) -> SQLRunTarget {
+    public static func resolve(sql: String, cursor: Int) -> SQLRunTarget {
         let chars = Array(sql)
         let position = min(max(cursor, 0), chars.count)
         let (start, end) = statementBounds(chars, cursor: position)
@@ -33,7 +37,9 @@ enum SQLStatements {
     }
 
     /// Range of the statement containing `cursor`, splitting on top-level `;`
-    /// (ignoring semicolons inside strings and line comments).
+    /// (ignoring semicolons inside strings and line comments). When the cursor sits
+    /// past the final `;` (in trailing whitespace), it resolves to the statement that
+    /// just ended, so running there executes only that last statement.
     private static func statementBounds(_ chars: [Character], cursor: Int) -> (Int, Int) {
         var semicolons: [Int] = []
         var i = 0
@@ -59,11 +65,14 @@ enum SQLStatements {
             i += 1
         }
 
+        // The statement ends at the first `;` at or just after the cursor (so a cursor
+        // sitting right after a `;` belongs to the statement that just ended, not the
+        // next one). Otherwise it's the trailing statement after the last `;`.
         var start = 0
         var end = n
         for s in semicolons {
-            if s < cursor { start = s + 1 }
-            else { end = s; break }
+            if cursor <= s + 1 { end = s; break }
+            start = s + 1
         }
         return (start, end)
     }

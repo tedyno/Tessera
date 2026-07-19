@@ -1,4 +1,5 @@
 import SwiftUI
+import DBKit
 
 struct ContentView: View {
     @Bindable var app: AppModel
