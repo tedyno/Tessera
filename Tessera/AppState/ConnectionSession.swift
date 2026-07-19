@@ -37,6 +37,11 @@ final class ConnectionSession: Identifiable {
     private(set) var status: Status = .idle
     private(set) var serverVersion: String?
     private(set) var schema: DatabaseTree?
+    /// The host/port a client should actually connect to — the SSH tunnel's local
+    /// endpoint when tunnelled, otherwise the direct host. Used by dump/export.
+    private(set) var endpoint: NetworkEndpoint?
+    /// The database name of the live connection, for dump/export.
+    private(set) var database: String?
 
     private(set) var driver: (any DatabaseDriver)?
     private var tunnel: SSHTunnel?
@@ -71,6 +76,8 @@ final class ConnectionSession: Identifiable {
             } else {
                 endpoint = NetworkEndpoint(host: profile.host, port: profile.port)
             }
+            self.endpoint = endpoint
+            self.database = profile.database
 
             let driver: any DatabaseDriver = switch profile.kind {
             case .postgres: PostgresDriver()
@@ -95,6 +102,8 @@ final class ConnectionSession: Identifiable {
         tunnel = nil
         serverVersion = nil
         schema = nil
+        endpoint = nil
+        database = nil
         status = .idle
     }
 

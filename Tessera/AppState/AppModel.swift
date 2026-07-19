@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import DBKit
+import UniformTypeIdentifiers
 
 /// Scene-level state so menu-bar commands (keyboard shortcuts) can act on the
 /// active window: owns the connections and the query console plus the small bits
@@ -314,6 +315,35 @@ final class AppModel {
         console.discardPending(tab)
     }
 
+    // MARK: Export (pg_dump / mysqldump)
+
+    let dumpService = DumpService()
+    var exportTarget: ExportTarget?
+
+    func exportConnection(profileID: UUID) {
+        exportTarget = ExportTarget(profileID: profileID, scope: .database)
+    }
+
+    func exportTable(profileID: UUID, schema: String, table: String) {
+        exportTarget = ExportTarget(profileID: profileID, scope: .tables(schema: schema, tables: [table]))
+    }
+
+    /// Everything the export sheet needs, resolved from the live session when possible
+    /// (so an SSH-tunnelled connection dumps through the local tunnel endpoint).
+    func exportContext(for target: ExportTarget) -> ExportContext? {
+        guard let profile = connections.profile(id: target.profileID) else { return nil }
+        let session = console.session(for: target.profileID)
+        return ExportContext(
+            kind: profile.kind,
+            connectionName: profile.name,
+            host: session?.endpoint?.host ?? profile.host,
+            port: session?.endpoint?.port ?? profile.port,
+            user: profile.username,
+            database: session?.database ?? profile.database,
+            password: (try? connections.loadSecrets(for: profile))?.databasePassword,
+            scope: target.scope)
+    }
+
     func newConnection() {
         newConnectionParent = connections.organizer.workspaces.first?.id
         showingNewConnection = true
@@ -328,6 +358,23 @@ final class AppModel {
     }
 
     func focusEditor() { editorFocusRequests += 1 }
+
+    /// Loads a `.sql` file into a new console tab (bound to the active connection).
+    func openSQLFile() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        var types: [UTType] = [.plainText]
+        if let sql = UTType(filenameExtension: "sql") { types.insert(sql, at: 0) }
+        panel.allowedContentTypes = types
+        guard panel.runModal() == .OK, let url = panel.url,
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return }
+        console.addTab()
+        if let tab = console.activeTab {
+            tab.sql = text
+            tab.title = url.lastPathComponent
+        }
+    }
 
     func toggleSidebar() {
         withAnimation(.easeOut(duration: 0.16)) {

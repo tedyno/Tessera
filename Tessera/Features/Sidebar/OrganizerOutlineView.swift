@@ -60,6 +60,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
     var onDisconnect: (UUID) -> Void = { _ in }
     var onReconnect: (UUID) -> Void = { _ in }
     var onIntrospect: (UUID) -> Void = { _ in }
+    var onExport: (UUID) -> Void = { _ in }
     /// Live status of a connection (profile id → dot), for the green indicator.
     var connectionDot: (UUID) -> ConnectionDot = { _ in .none }
     /// A value that changes with the organizer/profiles so SwiftUI re-invokes
@@ -115,6 +116,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
         coordinator.onDisconnect = onDisconnect
         coordinator.onReconnect = onReconnect
         coordinator.onIntrospect = onIntrospect
+        coordinator.onExport = onExport
     }
 
     func makeCoordinator() -> Coordinator {
@@ -143,6 +145,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
         var onDisconnect: (UUID) -> Void = { _ in }
         var onReconnect: (UUID) -> Void = { _ in }
         var onIntrospect: (UUID) -> Void = { _ in }
+        var onExport: (UUID) -> Void = { _ in }
         var connectionDot: (UUID) -> ConnectionDot = { _ in .none }
         var statusVersion = 0
 
@@ -462,6 +465,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
                     add(menu, "Connect", #selector(actionConnect), item)
                 }
                 menu.addItem(.separator())
+                add(menu, "Export…", #selector(actionExport), item)
                 add(menu, "Edit…", #selector(actionEdit), item)
                 menu.addItem(colorMenuItem(for: item))
             }
@@ -558,6 +562,9 @@ struct OrganizerOutlineView: NSViewRepresentable {
         }
         @objc private func actionIntrospect(_ sender: NSMenuItem) {
             if let profileID = profileID(from: sender) { onIntrospect(profileID) }
+        }
+        @objc private func actionExport(_ sender: NSMenuItem) {
+            if let profileID = profileID(from: sender) { onExport(profileID) }
         }
         private func profileID(from sender: NSMenuItem) -> UUID? {
             guard let item = sender.representedObject as? OrganizerItem else { return nil }

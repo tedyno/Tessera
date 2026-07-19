@@ -19,6 +19,7 @@ struct ContentView: View {
                     onDisconnect: { app.disconnect(profileID: $0) },
                     onReconnect: { app.reconnect(profileID: $0) },
                     onIntrospect: { app.introspect(profileID: $0) },
+                    onExport: { app.exportConnection(profileID: $0) },
                     connectionDot: { app.connectionDot(profileID: $0) },
                     statusVersion: app.sessionStatusVersion)
                 .frame(minHeight: 80, idealHeight: geo.size.height / 2, maxHeight: .infinity)
@@ -74,6 +75,16 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) { app.pendingRun = nil }
         } message: { _ in
             Text("The cursor is inside a subselect.")
+        }
+        .sheet(item: $app.exportTarget) { target in
+            if let context = app.exportContext(for: target) {
+                ExportView(context: context, service: app.dumpService) { app.exportTarget = nil }
+            } else {
+                VStack(spacing: 12) {
+                    Text("Cannot export this connection.")
+                    Button("Close") { app.exportTarget = nil }
+                }.padding(30)
+            }
         }
         .sheet(isPresented: $app.showingSpotlight) {
             SpotlightView(app: app)
