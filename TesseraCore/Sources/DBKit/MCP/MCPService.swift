@@ -32,6 +32,12 @@ public struct MCPService: Sendable {
         let response: JSONRPCResponse
         switch request.method {
         case "initialize":
+            // Remember who connected (Claude Code, Codex, an editor…) so approval
+            // prompts can name the actual client instead of guessing.
+            if let info = request.params?.objectValue?["clientInfo"]?.objectValue,
+               let name = info["name"]?.stringValue, !name.isEmpty {
+                await source.clientIdentified(name: name, version: info["version"]?.stringValue)
+            }
             response = JSONRPCResponse(id: request.id, result: initializeResult)
         case "ping":
             response = JSONRPCResponse(id: request.id, result: .object([:]))

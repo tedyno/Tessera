@@ -99,7 +99,7 @@ struct NewConnectionView: View {
                         ForEach(TLSMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                     Toggle("Read-only (warn before writing)", isOn: $readOnly)
-                    Toggle("MCP: allow reading (let Claude query this connection)", isOn: $mcpRead)
+                    Toggle("MCP: allow reading (let a connected AI client query this connection)", isOn: $mcpRead)
                     Toggle("MCP: allow writing (always asks you first)", isOn: $mcpWrite)
                         .disabled(!mcpRead || readOnly)
                         .padding(.leading, 16)
@@ -107,8 +107,8 @@ struct NewConnectionView: View {
                         Text(readOnly
                              ? "Read-only connections can never grant MCP write access."
                              : (mcpWrite
-                                ? "Claude may read, and may write or import after you approve each time."
-                                : "Claude may only read from this connection."))
+                                ? "The client may read, and may write or import after you approve each time."
+                                : "The client may only read from this connection."))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }

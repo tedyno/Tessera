@@ -161,4 +161,12 @@ public protocol MCPDataSource: Sendable {
                     structure: Bool, data: Bool, gzip: Bool) async throws -> MCPExportResult
     /// Restores a dump file. The app must show the file and get approval first.
     func importDump(connection: String, filePath: String) async throws -> MCPImportResult
+
+    /// Reports which MCP client connected (from `initialize`), so approval prompts can
+    /// name it. Any client can speak MCP, so this is never assumed.
+    func clientIdentified(name: String, version: String?) async
+}
+
+public extension MCPDataSource {
+    func clientIdentified(name: String, version: String?) async {}
 }

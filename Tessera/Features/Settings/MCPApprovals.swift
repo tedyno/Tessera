@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Blocks an MCP request until the user approves it in the app. A request that is
 /// never answered times out rather than pinning the connection open forever.
@@ -59,6 +60,12 @@ final class MCPApprovals {
         return await withCheckedContinuation { continuation in
             self.continuation = continuation
             self.pending = request
+            // The request comes from a background client, so the app is usually not
+            // frontmost — bring it forward (and bounce the Dock icon) so the prompt
+            // isn't left unanswered behind other windows until it times out.
+            NSApp.activate()
+            NSApp.windows.first { $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+            NSApp.requestUserAttention(.criticalRequest)
             Task { [weak self] in
                 try? await Task.sleep(for: Self.timeout)
                 guard let self, self.pending?.id == request.id else { return }

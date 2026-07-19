@@ -53,7 +53,7 @@ enum MCPSettings {
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
-    /// A ready-to-paste MCP client entry (Claude Desktop / Claude Code).
+    /// A ready-to-paste MCP client entry (Claude Code, Codex, and other MCP clients).
     static var clientConfigSnippet: String {
         """
         {

@@ -10,6 +10,12 @@ final class MCPBridge: MCPDataSource {
 
     init(app: AppModel) { self.app = app }
 
+    /// Records which client spoke `initialize`, so prompts name it accurately —
+    /// Tessera's MCP server is open to any client, not just one vendor's.
+    func clientIdentified(name: String, version: String?) async {
+        app.mcpClientName = version.map { "\(name) \($0)" } ?? name
+    }
+
     // MARK: Exposed connections
 
     /// Profiles that opted in, keyed by a name unique among them (two connections
@@ -164,7 +170,7 @@ final class MCPBridge: MCPDataSource {
             throw MCPToolError("“\(connection)” is not permitted to write over MCP.")
         }
         let outcome = await app.mcpApprovals.request(
-            title: "Claude wants to modify “\(connection)”", connection: connection, detail: sql)
+            title: "\(app.mcpClientLabel) wants to modify “\(connection)”", connection: connection, detail: sql)
         guard outcome.isApproved else {
             app.mcpAudit.record(tool: "run_query (write)", connection: connection,
                                 detail: sql, outcome: outcome.auditLabel)
@@ -194,7 +200,7 @@ final class MCPBridge: MCPDataSource {
         let scope = tables.isEmpty ? (schemas.isEmpty ? "the whole database" : schemas.joined(separator: ", "))
                                    : tables.joined(separator: ", ")
         let outcome = await app.mcpApprovals.request(
-            title: "Claude wants to export “\(connection)”", connection: connection,
+            title: "\(app.mcpClientLabel) wants to export “\(connection)”", connection: connection,
             detail: "Dump \(scope)\(gzip ? " (gzipped)" : "") into your export folder.")
         guard outcome.isApproved else {
             app.mcpAudit.record(tool: "export_dump", connection: connection,
@@ -224,7 +230,7 @@ final class MCPBridge: MCPDataSource {
             throw MCPToolError("No file at \(filePath).")
         }
         let outcome = await app.mcpApprovals.request(
-            title: "Claude wants to import into “\(connection)”", connection: connection,
+            title: "\(app.mcpClientLabel) wants to import into “\(connection)”", connection: connection,
             detail: "Restore \(filePath). This writes to the database and can overwrite data.")
         guard outcome.isApproved else {
             app.mcpAudit.record(tool: "import_dump", connection: connection,

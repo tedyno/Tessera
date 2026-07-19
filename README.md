@@ -115,7 +115,7 @@ paid Developer ID and notarization.)
 ## MCP server
 
 Tessera can act as a [Model Context Protocol](https://modelcontextprotocol.io) server, so an
-assistant like Claude can inspect your schema and run queries for you.
+assistant (Claude Code, Codex, or any MCP client) can inspect your schema and run queries for you.
 
 It is **off by default**, and access is layered so that nothing happens by accident:
 

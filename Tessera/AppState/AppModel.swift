@@ -23,6 +23,11 @@ final class AppModel {
     var showingMCPLog = false
     private(set) var mcpRunning = false
     private(set) var mcpError: String?
+    /// Name/version the connected MCP client reported at `initialize` (Claude Code,
+    /// Codex, an editor…). Any client can connect, so this is never assumed.
+    var mcpClientName: String?
+    /// What to call the client in approval prompts.
+    var mcpClientLabel: String { mcpClientName ?? String(localized: "An MCP client") }
 
     init() {
         // Let a run auto-reconnect a dropped session before executing.

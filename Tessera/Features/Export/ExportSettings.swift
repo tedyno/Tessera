@@ -129,7 +129,7 @@ struct ExportSettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Text("Off by default. When on, Tessera listens on 127.0.0.1 so an MCP client "
-                     + "such as Claude can query it — but only connections that individually "
+                     + "such as Claude Code or Codex can query it — but only connections that individually "
                      + "allow MCP access are exposed.")
                     .font(.caption).foregroundStyle(.secondary)
             }
