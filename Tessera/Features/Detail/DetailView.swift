@@ -81,9 +81,10 @@ struct DetailView: View {
     private var editorToolbar: some View {
         HStack(spacing: 10) {
             Button {
-                if let tab = model.activeTab { tab.task = Task { await model.run(tab) } }
+                if let tab = model.activeTab { tab.task = Task { await model.runOrCommit(tab) } }
             } label: {
-                Label("Run", systemImage: "play.fill")
+                let editing = model.activeTab?.hasEdits == true
+                Label(editing ? "Commit" : "Run", systemImage: editing ? "checkmark" : "play.fill")
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
@@ -130,8 +131,8 @@ struct DetailView: View {
             } description: {
                 Text(message).font(.callout.monospaced())
             }
-        } else if let result = model.activeTab?.result {
-            ResultsTableView(result: result)
+        } else if let tab = model.activeTab, tab.result != nil {
+            ResultsTableView(tab: tab)
         } else {
             ContentUnavailableView("No results", systemImage: "tablecells",
                                    description: Text("Press Run to execute the query."))
@@ -150,6 +151,10 @@ struct DetailView: View {
                     Text("\(result.columns.count) columns")
                 } else {
                     Text("Ready")
+                }
+                if let tab = model.activeTab, tab.hasEdits {
+                    Text("\(tab.edits.count) unsaved — ⌘↩ to commit")
+                        .foregroundStyle(.orange)
                 }
             }
             Spacer()

@@ -118,20 +118,101 @@ final class QueryConsoleModel {
 
     // MARK: Running queries
 
-    func run(_ tab: QueryTab) async {
+    /// ⌘↩ target: persist pending cell edits if any, otherwise run the SQL.
+    func runOrCommit(_ tab: QueryTab) async {
+        if tab.hasEdits { await commitEdits(tab) } else { await run(tab, sqlToRun: tab.sql) }
+    }
+
+    func run(_ tab: QueryTab, sqlToRun: String? = nil) async {
         guard status == .ready, let driver, !tab.isRunning else { return }
+        let sql = sqlToRun ?? tab.sql
         tab.isRunning = true
         tab.errorMessage = nil
         do {
-            let result = try await driver.execute(tab.sql)
+            let result = try await driver.execute(sql)
             tab.result = result
+            tab.edits = [:]
+            tab.editSource = detectEditSource(sql: sql, columns: result.columns)
             let ms = result.elapsed.map(Self.milliseconds)
             tab.elapsedMS = ms
-            recordHistory(sql: tab.sql, rowCount: result.rows.count, elapsedMS: ms)
+            recordHistory(sql: sql, rowCount: result.rows.count, elapsedMS: ms)
         } catch {
             tab.errorMessage = Self.message(for: error)
         }
         tab.isRunning = false
+    }
+
+    /// Writes pending cell edits as `UPDATE` statements (in a transaction), then
+    /// re-runs the query to show the saved data.
+    func commitEdits(_ tab: QueryTab) async {
+        guard status == .ready, let driver, let source = tab.editSource,
+              let result = tab.result, !tab.edits.isEmpty else { return }
+        tab.isRunning = true
+        tab.errorMessage = nil
+        do {
+            // Note: run per-statement (PostgresClient is pooled, so a wrapping
+            // BEGIN/COMMIT wouldn't share one connection). A single-connection
+            // transaction is future work.
+            for (rowIndex, changes) in tab.edits {
+                guard rowIndex < result.rows.count,
+                      let update = buildUpdate(source: source, columns: result.columns,
+                                               originalRow: result.rows[rowIndex], changes: changes) else {
+                    throw DatabaseError.queryFailed("Cannot build UPDATE for edited row")
+                }
+                _ = try await driver.execute(update)
+            }
+            tab.edits = [:]
+            await run(tab, sqlToRun: tab.sql)
+        } catch {
+            tab.errorMessage = Self.message(for: error)
+            tab.isRunning = false
+        }
+    }
+
+    // MARK: Editable-source detection
+
+    private func detectEditSource(sql: String, columns: [ColumnDescriptor]) -> EditSource? {
+        let upper = sql.uppercased()
+        guard upper.contains("SELECT"), !upper.contains(" JOIN ") else { return nil }
+        guard let range = sql.range(of: #"(?i)\bfrom\s+([`"\w\.]+)"#, options: .regularExpression) else { return nil }
+        let raw = sql[range].split(whereSeparator: { " \n\t".contains($0) }).last.map(String.init) ?? ""
+        let cleaned = raw.replacingOccurrences(of: "`", with: "").replacingOccurrences(of: "\"", with: "")
+        let parts = cleaned.split(separator: ".").map(String.init)
+        guard let tableName = parts.last else { return nil }
+        let schemaName = parts.count >= 2 ? parts[parts.count - 2] : nil
+
+        // Find the table (optionally within the named schema).
+        var found: (namespace: String, table: String, columns: [SchemaColumn])?
+        for namespace in schema?.schemas ?? [] {
+            if let schemaName, namespace.name.caseInsensitiveCompare(schemaName) != .orderedSame { continue }
+            if let table = namespace.tables.first(where: { $0.name.caseInsensitiveCompare(tableName) == .orderedSame }) {
+                found = (namespace.name, table.name, table.columns)
+                break
+            }
+        }
+        guard let found else { return nil }
+        let primaryKeys = found.columns.filter(\.isPrimaryKey).map(\.name)
+        let resultColumns = Set(columns.map(\.name))
+        guard !primaryKeys.isEmpty, primaryKeys.allSatisfy(resultColumns.contains) else { return nil }
+        return EditSource(schema: found.namespace, table: found.table, primaryKeys: primaryKeys)
+    }
+
+    private func buildUpdate(source: EditSource, columns: [ColumnDescriptor],
+                             originalRow: [Cell], changes: [String: String]) -> String? {
+        guard !changes.isEmpty else { return nil }
+        let setClause = changes.map { "\(quote($0.key)) = \(Self.literal($0.value))" }.joined(separator: ", ")
+        var whereClauses: [String] = []
+        for pk in source.primaryKeys {
+            guard let index = columns.firstIndex(where: { $0.name == pk }), index < originalRow.count else { return nil }
+            let value = originalRow[index].text
+            whereClauses.append(value == nil ? "\(quote(pk)) IS NULL" : "\(quote(pk)) = \(Self.literal(value!))")
+        }
+        guard !whereClauses.isEmpty else { return nil }
+        return "UPDATE \(quote(source.schema)).\(quote(source.table)) SET \(setClause) WHERE \(whereClauses.joined(separator: " AND "));"
+    }
+
+    private static func literal(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
     }
 
     /// Puts `SELECT *` into the active tab and runs it (from a schema double-click).

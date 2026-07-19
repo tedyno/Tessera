@@ -20,7 +20,9 @@ struct TesseraCommands: Commands {
     let app: AppModel
 
     var body: some Commands {
-        CommandGroup(after: .newItem) {
+        // Replace the default "New Window" (⌘N) — a single-window DB client doesn't
+        // need it — with New Connection.
+        CommandGroup(replacing: .newItem) {
             Button("New Connection…") { app.newConnection() }
                 .keyboardShortcut("n")
         }

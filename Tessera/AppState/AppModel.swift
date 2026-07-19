@@ -32,7 +32,7 @@ final class AppModel {
 
     func runActiveQuery() {
         guard let tab = console.activeTab else { return }
-        tab.task = Task { await console.run(tab) }
+        tab.task = Task { await console.runOrCommit(tab) }
     }
 
     func stopActiveQuery() { console.activeTab?.task?.cancel() }
