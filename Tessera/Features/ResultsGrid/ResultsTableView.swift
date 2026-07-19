@@ -219,7 +219,9 @@ struct ResultsTableView: NSViewRepresentable {
         let tableView = GridTableView()
         tableView.style = .inset
         tableView.usesAlternatingRowBackgroundColors = true
-        tableView.columnAutoresizingStyle = .noColumnAutoresizing
+        // Let the last column fill any trailing space so its header (name + type)
+        // never floats over an empty area with no data column beneath it.
+        tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         tableView.allowsColumnResizing = true
         tableView.allowsColumnReordering = false
         tableView.rowHeight = 18
