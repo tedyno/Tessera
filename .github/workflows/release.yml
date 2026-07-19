@@ -1,7 +1,8 @@
 name: Release
 
-# Push a version tag (e.g. v0.1.0) to build the app and publish a DMG to a GitHub
-# Release. Can also be run manually from the Actions tab.
+# Push a version tag (e.g. v0.2.0) to build the app, publish a DMG to a GitHub
+# Release, and update the Sparkle appcast on GitHub Pages so existing installs can
+# auto-update. Can also be run manually from the Actions tab.
 on:
   push:
     tags: ['v*']
@@ -12,18 +13,27 @@ permissions:
 
 jobs:
   release:
-    name: Build and publish DMG
+    name: Build, publish DMG, update appcast
     runs-on: macos-latest
+    env:
+      # Set this repository secret to enable Sparkle signing + the appcast. Export it
+      # once with:  Scripts/generate_keys && generate_keys -x sparkle_private_key
+      SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app
 
-      # No Apple certificate on CI (it never leaves the maintainer's machine), so the
-      # release is ad-hoc signed and un-notarized. macOS will warn on first launch;
-      # the release notes tell users how to open it anyway.
-      - name: Build (Release, universal, ad-hoc signed)
+      - name: Versions
+        id: version
+        run: |
+          echo "short=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "build=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      # No Apple certificate on CI, so the release is ad-hoc signed and un-notarized;
+      # Sparkle's EdDSA signature is what secures the update itself.
+      - name: Build (Release, universal)
         run: |
           set -euo pipefail
           xcodebuild -project Tessera.xcodeproj -scheme Tessera \
@@ -31,6 +41,8 @@ jobs:
             -destination 'generic/platform=macOS' \
             -derivedDataPath build \
             ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+            MARKETING_VERSION="${{ steps.version.outputs.short }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
             CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual \
             build
 
@@ -54,14 +66,56 @@ jobs:
           body: |
             A native macOS database client for PostgreSQL and MySQL.
 
-            **Install:** download the DMG below, open it, and drag **Tessera** to
-            Applications.
+            **Install:** download the DMG, open it, and drag **Tessera** to Applications.
 
-            This build is **not notarized** — Tessera is an open-source project without
-            a paid Apple Developer account, so macOS will refuse it on the first try.
-            To open it anyway: launch it once, then **System Settings → Privacy &
-            Security → Open Anyway**. Or from Terminal:
+            This build is **not notarized** (open-source project without a paid Apple
+            Developer account), so macOS refuses it on the first try. To open it: launch
+            once, then **System Settings → Privacy & Security → Open Anyway**. Or run:
 
             ```sh
             xattr -dr com.apple.quarantine /Applications/Tessera.app
             ```
+
+            Once installed, future versions update automatically (Sparkle).
+
+      # --- Auto-update: sign the DMG and refresh the appcast (only if the key is set) ---
+
+      - name: Sign update and build appcast
+        if: ${{ env.SPARKLE_ED_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          DMG="Tessera-${GITHUB_REF_NAME}.dmg"
+          SIGN_UPDATE="$(find build/SourcePackages/artifacts -name sign_update -type f | head -1)"
+          test -n "$SIGN_UPDATE"
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > sparkle_private_key
+          # e.g. sparkle:edSignature="…" length="12345"
+          SIGNATURE="$("$SIGN_UPDATE" "$DMG" -f sparkle_private_key)"
+          rm -f sparkle_private_key
+
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${DMG}"
+          PUBDATE="$(date -u +'%a, %d %b %Y %H:%M:%S +0000')"
+          mkdir -p public
+          cat > public/appcast.xml <<XML
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <channel>
+              <title>Tessera</title>
+              <item>
+                <title>Version ${{ steps.version.outputs.short }}</title>
+                <pubDate>${PUBDATE}</pubDate>
+                <sparkle:version>${{ steps.version.outputs.build }}</sparkle:version>
+                <sparkle:shortVersionString>${{ steps.version.outputs.short }}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+                <enclosure url="${URL}" ${SIGNATURE} type="application/octet-stream" />
+              </item>
+            </channel>
+          </rss>
+          XML
+
+      - name: Publish appcast to GitHub Pages
+        if: ${{ env.SPARKLE_ED_PRIVATE_KEY != '' }}
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          keep_files: true

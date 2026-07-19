@@ -1,8 +1,12 @@
 import SwiftUI
+import Sparkle
 
 @main
 struct TesseraApp: App {
     @State private var app = AppModel()
+    /// Drives Sparkle auto-updates (checks the appcast, downloads, installs).
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     var body: some Scene {
         WindowGroup {
@@ -11,6 +15,9 @@ struct TesseraApp: App {
         .defaultSize(width: 1240, height: 760)
         .commands {
             TesseraCommands(app: app)
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { updaterController.updater.checkForUpdates() }
+            }
         }
 
         Settings {

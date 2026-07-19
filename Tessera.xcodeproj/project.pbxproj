@@ -14,6 +14,7 @@
 		AA000000000000000000001A /* DBDriverMySQL in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000019 /* DBDriverMySQL */; };
 		AA000000000000000000001C /* DBTunnel in Frameworks */ = {isa = PBXBuildFile; productRef = AA000000000000000000001B /* DBTunnel */; };
 		AA000000000000000000001E /* DBMCPServer in Frameworks */ = {isa = PBXBuildFile; productRef = AA000000000000000000001D /* DBMCPServer */; };
+		AA0000000000000000000103 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000102 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +38,7 @@
 				AA000000000000000000001A /* DBDriverMySQL in Frameworks */,
 				AA000000000000000000001C /* DBTunnel in Frameworks */,
 				AA000000000000000000001E /* DBMCPServer in Frameworks */,
+				AA0000000000000000000103 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -95,6 +97,7 @@
 				AA0000000000000000000019 /* DBDriverMySQL */,
 				AA000000000000000000001B /* DBTunnel */,
 				AA000000000000000000001D /* DBMCPServer */,
+				AA0000000000000000000102 /* Sparkle */,
 			);
 			productName = Tessera;
 			productReference = AA0000000000000000000006 /* Tessera.app */;
@@ -128,6 +131,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				AA0000000000000000000010 /* XCLocalSwiftPackageReference "TesseraCore" */,
+				AA0000000000000000000101 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AA0000000000000000000004 /* Products */;
@@ -214,6 +218,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -237,6 +242,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -281,6 +287,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		AA0000000000000000000101 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.6.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		AA0000000000000000000011 /* DBKit */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -309,6 +326,11 @@
 		AA000000000000000000001D /* DBMCPServer */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DBMCPServer;
+		};
+		AA0000000000000000000102 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA0000000000000000000101 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
