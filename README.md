@@ -38,17 +38,20 @@ macOS 26 or later, on Apple silicon or Intel. Building requires Xcode 26 or late
 
 Tessera is distributed as an **unsigned, un-notarized** build, because it is an open-source
 project without a paid Apple Developer account. macOS will therefore refuse to open it on
-the first try. To get past Gatekeeper, either:
+the first try, reporting that it cannot be checked for malicious software.
 
-- right-click the app → **Open** → **Open** in the dialog, or
-- strip the quarantine flag:
+To open it anyway, launch it once, dismiss the warning, then go to **System Settings ▸
+Privacy & Security**, scroll to the security section, and click **Open Anyway**. (The old
+right-click → *Open* shortcut no longer works; Apple removed that bypass in macOS 15.)
 
-  ```sh
-  xattr -dr com.apple.quarantine /Applications/Tessera.app
-  ```
+Alternatively, strip the quarantine flag from the terminal:
 
-If that makes you uncomfortable — reasonably so — build it from source instead, and
-Gatekeeper is a non-issue.
+```sh
+xattr -dr com.apple.quarantine /Applications/Tessera.app
+```
+
+If overriding Gatekeeper makes you uncomfortable — reasonably so — build it from source
+instead, and the question never comes up.
 
 ## Building from source
 
