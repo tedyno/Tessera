@@ -45,6 +45,10 @@ final class QueryTab: Identifiable {
     var title: String
     var sql: String
 
+    /// The live connection this tab runs against. Tabs from different connections
+    /// coexist, each querying its own database.
+    var session: ConnectionSession?
+
     var kind: Kind = .console
     /// Data-view source table and paging state (only used when `kind == .data`).
     var dataSchema: String?

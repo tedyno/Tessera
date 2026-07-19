@@ -30,6 +30,9 @@ final class OrganizerItem: NSObject {
     override var hash: Int { id.hashValue }
 }
 
+/// Live-connection indicator drawn on a connection row.
+enum ConnectionDot: Equatable { case none, connecting, connected, failed }
+
 /// NSOutlineView subclass that builds a context menu for the right-clicked row.
 final class ContextualOutlineView: NSOutlineView {
     var contextMenuProvider: (@MainActor (Int) -> NSMenu?)?
@@ -52,9 +55,18 @@ struct OrganizerOutlineView: NSViewRepresentable {
     var onSetColor: (UUID, String?) -> Void
     var onSetConnectionColor: (UUID, String?) -> Void
     var onEditConnection: (UUID) -> Void
+    /// Connection lifecycle actions, keyed by profile id.
+    var onConnectProfile: (UUID) -> Void = { _ in }
+    var onDisconnect: (UUID) -> Void = { _ in }
+    var onReconnect: (UUID) -> Void = { _ in }
+    var onIntrospect: (UUID) -> Void = { _ in }
+    /// Live status of a connection (profile id → dot), for the green indicator.
+    var connectionDot: (UUID) -> ConnectionDot = { _ in .none }
     /// A value that changes with the organizer/profiles so SwiftUI re-invokes
     /// updateNSView (which refreshes the tree) on renames/recolors.
     var version: Int = 0
+    /// Changes when any connection's live status changes, so the dots refresh.
+    var statusVersion: Int = 0
 
     private static let nodeType = NSPasteboard.PasteboardType("io.github.tedyno.tessera.node")
 
@@ -86,12 +98,23 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         context.coordinator.outlineView = outline
         context.coordinator.pasteboardType = Self.nodeType
+        applyClosures(to: context.coordinator)
         context.coordinator.rebuild(expandingAll: true)
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        applyClosures(to: context.coordinator)
+        context.coordinator.statusVersion = statusVersion
         context.coordinator.sync()
+    }
+
+    private func applyClosures(to coordinator: Coordinator) {
+        coordinator.connectionDot = connectionDot
+        coordinator.onConnectProfile = onConnectProfile
+        coordinator.onDisconnect = onDisconnect
+        coordinator.onReconnect = onReconnect
+        coordinator.onIntrospect = onIntrospect
     }
 
     func makeCoordinator() -> Coordinator {
@@ -116,6 +139,12 @@ struct OrganizerOutlineView: NSViewRepresentable {
         let onSetColor: (UUID, String?) -> Void
         let onSetConnectionColor: (UUID, String?) -> Void
         let onEditConnection: (UUID) -> Void
+        var onConnectProfile: (UUID) -> Void = { _ in }
+        var onDisconnect: (UUID) -> Void = { _ in }
+        var onReconnect: (UUID) -> Void = { _ in }
+        var onIntrospect: (UUID) -> Void = { _ in }
+        var connectionDot: (UUID) -> ConnectionDot = { _ in .none }
+        var statusVersion = 0
 
         weak var outlineView: NSOutlineView?
         var pasteboardType: NSPasteboard.PasteboardType = .string
@@ -146,6 +175,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
             var hasher = Hasher()
             hasher.combine(model.organizer)
             hasher.combine(model.profiles)
+            hasher.combine(statusVersion)
             return hasher.finalize()
         }
 
@@ -255,6 +285,16 @@ struct OrganizerOutlineView: NSViewRepresentable {
             cell.textField?.stringValue = title(for: orgItem)
             let custom = currentColorName(for: orgItem)
 
+            // Live-connection dot (green connected / yellow connecting / red failed).
+            let statusDot = cell.subviews.first { $0.identifier?.rawValue == "statusDot" }
+            if orgItem.category == .connection, let profileID = model.organizer.profileID(forNode: orgItem.id) {
+                let dotStatus = connectionDot(profileID)
+                statusDot?.isHidden = dotStatus == .none
+                statusDot?.layer?.backgroundColor = Self.dotColor(dotStatus)?.cgColor
+            } else {
+                statusDot?.isHidden = true
+            }
+
             // Connections show the database mascot (elephant / dolphin). A custom
             // color renders it as a tinted template; otherwise the branded colors show.
             if orgItem.category == .connection, let kind = profileKind(for: orgItem),
@@ -296,8 +336,15 @@ struct OrganizerOutlineView: NSViewRepresentable {
             textField.translatesAutoresizingMaskIntoConstraints = false
             textField.lineBreakMode = .byTruncatingTail
             textField.font = .systemFont(ofSize: 13)
+            let dot = NSView()
+            dot.identifier = NSUserInterfaceItemIdentifier("statusDot")
+            dot.translatesAutoresizingMaskIntoConstraints = false
+            dot.wantsLayer = true
+            dot.layer?.cornerRadius = 4
+            dot.isHidden = true
             cell.addSubview(imageView)
             cell.addSubview(textField)
+            cell.addSubview(dot)
             cell.imageView = imageView
             cell.textField = textField
             NSLayoutConstraint.activate([
@@ -306,10 +353,23 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 imageView.widthAnchor.constraint(equalToConstant: 16),
                 imageView.heightAnchor.constraint(equalToConstant: 16),
                 textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
-                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                textField.trailingAnchor.constraint(equalTo: dot.leadingAnchor, constant: -4),
                 textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                dot.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+                dot.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                dot.widthAnchor.constraint(equalToConstant: 8),
+                dot.heightAnchor.constraint(equalToConstant: 8),
             ])
             return cell
+        }
+
+        private static func dotColor(_ status: ConnectionDot) -> NSColor? {
+            switch status {
+            case .connected: .systemGreen
+            case .connecting: .systemYellow
+            case .failed: .systemRed
+            case .none: nil
+            }
         }
 
         static let palette: [(name: String, color: NSColor)] = [
@@ -390,7 +450,18 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 }
                 add(menu, "Rename", #selector(actionRename), item)
             } else {
-                add(menu, "Connect", #selector(actionConnect), item)
+                let status = (model.organizer.profileID(forNode: item.id)).map { connectionDot($0) } ?? .none
+                switch status {
+                case .connected:
+                    add(menu, "Disconnect", #selector(actionDisconnect), item)
+                    add(menu, "Reconnect", #selector(actionReconnect), item)
+                    add(menu, "Refresh Schema", #selector(actionIntrospect), item)
+                case .connecting:
+                    add(menu, "Disconnect", #selector(actionDisconnect), item)
+                case .failed, .none:
+                    add(menu, "Connect", #selector(actionConnect), item)
+                }
+                menu.addItem(.separator())
                 add(menu, "Edit…", #selector(actionEdit), item)
                 menu.addItem(colorMenuItem(for: item))
             }
@@ -475,7 +546,22 @@ struct OrganizerOutlineView: NSViewRepresentable {
             if let item = sender.representedObject as? OrganizerItem { onRename(item.id, title(for: item)) }
         }
         @objc private func actionConnect(_ sender: NSMenuItem) {
-            if let item = sender.representedObject as? OrganizerItem { selection.wrappedValue = item.id }
+            guard let item = sender.representedObject as? OrganizerItem else { return }
+            selection.wrappedValue = item.id
+            if let profileID = model.organizer.profileID(forNode: item.id) { onConnectProfile(profileID) }
+        }
+        @objc private func actionDisconnect(_ sender: NSMenuItem) {
+            if let profileID = profileID(from: sender) { onDisconnect(profileID) }
+        }
+        @objc private func actionReconnect(_ sender: NSMenuItem) {
+            if let profileID = profileID(from: sender) { onReconnect(profileID) }
+        }
+        @objc private func actionIntrospect(_ sender: NSMenuItem) {
+            if let profileID = profileID(from: sender) { onIntrospect(profileID) }
+        }
+        private func profileID(from sender: NSMenuItem) -> UUID? {
+            guard let item = sender.representedObject as? OrganizerItem else { return nil }
+            return model.organizer.profileID(forNode: item.id)
         }
         @objc private func actionDelete(_ sender: NSMenuItem) {
             if let item = sender.representedObject as? OrganizerItem {

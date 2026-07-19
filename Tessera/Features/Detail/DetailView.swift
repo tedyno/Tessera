@@ -64,6 +64,9 @@ struct DetailView: View {
     private func tabChip(_ tab: QueryTab) -> some View {
         let isActive = tab.id == model.activeTabID
         let isData = tab.kind == .data
+        // Label each tab with its connection when more than one is open, so the same
+        // table from staging vs production is distinguishable.
+        let showConnection = model.sessions.count > 1
         return HStack(spacing: 6) {
             if tab.isRunning {
                 ProgressView().controlSize(.mini)
@@ -72,9 +75,18 @@ struct DetailView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(isData ? AnyShapeStyle(.teal) : AnyShapeStyle(.secondary))
             }
+            if showConnection, let session = tab.session {
+                Circle().fill(connectionColor(session)).frame(width: 7, height: 7)
+            }
             Text(tab.title)
                 .font(.system(size: 12, weight: isActive ? .medium : .regular))
                 .foregroundStyle(isActive ? .primary : .secondary)
+            if showConnection, let session = tab.session {
+                Text(session.name)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             if model.tabs.count > 1 {
                 Button {
                     model.closeTab(tab.id)
@@ -254,6 +266,20 @@ struct DetailView: View {
         .padding(8)
         .frame(height: 120)
         .background(.quaternary.opacity(0.4))
+    }
+
+    /// The tab's connection dot: its assigned color, else green when live / grey when not.
+    private func connectionColor(_ session: ConnectionSession) -> Color {
+        switch session.colorName {
+        case "red": .red
+        case "orange": .orange
+        case "yellow": .yellow
+        case "green": .green
+        case "blue": .blue
+        case "purple": .purple
+        case "gray": .gray
+        default: session.isReady ? .green : .secondary
+        }
     }
 
     /// Dot color matching the row highlight: red delete, orange update, green insert.

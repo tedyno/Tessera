@@ -72,24 +72,77 @@ final class AppModel {
     var canEditRows: Bool { console.activeTab?.isEditable ?? false }
     var hasPendingChanges: Bool { console.activeTab?.hasEdits ?? false }
 
+    /// Selecting a connection: activate (or create) its session + a tab; connect only
+    /// if it isn't already live.
     func connect(nodeID: UUID?) {
-        guard let nodeID,
-              let profileID = connections.profileID(forNode: nodeID),
-              let profile = connections.profile(id: profileID) else { return }
-        guard profileID != console.currentProfileID else { return }
+        guard let nodeID, let profileID = connections.profileID(forNode: nodeID) else { return }
+        connectProfile(profileID: profileID)
+    }
+
+    func connectProfile(profileID: UUID) {
+        guard let profile = connections.profile(id: profileID) else { return }
+        let session = console.ensureSession(profile: profile)
+        console.activateTab(for: session)
+        guard !session.isReady, !session.isConnecting else { return }
+        Task { await openSession(session, profile: profile) }
+    }
+
+    func disconnect(profileID: UUID) {
+        guard let session = console.session(for: profileID) else { return }
+        Task { await session.close() }
+    }
+
+    func reconnect(profileID: UUID) {
+        guard let profile = connections.profile(id: profileID) else { return }
+        let session = console.ensureSession(profile: profile)
         Task {
-            let secrets: Secrets
-            do {
-                secrets = try connections.loadSecrets(for: profile)
-            } catch {
-                console.reportConnectionFailure(
-                    profile: profile,
-                    message: String(localized: "Keychain access was denied. Click Connect again to allow it."))
-                return
-            }
-            await console.open(profile: profile, secrets: secrets)
-            if let schema = console.schema { schemaCache[profileID] = schema }
+            await session.close()
+            await openSession(session, profile: profile)
         }
+    }
+
+    func introspect(profileID: UUID) {
+        guard let session = console.session(for: profileID) else { return }
+        Task {
+            await session.refreshSchema()
+            if let schema = session.schema { schemaCache[profileID] = schema }
+        }
+    }
+
+    func isConnected(profileID: UUID) -> Bool { console.session(for: profileID)?.isReady ?? false }
+    func isConnecting(profileID: UUID) -> Bool { console.session(for: profileID)?.isConnecting ?? false }
+
+    /// Sidebar status dot for a connection.
+    func connectionDot(profileID: UUID) -> ConnectionDot {
+        switch console.session(for: profileID)?.status {
+        case .ready: .connected
+        case .connecting: .connecting
+        case .failed: .failed
+        case .idle, nil: .none
+        }
+    }
+
+    /// Changes whenever any session's status changes, so the sidebar dots refresh.
+    var sessionStatusVersion: Int {
+        var hasher = Hasher()
+        for session in console.sessions {
+            hasher.combine(session.id)
+            hasher.combine(session.status)
+        }
+        return hasher.finalize()
+    }
+
+    private func openSession(_ session: ConnectionSession, profile: ConnectionProfile) async {
+        let secrets: Secrets
+        do {
+            secrets = try connections.loadSecrets(for: profile)
+        } catch {
+            session.reportFailure(
+                String(localized: "Keychain access was denied. Click Connect again to allow it."))
+            return
+        }
+        await session.open(profile: profile, secrets: secrets)
+        if let schema = session.schema { schemaCache[profile.id] = schema }
     }
 
     // MARK: Spotlight
@@ -159,12 +212,11 @@ final class AppModel {
         showingSpotlight = false
         guard let profile = connections.profile(id: result.profileID) else { return }
         Task {
-            // Open first; only then update `selection` — by then currentProfileID
-            // matches, so the selection `onChange` won't kick off a second open.
-            if console.currentProfileID != profile.id {
-                await console.open(profile: profile, secrets: connections.secrets(for: profile))
-                if let schema = console.schema { schemaCache[profile.id] = schema }
+            let session = console.ensureSession(profile: profile)
+            if !session.isReady, !session.isConnecting {
+                await openSession(session, profile: profile)
             }
+            console.activateTab(for: session)
             if let nodeID = connections.firstNodeID(forProfile: result.profileID) { selection = nodeID }
             if let table = result.table, let schema = result.schema {
                 await console.selectAll(schema: schema, table: table)

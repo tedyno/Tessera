@@ -14,7 +14,13 @@ struct ContentView: View {
                         app.newConnectionParent = parent
                         app.showingNewConnection = true
                     },
-                    onEditConnection: { app.editConnection(nodeID: $0) })
+                    onEditConnection: { app.editConnection(nodeID: $0) },
+                    onConnectProfile: { app.connectProfile(profileID: $0) },
+                    onDisconnect: { app.disconnect(profileID: $0) },
+                    onReconnect: { app.reconnect(profileID: $0) },
+                    onIntrospect: { app.introspect(profileID: $0) },
+                    connectionDot: { app.connectionDot(profileID: $0) },
+                    statusVersion: app.sessionStatusVersion)
                 .frame(minHeight: 80, idealHeight: geo.size.height / 2, maxHeight: .infinity)
 
                 SchemaSidebar(
