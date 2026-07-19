@@ -414,7 +414,11 @@ struct DetailView: View {
 
     @ViewBuilder
     private var resultsArea: some View {
-        if let tab = model.activeTab, tab.result != nil {
+        if let tab = model.activeTab, let result = tab.result, result.columns.isEmpty,
+           tab.errorMessage == nil {
+            // A statement with no result set (UPDATE/INSERT/DELETE/DDL) — confirm it ran.
+            executedNotice(tab, result)
+        } else if let tab = model.activeTab, tab.result != nil {
             // A failed re-run keeps the previous result (and its selection) visible;
             // the error shows as a banner above the grid.
             VStack(spacing: 0) {
@@ -435,6 +439,20 @@ struct DetailView: View {
         } else {
             ContentUnavailableView("No results", systemImage: "tablecells",
                                    description: Text("Press Run to execute the query."))
+        }
+    }
+
+    private func executedNotice(_ tab: QueryTab, _ result: QueryResult) -> some View {
+        ContentUnavailableView {
+            Label("Query executed", systemImage: "checkmark.circle")
+                .foregroundStyle(.green)
+        } description: {
+            VStack(spacing: 2) {
+                if let affected = result.rowsAffected {
+                    Text("^[\(affected) row](inflect: true) affected")
+                }
+                if let ms = tab.elapsedMS { Text("\(ms) ms").foregroundStyle(.secondary) }
+            }
         }
     }
 
@@ -472,6 +490,14 @@ struct DetailView: View {
                         Button("Load more") { Task { await model.loadMore(tab) } }
                             .buttonStyle(.link)
                     }
+                } else if let result = model.activeTab?.result, result.columns.isEmpty {
+                    // A statement with no result set (UPDATE/INSERT/DELETE/DDL).
+                    if let affected = result.rowsAffected {
+                        Text("^[\(affected) row](inflect: true) affected").foregroundStyle(.green)
+                    } else {
+                        Text("Executed").foregroundStyle(.green)
+                    }
+                    if let ms = model.activeTab?.elapsedMS { Text("\(ms) ms").foregroundStyle(.secondary) }
                 } else if let result = model.activeTab?.result {
                     Text("\(result.rows.count) rows")
                     Text("\(result.columns.count) columns")

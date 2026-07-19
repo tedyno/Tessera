@@ -189,6 +189,7 @@ final class QueryConsoleModel {
             tab.edits = [:]
             tab.pendingDeletes = []
             tab.pendingInserts = []
+            tab.isRunning = false   // clear before re-running, else run()'s guard bails
             await run(tab, sqlToRun: tab.sql, preserveSort: true)
         } catch {
             tab.errorMessage = ConnectionSession.message(for: error)
