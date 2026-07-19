@@ -18,6 +18,7 @@ struct NewConnectionView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var tlsMode: TLSMode = .prefer
+    @State private var readOnly = false
 
     @State private var sshEnabled = false
     @State private var sshHost = ""
@@ -59,6 +60,7 @@ struct NewConnectionView: View {
                     Picker("TLS", selection: $tlsMode) {
                         ForEach(TLSMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
+                    Toggle("Read-only (warn before writing)", isOn: $readOnly)
                 }
 
                 Section {
@@ -133,7 +135,7 @@ struct NewConnectionView: View {
             : nil
         return ConnectionProfile(
             name: name, kind: kind, host: host, port: Int(port),
-            database: database, username: username, tlsMode: tlsMode, ssh: ssh)
+            database: database, username: username, tlsMode: tlsMode, ssh: ssh, readOnly: readOnly)
     }
 
     private func makeSecrets() -> Secrets {

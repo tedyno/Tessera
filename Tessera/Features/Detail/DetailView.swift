@@ -9,6 +9,7 @@ struct DetailView: View {
     @Binding var showingHistory: Bool
     var focusTrigger: Int
     var cursor: Binding<Int>
+    var isReadOnly: Bool = false
     var onRun: () -> Void
 
     var body: some View {
@@ -160,6 +161,9 @@ struct DetailView: View {
                 }
             }
             Spacer()
+            if isReadOnly {
+                Label("read-only", systemImage: "lock.fill").foregroundStyle(.orange)
+            }
             if let name = model.connectionName {
                 Text(name).foregroundStyle(model.status == .ready ? .green : .secondary)
             }

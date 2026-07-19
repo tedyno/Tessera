@@ -30,6 +30,7 @@ struct ContentView: View {
                        showingHistory: $app.showingHistory,
                        focusTrigger: app.editorFocusRequests,
                        cursor: cursorBinding,
+                       isReadOnly: app.currentIsReadOnly,
                        onRun: { app.runActiveQuery() })
                 .navigationSplitViewColumnWidth(min: 480, ideal: 760)
         }
@@ -54,6 +55,13 @@ struct ContentView: View {
         }
         .sheet(isPresented: $app.showingSpotlight) {
             SpotlightView(app: app)
+        }
+        .confirmationDialog("This connection is read-only",
+                            isPresented: $app.showingReadOnlyConfirm) {
+            Button("Write Anyway", role: .destructive) { app.confirmReadOnlyCommit() }
+            Button("Cancel", role: .cancel) { app.cancelReadOnlyCommit() }
+        } message: {
+            Text("You marked this connection read-only. Save the edited rows to the database?")
         }
         .onAppear { app.installShiftMonitor() }
     }

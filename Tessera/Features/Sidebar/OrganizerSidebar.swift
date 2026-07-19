@@ -28,7 +28,8 @@ struct OrganizerSidebar: View {
             onNewFolder: { startNewFolder(parent: $0) },
             onNewProject: { startNewProject(workspace: $0) },
             onNewWorkspace: { editText = ""; pending = .newWorkspace },
-            onRename: { id, current in editText = current; pending = .rename(id: id) })
+            onRename: { id, current in editText = current; pending = .rename(id: id) },
+            onSetColor: { id, color in model.setFolderColor(color, folderID: id) })
         .safeAreaInset(edge: .bottom) { bottomBar }
         .alert(alertTitle, isPresented: pendingBinding) {
             TextField("Name", text: $editText)

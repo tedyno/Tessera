@@ -197,6 +197,15 @@ final class ConnectionsModel {
         saveOrganizer()
     }
 
+    func setFolderColor(_ color: String?, folderID: UUID) {
+        organizer.setColor(color, forFolder: folderID)
+        saveOrganizer()
+    }
+
+    func path(forProfile profileID: UUID) -> [String] {
+        organizer.path(toProfile: profileID)
+    }
+
     /// Deletes by id whether it is a workspace or a tree node.
     func delete(id: UUID) {
         if organizer.workspaces.contains(where: { $0.id == id }) {

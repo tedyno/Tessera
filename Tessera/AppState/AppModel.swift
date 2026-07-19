@@ -23,6 +23,15 @@ final class AppModel {
     var pendingRun: RunChoice?
     var showingRunChoice = false
 
+    /// Confirmation before writing to a read-only connection.
+    var showingReadOnlyConfirm = false
+    @ObservationIgnored private var pendingCommitTab: QueryTab?
+
+    var currentIsReadOnly: Bool {
+        guard let id = console.currentProfileID, let profile = connections.profile(id: id) else { return false }
+        return profile.isReadOnly
+    }
+
     /// Spotlight-style global search (double-Shift).
     var showingSpotlight = false
     /// Cached schema per profile, populated as connections are opened, so search
@@ -99,27 +108,29 @@ final class AppModel {
         var results: [SpotlightResult] = []
 
         for profile in connections.profiles {
+            let path = connections.path(forProfile: profile.id)
             if profile.name.lowercased().contains(needle) {
                 results.append(SpotlightResult(kind: .connection, profileID: profile.id,
-                                               connectionName: profile.name, schema: nil, table: nil, column: nil))
+                                               connectionName: profile.name, path: path,
+                                               schema: nil, table: nil, column: nil))
             }
             guard let tree = schemaCache[profile.id] else { continue }
             for namespace in tree.schemas {
                 if namespace.name.lowercased().contains(needle) {
                     results.append(SpotlightResult(kind: .schema, profileID: profile.id,
-                                                   connectionName: profile.name, schema: namespace.name,
-                                                   table: nil, column: nil))
+                                                   connectionName: profile.name, path: path,
+                                                   schema: namespace.name, table: nil, column: nil))
                 }
                 for table in namespace.tables {
                     if table.name.lowercased().contains(needle) {
                         results.append(SpotlightResult(kind: .table, profileID: profile.id,
-                                                       connectionName: profile.name, schema: namespace.name,
-                                                       table: table.name, column: nil))
+                                                       connectionName: profile.name, path: path,
+                                                       schema: namespace.name, table: table.name, column: nil))
                     }
                     for column in table.columns where column.name.lowercased().contains(needle) {
                         results.append(SpotlightResult(kind: .column, profileID: profile.id,
-                                                       connectionName: profile.name, schema: namespace.name,
-                                                       table: table.name, column: column.name))
+                                                       connectionName: profile.name, path: path,
+                                                       schema: namespace.name, table: table.name, column: column.name))
                     }
                 }
             }
@@ -149,7 +160,12 @@ final class AppModel {
     func runActiveQuery() {
         guard let tab = console.activeTab else { return }
         if tab.hasEdits {
-            tab.task = Task { await console.commitEdits(tab) }
+            if currentIsReadOnly {
+                pendingCommitTab = tab
+                showingReadOnlyConfirm = true
+            } else {
+                tab.task = Task { await console.commitEdits(tab) }
+            }
             return
         }
         switch console.resolveRunTarget(tab) {
@@ -167,6 +183,14 @@ final class AppModel {
         pendingRun = nil
         tab.task = Task { await console.run(tab, sqlToRun: sql) }
     }
+
+    func confirmReadOnlyCommit() {
+        guard let tab = pendingCommitTab else { return }
+        pendingCommitTab = nil
+        tab.task = Task { await console.commitEdits(tab) }
+    }
+
+    func cancelReadOnlyCommit() { pendingCommitTab = nil }
 
     func stopActiveQuery() { console.activeTab?.task?.cancel() }
     func newTab() { console.addTab() }

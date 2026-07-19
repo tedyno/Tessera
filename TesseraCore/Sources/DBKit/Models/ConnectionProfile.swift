@@ -62,9 +62,14 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
     public var username: String
     public var tlsMode: TLSMode
     public var ssh: SSHConfig?
+    /// Optional so older profiles decode; use `isReadOnly`.
+    public var readOnly: Bool?
 
     /// Stable Keychain key (service = bundle ID, account = this value).
     public var keychainAccount: String { id.uuidString }
+
+    /// When true, the app warns before writing (e.g. committing cell edits).
+    public var isReadOnly: Bool { readOnly ?? false }
 
     public init(
         id: UUID = UUID(),
@@ -75,7 +80,8 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
         database: String,
         username: String,
         tlsMode: TLSMode = .prefer,
-        ssh: SSHConfig? = nil
+        ssh: SSHConfig? = nil,
+        readOnly: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -86,6 +92,7 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
         self.username = username
         self.tlsMode = tlsMode
         self.ssh = ssh
+        self.readOnly = readOnly ? true : nil
     }
 }
 

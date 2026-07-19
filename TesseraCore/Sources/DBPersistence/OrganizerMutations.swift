@@ -83,6 +83,61 @@ extension OrganizerDocument {
 
     // MARK: Mutations
 
+    /// The breadcrumb of ancestor names (workspace → … → folder) leading to the
+    /// first connection referencing `profileID`.
+    public func path(toProfile profileID: UUID) -> [String] {
+        for workspace in workspaces {
+            if let path = Self.path(toProfile: profileID, in: workspace.children, ancestors: [workspace.name]) {
+                return path
+            }
+        }
+        return []
+    }
+
+    private static func path(toProfile profileID: UUID, in nodes: [OrganizerNode], ancestors: [String]) -> [String]? {
+        for node in nodes {
+            switch node {
+            case .connection(let ref):
+                if ref.profileID == profileID { return ancestors }
+            case .project(let p):
+                if let found = path(toProfile: profileID, in: p.children, ancestors: ancestors + [p.name]) { return found }
+            case .folder(let f):
+                if let found = path(toProfile: profileID, in: f.children, ancestors: ancestors + [f.name]) { return found }
+            }
+        }
+        return nil
+    }
+
+    public mutating func setColor(_ color: String?, forFolder id: UUID) {
+        for i in workspaces.indices {
+            var children = workspaces[i].children
+            if Self.setColor(color, forFolder: id, in: &children) {
+                workspaces[i].children = children
+                return
+            }
+        }
+    }
+
+    private static func setColor(_ color: String?, forFolder id: UUID, in nodes: inout [OrganizerNode]) -> Bool {
+        for i in nodes.indices {
+            if case .folder(var folder) = nodes[i] {
+                if folder.id == id { folder.color = color; nodes[i] = .folder(folder); return true }
+                var children = folder.children
+                if setColor(color, forFolder: id, in: &children) {
+                    folder.children = children
+                    nodes[i] = .folder(folder)
+                    return true
+                }
+            } else if var children = nodes[i].children {
+                if setColor(color, forFolder: id, in: &children) {
+                    nodes[i].setChildren(children)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     public mutating func rename(_ id: UUID, to name: String) {
         for i in workspaces.indices {
             if workspaces[i].id == id { workspaces[i].name = name; return }
