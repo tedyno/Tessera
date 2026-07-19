@@ -51,9 +51,30 @@ struct ExportSettingsView: View {
     @State private var directory = ExportSettings.directory
     @State private var reveal = ExportSettings.revealAfterExport
     @State private var maxRows = ExportSettings.maxRows
+    @State private var language = AppLanguage.current
+    @State private var languageChanged = false
 
     var body: some View {
         Form {
+            Section("General") {
+                Picker("Language", selection: $language) {
+                    ForEach(AppLanguage.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .onChange(of: language) { _, newValue in
+                    AppLanguage.apply(newValue)
+                    languageChanged = true
+                }
+                if languageChanged {
+                    HStack {
+                        Text("Restart the app to apply the language.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Relaunch") { AppLanguage.relaunch() }
+                    }
+                }
+            }
             Section("Export") {
                 LabeledContent("Default folder") {
                     HStack(spacing: 8) {

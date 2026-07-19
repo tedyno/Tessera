@@ -662,6 +662,17 @@
         }
       }
     },
+    "General": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obecné"
+          }
+        }
+      }
+    },
     "History": {
       "extractionState": "manual",
       "localizations": {
@@ -790,6 +801,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Přístup ke Klíčence byl odmítnut. Klikněte znovu na Připojit a povolte jej."
+          }
+        }
+      }
+    },
+    "Language": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jazyk"
           }
         }
       }
@@ -1179,6 +1201,17 @@
         }
       }
     },
+    "Relaunch": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restartovat"
+          }
+        }
+      }
+    },
     "Rename Column…": {
       "extractionState": "manual",
       "localizations": {
@@ -1197,6 +1230,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Přejmenovat tabulku…"
+          }
+        }
+      }
+    },
+    "Restart the app to apply the language.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pro použití jazyka restartujte aplikaci."
           }
         }
       }
@@ -1494,6 +1538,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Struktura"
+          }
+        }
+      }
+    },
+    "System": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systémový"
           }
         }
       }
