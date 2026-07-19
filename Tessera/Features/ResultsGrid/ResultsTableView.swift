@@ -25,7 +25,7 @@ struct CellPos: Hashable { let row: Int; let col: Int }
 /// NSTableView with spreadsheet-style cell selection: click/drag selects a
 /// rectangular block of cells, double-click edits, ⌘C/⌘V copy/paste the block.
 final class GridTableView: NSTableView {
-    var onSelect: ((Int, Int, Bool) -> Void)?   // row, col, extend
+    var onSelect: ((Int, Int, Bool, Bool) -> Void)?   // row, col, extend(shift), toggle(cmd)
     var onBeginEdit: ((Int, Int) -> Void)?
     var onPaste: (() -> Void)?
     var onCopy: (() -> Void)?
@@ -40,14 +40,14 @@ final class GridTableView: NSTableView {
             onBeginEdit?(row, col)
             return
         }
-        onSelect?(row, col, event.modifierFlags.contains(.shift))
+        onSelect?(row, col, event.modifierFlags.contains(.shift), event.modifierFlags.contains(.command))
     }
 
     override func mouseDragged(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
         let col = self.column(at: point)
-        if row >= 0, col >= 0 { onSelect?(row, col, true) }
+        if row >= 0, col >= 0 { onSelect?(row, col, true, false) }
     }
 
     @objc func paste(_ sender: Any?) { onPaste?() }
@@ -71,7 +71,9 @@ struct ResultsTableView: NSViewRepresentable {
         tableView.selectionHighlightStyle = .none
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
-        tableView.onSelect = { [c = context.coordinator] row, col, extend in c.selectCell(row: row, col: col, extend: extend) }
+        tableView.onSelect = { [c = context.coordinator] row, col, extend, toggle in
+            c.selectCell(row: row, col: col, extend: extend, toggle: toggle)
+        }
         tableView.onBeginEdit = { [c = context.coordinator] row, col in c.beginEdit(row: row, col: col) }
         tableView.onPaste = { [c = context.coordinator] in c.pasteIntoSelection() }
         tableView.onCopy = { [c = context.coordinator] in c.copySelection() }
@@ -98,40 +100,55 @@ struct ResultsTableView: NSViewRepresentable {
         private var tab: QueryTab
         weak var tableView: NSTableView?
         private var columnsSignature: [String] = []
+        private var selected: Set<CellPos> = []
         private var anchor: CellPos?
-        private var focus: CellPos?
 
         init(tab: QueryTab) { self.tab = tab }
 
         // MARK: Cell selection
 
         private var selectionRows: IndexSet {
-            guard let anchor, let focus else { return [] }
-            return IndexSet(integersIn: min(anchor.row, focus.row)...max(anchor.row, focus.row))
-        }
-        private var selectionCols: ClosedRange<Int>? {
-            guard let anchor, let focus else { return nil }
-            return min(anchor.col, focus.col)...max(anchor.col, focus.col)
-        }
-        func isSelected(row: Int, col: Int) -> Bool {
-            guard let cols = selectionCols else { return false }
-            return selectionRows.contains(row) && cols.contains(col)
+            var set = IndexSet()
+            for cell in selected { set.insert(cell.row) }
+            return set
         }
 
-        func selectCell(row: Int, col: Int, extend: Bool) {
+        func isSelected(row: Int, col: Int) -> Bool {
+            selected.contains(CellPos(row: row, col: col))
+        }
+
+        /// extend = Shift (rectangle from anchor); toggle = ⌘ (add/remove one cell).
+        func selectCell(row: Int, col: Int, extend: Bool, toggle: Bool) {
             let old = selectionRows
-            if extend, anchor != nil {
-                focus = CellPos(row: row, col: col)
+            let cell = CellPos(row: row, col: col)
+            if toggle {
+                if selected.contains(cell) { selected.remove(cell) } else { selected.insert(cell) }
+                anchor = cell
+            } else if extend, let anchor {
+                selected = Self.rectangle(from: anchor, to: cell)
             } else {
-                anchor = CellPos(row: row, col: col)
-                focus = anchor
+                selected = [cell]
+                anchor = cell
             }
             reload(rows: old.union(selectionRows))
         }
 
+        private static func rectangle(from a: CellPos, to b: CellPos) -> Set<CellPos> {
+            var set: Set<CellPos> = []
+            for row in min(a.row, b.row)...max(a.row, b.row) {
+                for col in min(a.col, b.col)...max(a.col, b.col) {
+                    set.insert(CellPos(row: row, col: col))
+                }
+            }
+            return set
+        }
+
         func beginEdit(row: Int, col: Int) {
             guard tab.isEditable, let tableView else { return }
-            anchor = CellPos(row: row, col: col); focus = anchor
+            let old = selectionRows
+            selected = [CellPos(row: row, col: col)]
+            anchor = CellPos(row: row, col: col)
+            reload(rows: old.union(selectionRows))
             if let field = tableView.view(atColumn: col, row: row, makeIfNecessary: true) as? GridTextField {
                 field.isEditable = true
                 tableView.editColumn(col, row: row, with: nil, select: true)
@@ -145,32 +162,28 @@ struct ResultsTableView: NSViewRepresentable {
 
         /// ⌘V — writes the clipboard string into every selected cell.
         func pasteIntoSelection() {
-            guard tab.isEditable, let result = tab.result, let cols = selectionCols,
+            guard tab.isEditable, let result = tab.result, !selected.isEmpty,
                   let value = NSPasteboard.general.string(forType: .string) else { return }
-            let rows = selectionRows
-            guard !rows.isEmpty else { return }
-            for row in rows where row < result.rows.count {
-                for col in cols where col < result.columns.count {
-                    let columnName = result.columns[col].name
-                    let original = col < result.rows[row].count ? result.rows[row][col].text : nil
-                    if value == (original ?? "") {
-                        tab.edits[row]?[columnName] = nil
-                        if tab.edits[row]?.isEmpty == true { tab.edits[row] = nil }
-                    } else {
-                        tab.edits[row, default: [:]][columnName] = value
-                    }
+            for cell in selected where cell.row < result.rows.count && cell.col < result.columns.count {
+                let columnName = result.columns[cell.col].name
+                let original = cell.col < result.rows[cell.row].count ? result.rows[cell.row][cell.col].text : nil
+                if value == (original ?? "") {
+                    tab.edits[cell.row]?[columnName] = nil
+                    if tab.edits[cell.row]?.isEmpty == true { tab.edits[cell.row] = nil }
+                } else {
+                    tab.edits[cell.row, default: [:]][columnName] = value
                 }
             }
-            reload(rows: rows)
+            reload(rows: selectionRows)
         }
 
-        /// ⌘C — copies the selected block (tab/newline separated).
+        /// ⌘C — copies the selected cells (rows by newline, columns by tab).
         func copySelection() {
-            guard let result = tab.result, let cols = selectionCols else { return }
-            let rows = selectionRows
-            guard !rows.isEmpty else { return }
+            guard let result = tab.result, !selected.isEmpty else { return }
+            let rows = Set(selected.map(\.row)).sorted()
             let lines = rows.map { row -> String in
-                cols.map { col -> String in
+                let cols = selected.filter { $0.row == row }.map(\.col).sorted()
+                return cols.map { col -> String in
                     if let edited = tab.edits[row]?[result.columns[col].name] { return edited }
                     let cells = result.rows[row]
                     return (col < cells.count ? cells[col].text : nil) ?? ""
@@ -188,8 +201,8 @@ struct ResultsTableView: NSViewRepresentable {
             let signature = result.columns.map(\.name)
             if signature != columnsSignature {
                 columnsSignature = signature
+                selected = []
                 anchor = nil
-                focus = nil
                 for column in tableView.tableColumns { tableView.removeTableColumn(column) }
                 for (index, descriptor) in result.columns.enumerated() {
                     let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("\(index)"))
