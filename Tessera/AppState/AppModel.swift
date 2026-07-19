@@ -17,6 +17,10 @@ final class AppModel {
     /// Bumped to request first-responder focus in the SQL editor (⌘L).
     var editorFocusRequests = 0
 
+    /// Set when a run needs the user to choose subselect vs. whole statement.
+    var pendingRun: RunChoice?
+    var showingRunChoice = false
+
     // MARK: Command targets
 
     var canRun: Bool { console.status == .ready && !(console.activeTab?.isRunning ?? false) }
@@ -32,7 +36,24 @@ final class AppModel {
 
     func runActiveQuery() {
         guard let tab = console.activeTab else { return }
-        tab.task = Task { await console.runOrCommit(tab) }
+        if tab.hasEdits {
+            tab.task = Task { await console.commitEdits(tab) }
+            return
+        }
+        switch console.resolveRunTarget(tab) {
+        case .statement(let sql):
+            let target = sql.isEmpty ? tab.sql : sql
+            tab.task = Task { await console.run(tab, sqlToRun: target) }
+        case .ambiguous(let choice):
+            pendingRun = choice
+            showingRunChoice = true
+        }
+    }
+
+    func runResolved(_ sql: String) {
+        guard let tab = console.activeTab else { return }
+        pendingRun = nil
+        tab.task = Task { await console.run(tab, sqlToRun: sql) }
     }
 
     func stopActiveQuery() { console.activeTab?.task?.cancel() }

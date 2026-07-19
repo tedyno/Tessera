@@ -28,6 +28,11 @@ final class QueryTab: Identifiable {
     var hasEdits: Bool { !edits.isEmpty }
     var isEditable: Bool { editSource != nil }
 
+    /// Caret offset in the editor, used to run the statement under the cursor.
+    var cursorPosition = 0
+    /// Set to scroll the results grid to a column by name after a query runs.
+    var scrollToColumn: String?
+
     /// The in-flight run, so a Stop button can cancel it.
     @ObservationIgnored var task: Task<Void, Never>?
 

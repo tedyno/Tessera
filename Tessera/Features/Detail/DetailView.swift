@@ -8,6 +8,8 @@ struct DetailView: View {
     @Bindable var model: QueryConsoleModel
     @Binding var showingHistory: Bool
     var focusTrigger: Int
+    var cursor: Binding<Int>
+    var onRun: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -81,7 +83,7 @@ struct DetailView: View {
     private var editorToolbar: some View {
         HStack(spacing: 10) {
             Button {
-                if let tab = model.activeTab { tab.task = Task { await model.runOrCommit(tab) } }
+                onRun()
             } label: {
                 let editing = model.activeTab?.hasEdits == true
                 Label(editing ? "Commit" : "Run", systemImage: editing ? "checkmark" : "play.fill")
@@ -113,7 +115,7 @@ struct DetailView: View {
     }
 
     private var editor: some View {
-        SQLEditor(text: sqlBinding, schema: model.schema, focusTrigger: focusTrigger)
+        SQLEditor(text: sqlBinding, schema: model.schema, focusTrigger: focusTrigger, cursor: cursor)
             .frame(height: 150)
     }
 

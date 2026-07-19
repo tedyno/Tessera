@@ -18,7 +18,9 @@ struct ContentView: View {
         } detail: {
             DetailView(model: app.console,
                        showingHistory: $app.showingHistory,
-                       focusTrigger: app.editorFocusRequests)
+                       focusTrigger: app.editorFocusRequests,
+                       cursor: cursorBinding,
+                       onRun: { app.runActiveQuery() })
                 .navigationSplitViewColumnWidth(min: 480, ideal: 760)
         }
         .task {
@@ -33,5 +35,17 @@ struct ContentView: View {
                 app.selection = nodeID
             }
         }
+        .confirmationDialog("Run which query?", isPresented: $app.showingRunChoice, presenting: app.pendingRun) { choice in
+            Button("Run Subselect") { app.runResolved(choice.subselect) }
+            Button("Run Full Statement") { app.runResolved(choice.statement) }
+            Button("Cancel", role: .cancel) { app.pendingRun = nil }
+        } message: { _ in
+            Text("The cursor is inside a subselect.")
+        }
+    }
+
+    private var cursorBinding: Binding<Int> {
+        Binding(get: { app.console.activeTab?.cursorPosition ?? 0 },
+                set: { app.console.activeTab?.cursorPosition = $0 })
     }
 }

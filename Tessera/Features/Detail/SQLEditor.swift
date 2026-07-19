@@ -9,6 +9,7 @@ struct SQLEditor: NSViewRepresentable {
     @Binding var text: String
     var schema: DatabaseTree?
     var focusTrigger: Int
+    var cursor: Binding<Int>?
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
@@ -44,24 +45,33 @@ struct SQLEditor: NSViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, cursor: cursor) }
 
     static let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         private let text: Binding<String>
+        private let cursor: Binding<Int>?
         weak var textView: NSTextView?
         var lastFocusTrigger = 0
 
         var schema: DatabaseTree? { didSet { rebuildCompletionData() } }
 
-        init(text: Binding<String>) { self.text = text }
+        init(text: Binding<String>, cursor: Binding<Int>?) {
+            self.text = text
+            self.cursor = cursor
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
             text.wrappedValue = textView.string
             highlight()
             scheduleAutocomplete(in: textView)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView else { return }
+            cursor?.wrappedValue = textView.selectedRange().location
         }
 
         // MARK: Highlighting

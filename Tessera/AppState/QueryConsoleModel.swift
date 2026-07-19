@@ -123,6 +123,12 @@ final class QueryConsoleModel {
         if tab.hasEdits { await commitEdits(tab) } else { await run(tab, sqlToRun: tab.sql) }
     }
 
+    /// Which SQL to run given the caret position (statement under cursor, with
+    /// subselect disambiguation).
+    func resolveRunTarget(_ tab: QueryTab) -> SQLRunTarget {
+        SQLStatements.resolve(sql: tab.sql, cursor: tab.cursorPosition)
+    }
+
     func run(_ tab: QueryTab, sqlToRun: String? = nil) async {
         guard status == .ready, let driver, !tab.isRunning else { return }
         let sql = sqlToRun ?? tab.sql
