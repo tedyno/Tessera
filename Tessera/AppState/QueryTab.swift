@@ -22,9 +22,25 @@ struct PendingInsert: Identifiable, Equatable {
 @MainActor
 @Observable
 final class QueryTab: Identifiable {
+    /// A tab is either a SQL console (editor + result) or a data view opened from
+    /// the schema tree (grid + filter + pagination, no SQL editor).
+    enum Kind: Equatable { case console, data }
+
+    /// Default page size for data views; "Load more" grows the LIMIT by this.
+    static let pageSize = 200
+
     let id = UUID()
     var title: String
     var sql: String
+
+    var kind: Kind = .console
+    /// Data-view source table and paging state (only used when `kind == .data`).
+    var dataSchema: String?
+    var dataTable: String?
+    var filterWhere = ""
+    var pageLimit = QueryTab.pageSize
+    /// Total row count for the current filter (`SELECT count(*)`), if known.
+    var totalRows: Int?
     var result: QueryResult?
     var elapsedMS: Int?
     var isRunning = false

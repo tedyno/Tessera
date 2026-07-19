@@ -185,6 +185,11 @@ final class AppModel {
             }
             return
         }
+        // A data view has no editable SQL; ⌘↩ just refreshes it.
+        if tab.kind == .data {
+            tab.task = Task { await console.reloadData(tab, refreshCount: true) }
+            return
+        }
         switch console.resolveRunTarget(tab) {
         case .statement(let sql):
             let target = sql.isEmpty ? tab.sql : sql

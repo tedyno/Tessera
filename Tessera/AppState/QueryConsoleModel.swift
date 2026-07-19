@@ -257,6 +257,10 @@ final class QueryConsoleModel {
             tab.sortColumn = column
             tab.sortAscending = true
         }
+        if tab.kind == .data {
+            await reloadData(tab)   // rebuilds the generated query with the new ORDER BY
+            return
+        }
         let newSQL = rewriteOrderBy(tab.sql, column: tab.sortColumn, ascending: tab.sortAscending)
         tab.sql = newSQL
         await run(tab, sqlToRun: newSQL, preserveSort: true)
@@ -398,6 +402,72 @@ final class QueryConsoleModel {
         let tab = activeTab ?? { addTab(); return activeTab! }()
         tab.sql = "SELECT * FROM \(quote(schema)).\(quote(table)) LIMIT 200;"
         await run(tab)
+    }
+
+    // MARK: Data views (schema-tree table browsing)
+
+    /// Opens a dedicated data-view tab for a table: a grid with a filter bar and
+    /// LIMIT-based paging, no SQL editor. Double-clicking a table in the schema tree.
+    func openTable(schema: String, table: String) async {
+        // Reuse an existing data view for the same table instead of stacking duplicates.
+        if let existing = tabs.first(where: {
+            $0.kind == .data && $0.dataSchema == schema && $0.dataTable == table
+        }) {
+            activeTabID = existing.id
+            return
+        }
+        let tab = QueryTab(title: table)
+        tab.kind = .data
+        tab.dataSchema = schema
+        tab.dataTable = table
+        tab.pageLimit = QueryTab.pageSize
+        tabs.append(tab)
+        activeTabID = tab.id
+        await reloadData(tab, refreshCount: true)
+    }
+
+    /// The generated `SELECT *` for a data view, folding in the filter, sort, and page limit.
+    private func dataSQL(_ tab: QueryTab) -> String {
+        guard let schema = tab.dataSchema, let table = tab.dataTable else { return tab.sql }
+        var sql = "SELECT * FROM \(quote(schema)).\(quote(table))"
+        let filter = tab.filterWhere.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !filter.isEmpty { sql += " WHERE \(filter)" }
+        if let column = tab.sortColumn { sql += " ORDER BY \(quote(column)) \(tab.sortAscending ? "ASC" : "DESC")" }
+        sql += " LIMIT \(tab.pageLimit)"
+        return sql
+    }
+
+    /// Runs the data view's generated query; optionally refreshes the total count.
+    func reloadData(_ tab: QueryTab, refreshCount: Bool = false) async {
+        tab.sql = dataSQL(tab)
+        await run(tab, sqlToRun: tab.sql, preserveSort: true)
+        if refreshCount { await self.refreshCount(tab) }
+    }
+
+    /// Fetches `SELECT count(*)` for the current filter so the UI can show "N of TOTAL".
+    private func refreshCount(_ tab: QueryTab) async {
+        guard let driver, let schema = tab.dataSchema, let table = tab.dataTable else { return }
+        var sql = "SELECT count(*) FROM \(quote(schema)).\(quote(table))"
+        let filter = tab.filterWhere.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !filter.isEmpty { sql += " WHERE \(filter)" }
+        if let result = try? await driver.execute(sql), let text = result.rows.first?.first?.text {
+            tab.totalRows = Int(text)
+        }
+    }
+
+    /// "Load more" — grows the page limit by one page and re-runs from the top.
+    func loadMore(_ tab: QueryTab) async {
+        guard tab.kind == .data else { return }
+        tab.pageLimit += QueryTab.pageSize
+        await reloadData(tab)
+    }
+
+    /// Applies a new WHERE filter, resets paging, and refreshes the count.
+    func applyFilter(_ tab: QueryTab, where clause: String) async {
+        guard tab.kind == .data else { return }
+        tab.filterWhere = clause
+        tab.pageLimit = QueryTab.pageSize
+        await reloadData(tab, refreshCount: true)
     }
 
     /// Quotes an identifier for the active engine so mixed-case / reserved names work.

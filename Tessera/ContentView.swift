@@ -23,11 +23,11 @@ struct ContentView: View {
                     reveal: app.schemaReveal,
                     onToggleSchema: { app.toggleSchema($0) },
                     onOpenTable: { schema, table in
-                        Task { await app.console.selectAll(schema: schema, table: table) }
+                        Task { await app.console.openTable(schema: schema, table: table) }
                     },
                     onOpenColumn: { schema, table, column in
                         Task {
-                            await app.console.selectAll(schema: schema, table: table)
+                            await app.console.openTable(schema: schema, table: table)
                             app.console.activeTab?.scrollToColumn = column
                         }
                     })

@@ -12,13 +12,19 @@ struct DetailView: View {
     var isReadOnly: Bool = false
     var onRun: () -> Void
 
+    private var isDataView: Bool { model.activeTab?.kind == .data }
+
     var body: some View {
         VStack(spacing: 0) {
             tabBar
             Divider()
-            editorToolbar
-            Divider()
-            editor
+            if let tab = model.activeTab, tab.kind == .data {
+                dataToolbar(tab)
+            } else {
+                editorToolbar
+                Divider()
+                editor
+            }
             Divider()
             resultsArea
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -62,6 +68,8 @@ struct DetailView: View {
         return HStack(spacing: 6) {
             if tab.isRunning {
                 ProgressView().controlSize(.mini)
+            } else if tab.kind == .data {
+                Image(systemName: "tablecells").font(.system(size: 10)).foregroundStyle(.secondary)
             }
             Text(tab.title)
                 .font(.system(size: 12, weight: isActive ? .medium : .regular))
@@ -132,6 +140,57 @@ struct DetailView: View {
     private var editor: some View {
         SQLEditor(text: sqlBinding, schema: model.schema, focusTrigger: focusTrigger, cursor: cursor)
             .frame(height: 150)
+    }
+
+    // MARK: Data view toolbar
+
+    /// Toolbar for a data view: a WHERE filter, refresh/commit, and row insertion —
+    /// no SQL editor. The query is generated from the table, filter, sort, and limit.
+    private func dataToolbar(_ tab: QueryTab) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                onRun()
+            } label: {
+                Label(tab.hasEdits ? "Commit" : "Refresh",
+                      systemImage: tab.hasEdits ? "checkmark" : "arrow.clockwise")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(model.status != .ready || tab.isRunning)
+
+            if tab.isEditable {
+                Button {
+                    model.addInsertRow(tab)
+                } label: {
+                    Label("Add Row", systemImage: "plus.rectangle")
+                }
+                .controlSize(.small)
+            }
+
+            Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
+            TextField("WHERE …", text: Binding(get: { tab.filterWhere }, set: { tab.filterWhere = $0 }))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.caption, design: .monospaced))
+                .frame(maxWidth: 320)
+                .onSubmit { Task { await model.applyFilter(tab, where: tab.filterWhere) } }
+
+            if tab.isRunning { ProgressView().controlSize(.mini) }
+            Spacer()
+            Button {
+                showingHistory = true
+            } label: {
+                Label("History", systemImage: "clock.arrow.circlepath")
+            }
+            .controlSize(.small)
+        }
+        .padding(6)
+    }
+
+    /// More rows are available when the page came back full and we're below the total.
+    private func canLoadMore(_ tab: QueryTab, loaded: Int) -> Bool {
+        guard loaded >= tab.pageLimit else { return false }
+        if let total = tab.totalRows { return loaded < total }
+        return true
     }
 
     private func pendingSummary(updates: Int, deletes: Int) -> String {
@@ -217,7 +276,17 @@ struct DetailView: View {
             case .connecting: Text("Connecting…")
             case .failed: Text("Connection error")
             case .ready:
-                if let result = model.activeTab?.result {
+                if let tab = model.activeTab, tab.kind == .data, let result = tab.result {
+                    if let total = tab.totalRows {
+                        Text("\(result.rows.count) of \(total) rows")
+                    } else {
+                        Text("\(result.rows.count) rows")
+                    }
+                    if canLoadMore(tab, loaded: result.rows.count) {
+                        Button("Load more") { Task { await model.loadMore(tab) } }
+                            .buttonStyle(.link)
+                    }
+                } else if let result = model.activeTab?.result {
                     Text("\(result.rows.count) rows")
                     Text("\(result.columns.count) columns")
                 } else {
