@@ -1,0 +1,13 @@
+// Code signing for local builds.
+//
+// Ad-hoc signing ("-") gives the app a different identity on every build, so the
+// Keychain treats each build as a new application and re-asks for permission on
+// every stored password. Signing with a stable certificate stops that.
+//
+// The certificate is per-machine, so the identity lives in an optional, untracked
+// Local.xcconfig. Without it the project still builds ad-hoc for everyone else.
+
+CODE_SIGN_IDENTITY = -
+CODE_SIGN_STYLE = Automatic
+
+#include? "Local.xcconfig"

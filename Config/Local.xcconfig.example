@@ -1,0 +1,4 @@
+// Copy to Local.xcconfig (untracked) to sign local builds with your own certificate.
+// See CONTRIBUTING notes in README; create the certificate with Scripts/make-signing-cert.sh.
+
+CODE_SIGN_IDENTITY = Tessera Self-Signed

@@ -25,3 +25,4 @@ Packages/
 
 # Misc
 *.log
+Config/Local.xcconfig
