@@ -254,7 +254,7 @@ struct DetailView: View {
                 text: Binding(get: { tab.filterWhere }, set: { tab.filterWhere = $0 }),
                 columns: tab.result?.columns.map(\.name) ?? [],
                 placeholder: String(localized: "WHERE …"),
-                onSubmit: { Task { await model.applyFilter(tab, where: tab.filterWhere) } })
+                onSubmit: { clause in Task { await model.applyFilter(tab, where: clause) } })
                 .frame(width: 260, height: 24)
 
             sortMenu(tab)

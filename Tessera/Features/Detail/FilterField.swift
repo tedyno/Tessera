@@ -8,7 +8,8 @@ struct FilterField: NSViewRepresentable {
     @Binding var text: String
     var columns: [String]
     var placeholder: String
-    var onSubmit: () -> Void
+    /// Called with the field's current text on Return.
+    var onSubmit: (String) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -62,7 +63,7 @@ struct FilterField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         private let text: Binding<String>
         var columns: [String]
-        var onSubmit: () -> Void
+        var onSubmit: (String) -> Void
         weak var textView: NSTextView?
         var previousLength = 0
 
@@ -70,7 +71,7 @@ struct FilterField: NSViewRepresentable {
             "AND", "OR", "NOT", "LIKE", "ILIKE", "IN", "IS NULL", "IS NOT NULL", "BETWEEN",
         ]
 
-        init(text: Binding<String>, columns: [String], onSubmit: @escaping () -> Void) {
+        init(text: Binding<String>, columns: [String], onSubmit: @escaping (String) -> Void) {
             self.text = text
             self.columns = columns
             self.onSubmit = onSubmit
@@ -113,9 +114,11 @@ struct FilterField: NSViewRepresentable {
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            // Return submits the filter (the popup captures Return itself when open).
+            // Return submits the filter with the field's actual text (not via the
+            // binding, which could lag). The popup captures Return itself when open.
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                onSubmit()
+                text.wrappedValue = textView.string
+                onSubmit(textView.string)
                 return true
             }
             return false
