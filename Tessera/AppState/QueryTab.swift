@@ -42,6 +42,10 @@ final class QueryTab: Identifiable {
     /// Total row count for the current filter (`SELECT count(*)`), if known.
     var totalRows: Int?
     var result: QueryResult?
+    /// Bumped whenever a fresh result replaces the old one (new query, sort, filter,
+    /// page). Lets the grid reset cell selection only on genuinely new data, not on
+    /// the re-renders that follow an in-place cell edit.
+    var resultVersion = 0
     var elapsedMS: Int?
     var isRunning = false
     var errorMessage: String?

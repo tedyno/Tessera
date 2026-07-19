@@ -34,10 +34,16 @@ final class GridTableView: NSTableView {
     var onDeleteRows: (() -> Void)?
     var onAddRow: (() -> Void)?
     var onDuplicateRow: ((Int) -> Void)?
+    var onDuplicateSelected: (() -> Void)?
+    var onRevertRow: ((Int) -> Void)?
     var onPaste: (() -> Void)?
     var onCopy: (() -> Void)?
     /// Only full-table results (`tab.editSource`) expose the row-editing menu.
     var canEditRows = false
+    /// Number of fetched rows; rows at/after this index are pending inserts.
+    var fetchedRowCount = 0
+    /// Whether a row has a pending edit/delete/insert (for the "Revert Row" item).
+    var isRowPending: ((Int) -> Bool)?
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 51 || event.keyCode == 117 { // delete / forward-delete
@@ -47,20 +53,45 @@ final class GridTableView: NSTableView {
         }
     }
 
+    /// ⌘D duplicates the selected row(s) — only when the grid is focused so it doesn't
+    /// steal the shortcut from a focused text field elsewhere.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if canEditRows,
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers == "d",
+           window?.firstResponder === self {
+            onDuplicateSelected?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         guard canEditRows else { return nil }
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
         let menu = NSMenu()
-        let add = NSMenuItem(title: String(localized: "Add Row"), action: #selector(addRowAction), keyEquivalent: "")
+        let add = NSMenuItem(title: String(localized: "Add Row"), action: #selector(addRowAction), keyEquivalent: "n")
+        add.keyEquivalentModifierMask = .command
         add.target = self
         menu.addItem(add)
-        if row >= 0 {
+        // Duplicate applies only to a fetched row, not a pending-insert row.
+        if row >= 0, row < fetchedRowCount {
             let duplicate = NSMenuItem(title: String(localized: "Duplicate Row"),
-                                       action: #selector(duplicateRowAction), keyEquivalent: "")
+                                       action: #selector(duplicateRowAction), keyEquivalent: "d")
+            duplicate.keyEquivalentModifierMask = .command
             duplicate.target = self
             duplicate.representedObject = row
             menu.addItem(duplicate)
+        }
+        // Revert a single row's pending change (edit / delete / insert).
+        if row >= 0, isRowPending?(row) == true {
+            menu.addItem(.separator())
+            let revert = NSMenuItem(title: String(localized: "Revert Row"),
+                                    action: #selector(revertRowAction), keyEquivalent: "")
+            revert.target = self
+            revert.representedObject = row
+            menu.addItem(revert)
         }
         return menu
     }
@@ -68,6 +99,9 @@ final class GridTableView: NSTableView {
     @objc private func addRowAction() { onAddRow?() }
     @objc private func duplicateRowAction(_ sender: NSMenuItem) {
         onDuplicateRow?(sender.representedObject as? Int ?? -1)
+    }
+    @objc private func revertRowAction(_ sender: NSMenuItem) {
+        onRevertRow?(sender.representedObject as? Int ?? -1)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -120,6 +154,9 @@ struct ResultsTableView: NSViewRepresentable {
         tableView.onDeleteRows = { [c = context.coordinator] in c.deleteSelectedRows() }
         tableView.onAddRow = { [c = context.coordinator] in c.addRow() }
         tableView.onDuplicateRow = { [c = context.coordinator] row in c.duplicateRow(row) }
+        tableView.onDuplicateSelected = { [c = context.coordinator] in c.duplicateSelectedRows() }
+        tableView.onRevertRow = { [c = context.coordinator] row in c.revertRow(row) }
+        tableView.isRowPending = { [c = context.coordinator] row in c.rowState(row) != .none }
         tableView.onPaste = { [c = context.coordinator] in c.pasteIntoSelection() }
         tableView.onCopy = { [c = context.coordinator] in c.copySelection() }
 
@@ -148,6 +185,7 @@ struct ResultsTableView: NSViewRepresentable {
         weak var tableView: NSTableView?
         var onSort: (String) -> Void = { _ in }
         private var columnsSignature: [String] = []
+        private var lastResultVersion = -1
         private var selected: Set<CellPos> = []
         private var anchor: CellPos?
 
@@ -251,6 +289,23 @@ struct ResultsTableView: NSViewRepresentable {
             }
         }
 
+        /// Reverts a single row's pending change: removes an insert row, or clears an
+        /// edit / delete mark on a fetched row.
+        func revertRow(_ row: Int) {
+            guard tab.isEditable else { return }
+            if isInsertRow(row) {
+                let index = row - fetchedRowCount
+                guard index < tab.pendingInserts.count else { return }
+                tab.pendingInserts.remove(at: index)
+                selected = selected.filter { $0.row != row }
+                tableView?.reloadData()
+                return
+            }
+            tab.edits[row] = nil
+            tab.pendingDeletes.remove(row)
+            reload(rows: IndexSet(integer: row))
+        }
+
         /// Appends a blank insert row (green) and scrolls it into view.
         func addRow() {
             guard tab.isEditable else { return }
@@ -263,7 +318,28 @@ struct ResultsTableView: NSViewRepresentable {
         /// Copies a fetched row into a new insert row, dropping DB-generated
         /// (auto-increment) columns so the database assigns fresh values.
         func duplicateRow(_ row: Int) {
-            guard tab.isEditable, let result = tab.result, row >= 0, row < result.rows.count else { return }
+            guard tab.isEditable, let values = insertValues(from: row) else { return }
+            tab.pendingInserts.append(PendingInsert(values: values))
+            tableView?.reloadData()
+            tableView?.scrollRowToVisible(fetchedRowCount + tab.pendingInserts.count - 1)
+        }
+
+        /// ⌘D — duplicates every selected fetched row into new insert rows.
+        func duplicateSelectedRows() {
+            guard tab.isEditable else { return }
+            let rows = selectionRows.filter { !isInsertRow($0) }.sorted()
+            guard !rows.isEmpty else { return }
+            for row in rows {
+                if let values = insertValues(from: row) { tab.pendingInserts.append(PendingInsert(values: values)) }
+            }
+            tableView?.reloadData()
+            tableView?.scrollRowToVisible(fetchedRowCount + tab.pendingInserts.count - 1)
+        }
+
+        /// The column→value map for a new insert row copied from a fetched row,
+        /// dropping auto-increment columns and NULLs so the DB fills them.
+        private func insertValues(from row: Int) -> [String: String]? {
+            guard let result = tab.result, row >= 0, row < result.rows.count else { return nil }
             let auto = Set(tab.editSource?.autoIncrementColumns ?? [])
             var values: [String: String] = [:]
             let cells = result.rows[row]
@@ -275,10 +351,7 @@ struct ResultsTableView: NSViewRepresentable {
                     values[column.name] = text
                 }
             }
-            tab.pendingInserts.append(PendingInsert(values: values))
-            tableView?.reloadData()
-            let newRow = fetchedRowCount + tab.pendingInserts.count - 1
-            tableView?.scrollRowToVisible(newRow)
+            return values
         }
 
         /// ⌘V — writes the clipboard string into every selected cell.
@@ -331,7 +404,17 @@ struct ResultsTableView: NSViewRepresentable {
         func configure(for tab: QueryTab) {
             self.tab = tab
             guard let tableView, let result = tab.result else { return }
-            (tableView as? GridTableView)?.canEditRows = tab.isEditable
+            if let grid = tableView as? GridTableView {
+                grid.canEditRows = tab.isEditable
+                grid.fetchedRowCount = result.rows.count
+            }
+            // Reset the cell selection only when the underlying data actually changed
+            // (new query / sort / filter / page) — not on the re-render after an edit.
+            if tab.resultVersion != lastResultVersion {
+                lastResultVersion = tab.resultVersion
+                selected = []
+                anchor = nil
+            }
             let signature = result.columns.map(\.name)
             if signature != columnsSignature {
                 columnsSignature = signature
@@ -343,6 +426,7 @@ struct ResultsTableView: NSViewRepresentable {
                     column.title = descriptor.name
                     column.width = 150
                     column.minWidth = 40
+                    column.resizingMask = [.userResizingMask, .autoresizingMask]
                     tableView.addTableColumn(column)
                 }
             }

@@ -12,8 +12,6 @@ struct DetailView: View {
     var isReadOnly: Bool = false
     var onRun: () -> Void
 
-    private var isDataView: Bool { model.activeTab?.kind == .data }
-
     var body: some View {
         VStack(spacing: 0) {
             tabBar
@@ -65,11 +63,14 @@ struct DetailView: View {
 
     private func tabChip(_ tab: QueryTab) -> some View {
         let isActive = tab.id == model.activeTabID
+        let isData = tab.kind == .data
         return HStack(spacing: 6) {
             if tab.isRunning {
                 ProgressView().controlSize(.mini)
-            } else if tab.kind == .data {
-                Image(systemName: "tablecells").font(.system(size: 10)).foregroundStyle(.secondary)
+            } else {
+                Image(systemName: isData ? "tablecells" : "terminal")
+                    .font(.system(size: 10))
+                    .foregroundStyle(isData ? AnyShapeStyle(.teal) : AnyShapeStyle(.secondary))
             }
             Text(tab.title)
                 .font(.system(size: 12, weight: isActive ? .medium : .regular))
@@ -86,7 +87,13 @@ struct DetailView: View {
         }
         .padding(.horizontal, 12)
         .frame(maxHeight: .infinity)
-        .background(isActive ? AnyShapeStyle(.background) : AnyShapeStyle(.clear))
+        .background(isActive
+                    ? (isData ? AnyShapeStyle(Color.teal.opacity(0.12)) : AnyShapeStyle(.background))
+                    : AnyShapeStyle(.clear))
+        // A teal top-stripe marks data views apart from SQL console tabs.
+        .overlay(alignment: .top) {
+            if isData { Rectangle().fill(.teal).frame(height: 2) }
+        }
         .overlay(alignment: .trailing) { Divider() }
         .contentShape(Rectangle())
         .onTapGesture { model.activeTabID = tab.id }
@@ -209,6 +216,12 @@ struct DetailView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button(role: .destructive) {
+                    model.discardPending(tab)
+                } label: {
+                    Label("Discard", systemImage: "trash")
+                }
+                .controlSize(.small)
                 Text("⌘↩ to commit").font(.caption).foregroundStyle(.secondary)
             }
             ScrollView {

@@ -21,10 +21,10 @@ struct TesseraCommands: Commands {
 
     var body: some Commands {
         // Replace the default "New Window" (⌘N) — a single-window DB client doesn't
-        // need it — with New Connection.
+        // need it. ⌘N goes to "Add Row" (Query menu); New Connection moves to ⇧⌘N.
         CommandGroup(replacing: .newItem) {
             Button("New Connection…") { app.newConnection() }
-                .keyboardShortcut("n")
+                .keyboardShortcut("n", modifiers: [.command, .shift])
         }
 
         CommandGroup(replacing: .sidebar) {
@@ -51,6 +51,10 @@ struct TesseraCommands: Commands {
                 .keyboardShortcut("t")
             Button("Close Tab") { app.closeActiveTab() }
                 .keyboardShortcut("w")
+
+            Button("Add Row") { app.addRowToActiveTab() }
+                .keyboardShortcut("n", modifiers: .command)
+                .disabled(!app.canEditRows)
 
             Divider()
 

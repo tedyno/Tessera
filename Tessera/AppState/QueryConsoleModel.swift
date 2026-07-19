@@ -155,6 +155,7 @@ final class QueryConsoleModel {
         do {
             let result = try await driver.execute(sql)
             tab.result = result
+            tab.resultVersion &+= 1
             tab.edits = [:]
             tab.pendingDeletes = []
             tab.pendingInserts = []
@@ -246,6 +247,13 @@ final class QueryConsoleModel {
         tab.pendingInserts.append(PendingInsert())
     }
 
+    /// Drops every pending edit, delete, and insert without touching the database.
+    func discardPending(_ tab: QueryTab) {
+        tab.edits = [:]
+        tab.pendingDeletes = []
+        tab.pendingInserts = []
+    }
+
     /// Header-click sorting on a full-table view: cycles ascending → descending →
     /// off for the clicked column, rewriting the query's `ORDER BY` and re-running.
     func sortByColumn(_ tab: QueryTab, column: String) async {
@@ -267,26 +275,50 @@ final class QueryConsoleModel {
     }
 
     /// Replaces the top-level `ORDER BY` of a full-table query (inserted before any
-    /// `LIMIT`/`OFFSET`). A nil column removes ordering entirely.
+    /// `LIMIT`/`OFFSET`/`;`). A nil column removes ordering entirely. Matching ignores
+    /// text inside string literals, so a WHERE value like `'a limit b'` is safe.
     private func rewriteOrderBy(_ sql: String, column: String?, ascending: Bool) -> String {
         var body = sql
-        var trailing = ""
-        if let semi = body.range(of: #"\s*;\s*$"#, options: .regularExpression) {
-            trailing = String(body[semi.lowerBound...])
-            body = String(body[..<semi.lowerBound])
-        }
-        if let existing = body.range(of: #"(?is)\s+ORDER\s+BY\s+.*?(?=(\s+LIMIT\b|\s+OFFSET\b|$))"#,
-                                     options: .regularExpression) {
+        if let existing = Self.topLevelRange(
+            in: body, pattern: #"(?is)\s+ORDER\s+BY\s+.*?(?=(\s+LIMIT\b|\s+OFFSET\b|\s*;\s*$|$))"#) {
             body.removeSubrange(existing)
         }
-        guard let column else { return body + trailing }
+        guard let column else { return body }
         let clause = " ORDER BY \(quote(column)) \(ascending ? "ASC" : "DESC")"
-        if let tail = body.range(of: #"(?is)\s+(LIMIT|OFFSET)\b"#, options: .regularExpression) {
+        if let tail = Self.topLevelRange(in: body, pattern: #"(?is)\s*(LIMIT\b|OFFSET\b|;\s*$)"#) {
             body.insert(contentsOf: clause, at: tail.lowerBound)
         } else {
             body += clause
         }
-        return body + trailing
+        return body
+    }
+
+    /// A regex match on `s`, but searched against a copy with string-literal contents
+    /// blanked out so SQL keywords inside `'…'` don't match. Length is preserved, so
+    /// the returned range indexes into the original `s`.
+    private static func topLevelRange(in s: String, pattern: String) -> Range<String.Index>? {
+        let masked = maskStringLiterals(s)
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(masked.startIndex..., in: masked)
+        guard let match = regex.firstMatch(in: masked, range: range), match.range.length > 0 else { return nil }
+        return Range(match.range, in: s)
+    }
+
+    /// Replaces each character inside a single-quoted literal with `x`, preserving the
+    /// quotes and the string's length (so ranges map back to the original 1:1).
+    private static func maskStringLiterals(_ s: String) -> String {
+        var out = ""
+        out.reserveCapacity(s.count)
+        var inQuote = false
+        for character in s {
+            if character == "'" {
+                inQuote.toggle()
+                out.append(character)
+            } else {
+                out.append(inQuote ? "x" : character)
+            }
+        }
+        return out
     }
 
     /// The UPDATE/DELETE statements that ⌘↩ would run for the tab's pending changes.
@@ -450,21 +482,26 @@ final class QueryConsoleModel {
         var sql = "SELECT count(*) FROM \(quote(schema)).\(quote(table))"
         let filter = tab.filterWhere.trimmingCharacters(in: .whitespacesAndNewlines)
         if !filter.isEmpty { sql += " WHERE \(filter)" }
-        if let result = try? await driver.execute(sql), let text = result.rows.first?.first?.text {
-            tab.totalRows = Int(text)
+        if let result = try? await driver.execute(sql), let text = result.rows.first?.first?.text,
+           let count = Int(text.trimmingCharacters(in: .whitespaces)) {
+            tab.totalRows = count
+        } else {
+            tab.totalRows = nil   // don't keep a stale total behind a failed/changed count
         }
     }
 
     /// "Load more" — grows the page limit by one page and re-runs from the top.
+    /// No-op with pending changes so a reload can't silently discard them.
     func loadMore(_ tab: QueryTab) async {
-        guard tab.kind == .data else { return }
+        guard tab.kind == .data, !tab.hasEdits else { return }
         tab.pageLimit += QueryTab.pageSize
         await reloadData(tab)
     }
 
     /// Applies a new WHERE filter, resets paging, and refreshes the count.
+    /// No-op with pending changes so a reload can't silently discard them.
     func applyFilter(_ tab: QueryTab, where clause: String) async {
-        guard tab.kind == .data else { return }
+        guard tab.kind == .data, !tab.hasEdits else { return }
         tab.filterWhere = clause
         tab.pageLimit = QueryTab.pageSize
         await reloadData(tab, refreshCount: true)

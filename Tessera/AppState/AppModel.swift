@@ -69,6 +69,8 @@ final class AppModel {
     var canRun: Bool { console.status == .ready && !(console.activeTab?.isRunning ?? false) }
     var isRunning: Bool { console.activeTab?.isRunning ?? false }
     var isConnected: Bool { console.status == .ready }
+    var canEditRows: Bool { console.activeTab?.isEditable ?? false }
+    var hasPendingChanges: Bool { console.activeTab?.hasEdits ?? false }
 
     func connect(nodeID: UUID?) {
         guard let nodeID,
@@ -225,6 +227,17 @@ final class AppModel {
 
     func refreshSchema() { Task { await console.refreshSchema() } }
     func showHistory() { showingHistory = true }
+
+    func addRowToActiveTab() {
+        guard let tab = console.activeTab else { return }
+        console.addInsertRow(tab)
+    }
+
+    /// Discards all pending edits/inserts/deletes on the active tab.
+    func discardPendingChanges() {
+        guard let tab = console.activeTab else { return }
+        console.discardPending(tab)
+    }
 
     func newConnection() {
         newConnectionParent = connections.organizer.workspaces.first?.id
