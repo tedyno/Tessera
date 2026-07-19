@@ -372,6 +372,54 @@ final class QueryConsoleModel {
         return statements
     }
 
+    /// One entry per pending row (ungrouped), each independently revertible — backs
+    /// the pending-changes panel where every change has its own discard button.
+    func pendingChanges(_ tab: QueryTab) -> [PendingChange] {
+        guard let source = tab.editSource, let result = tab.result else { return [] }
+        let table = "\(quote(source.schema)).\(quote(source.table))"
+        let keyColumns = source.primaryKeys.isEmpty ? result.columns.map(\.name) : source.primaryKeys
+        var items: [PendingChange] = []
+
+        for row in tab.pendingDeletes.sorted() {
+            let clause = rowWhere(row, keyColumns: keyColumns, result: result)
+            items.append(PendingChange(id: "d\(row)", target: .delete(row: row),
+                                       statement: "DELETE FROM \(table) WHERE \(clause);"))
+        }
+        for (row, changes) in tab.edits.sorted(by: { $0.key < $1.key }) where !tab.pendingDeletes.contains(row) {
+            let setClause = changes.sorted { $0.key < $1.key }
+                .map { "\(quote($0.key)) = \(literal($0.value, columnName: $0.key, result: result))" }
+                .joined(separator: ", ")
+            let clause = rowWhere(row, keyColumns: keyColumns, result: result)
+            items.append(PendingChange(id: "u\(row)", target: .update(row: row),
+                                       statement: "UPDATE \(table) SET \(setClause) WHERE \(clause);"))
+        }
+        let autoInc = Set(source.autoIncrementColumns)
+        for insert in tab.pendingInserts {
+            let cols = result.columns.map(\.name).filter { !autoInc.contains($0) && insert.values[$0] != nil }
+            let statement: String
+            if cols.isEmpty {
+                statement = engine == .mysql ? "INSERT INTO \(table) () VALUES ();"
+                                             : "INSERT INTO \(table) DEFAULT VALUES;"
+            } else {
+                let colList = cols.map { quote($0) }.joined(separator: ", ")
+                let valList = cols.map { literal(insert.values[$0]!, columnName: $0, result: result) }
+                    .joined(separator: ", ")
+                statement = "INSERT INTO \(table) (\(colList)) VALUES (\(valList));"
+            }
+            items.append(PendingChange(id: "i\(insert.id)", target: .insert(id: insert.id), statement: statement))
+        }
+        return items
+    }
+
+    /// Discards a single pending change (from the panel's per-row × button).
+    func revert(_ tab: QueryTab, _ target: PendingChange.Target) {
+        switch target {
+        case .update(let row): tab.edits[row] = nil
+        case .delete(let row): tab.pendingDeletes.remove(row)
+        case .insert(let id): tab.pendingInserts.removeAll { $0.id == id }
+        }
+    }
+
     /// WHERE clauses for the given rows: one `col IN (…)` when the key is a single
     /// column with no NULLs, otherwise one AND-clause per row.
     private func whereClauses(rows: [Int], keyColumns: [String], result: QueryResult) -> [String] {

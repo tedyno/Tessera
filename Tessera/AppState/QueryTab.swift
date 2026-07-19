@@ -18,6 +18,18 @@ struct PendingInsert: Identifiable, Equatable {
     var values: [String: String] = [:]
 }
 
+/// One revertible entry shown in the pending-changes panel (one per row).
+struct PendingChange: Identifiable {
+    enum Target: Equatable {
+        case update(row: Int)
+        case delete(row: Int)
+        case insert(id: UUID)
+    }
+    let id: String
+    let target: Target
+    let statement: String
+}
+
 /// One query tab: its own editor text and result, sharing the connection's driver.
 @MainActor
 @Observable

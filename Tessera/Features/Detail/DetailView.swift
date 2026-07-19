@@ -207,9 +207,10 @@ struct DetailView: View {
         return parts.joined(separator: ", ") + " — ⌘↩ to commit"
     }
 
-    /// Persistent preview of the exact SQL that ⌘↩ will run.
+    /// Persistent list of the exact statements ⌘↩ will run — each with its own
+    /// discard (×) button, plus a Discard-All shortcut.
     private func pendingPanel(_ tab: QueryTab) -> some View {
-        let statements = model.pendingStatements(tab)
+        let changes = model.pendingChanges(tab)
         return VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Label("Pending changes", systemImage: "pencil.and.list.clipboard")
@@ -219,21 +220,49 @@ struct DetailView: View {
                 Button(role: .destructive) {
                     model.discardPending(tab)
                 } label: {
-                    Label("Discard", systemImage: "trash")
+                    Label("Discard All", systemImage: "trash")
                 }
                 .controlSize(.small)
                 Text("⌘↩ to commit").font(.caption).foregroundStyle(.secondary)
             }
             ScrollView {
-                Text(statements.isEmpty ? "— nothing to write —" : statements.joined(separator: "\n"))
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(changes) { change in
+                        HStack(spacing: 6) {
+                            Button {
+                                model.revert(tab, change.target)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                            .help("Discard this change")
+
+                            Circle().fill(color(for: change.target)).frame(width: 6, height: 6)
+                            Text(change.statement)
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(8)
         .frame(height: 120)
         .background(.quaternary.opacity(0.4))
+    }
+
+    /// Dot color matching the row highlight: red delete, orange update, green insert.
+    private func color(for target: PendingChange.Target) -> Color {
+        switch target {
+        case .delete: .red
+        case .update: .orange
+        case .insert: .green
+        }
     }
 
     private var sqlBinding: Binding<String> {
