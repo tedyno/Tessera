@@ -66,12 +66,19 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
     public var readOnly: Bool?
     /// Optional palette color name for the connection dot.
     public var color: String?
+    /// Opt-in: expose this connection over the built-in MCP server. Optional so
+    /// older profiles decode; use `allowsMCPAccess`. Off unless deliberately enabled.
+    public var mcpAccess: Bool?
 
     /// Stable Keychain key (service = bundle ID, account = this value).
     public var keychainAccount: String { id.uuidString }
 
-    /// When true, the app warns before writing (e.g. committing cell edits).
+    /// When true, the app warns before writing (e.g. committing cell edits), and MCP
+    /// may only read from it.
     public var isReadOnly: Bool { readOnly ?? false }
+
+    /// Whether an MCP client may see and query this connection at all.
+    public var allowsMCPAccess: Bool { mcpAccess ?? false }
 
     public init(
         id: UUID = UUID(),
@@ -84,7 +91,8 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
         tlsMode: TLSMode = .prefer,
         ssh: SSHConfig? = nil,
         readOnly: Bool = false,
-        color: String? = nil
+        color: String? = nil,
+        mcpAccess: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -97,6 +105,7 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
         self.ssh = ssh
         self.readOnly = readOnly ? true : nil
         self.color = color
+        self.mcpAccess = mcpAccess ? true : nil
     }
 }
 

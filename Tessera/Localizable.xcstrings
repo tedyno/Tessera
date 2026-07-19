@@ -79,6 +79,17 @@
         }
       }
     },
+    "Allow MCP access (let Claude query this connection)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povolit přístup MCP (Claude může toto připojení dotazovat)"
+          }
+        }
+      }
+    },
     "Allow NULL": {
       "extractionState": "manual",
       "localizations": {
@@ -856,6 +867,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Načíst další"
+          }
+        }
+      }
+    },
+    "MCP may read from this connection. Writes are refused because it is read-only.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP může z tohoto připojení číst. Zápis je odmítnut, protože je jen pro čtení."
+          }
+        }
+      }
+    },
+    "MCP may read from this connection. Writes will ask you to confirm first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP může z tohoto připojení číst. Zápis si nejdřív vyžádá tvoje potvrzení."
           }
         }
       }

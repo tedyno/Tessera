@@ -21,6 +21,7 @@ struct NewConnectionView: View {
     @State private var password = ""
     @State private var tlsMode: TLSMode = .prefer
     @State private var readOnly = false
+    @State private var mcpAccess = false
     @State private var revealPassword = false
 
     @State private var sshEnabled = false
@@ -51,6 +52,7 @@ struct NewConnectionView: View {
         _password = State(initialValue: secrets.databasePassword ?? "")
         _tlsMode = State(initialValue: editing?.tlsMode ?? .prefer)
         _readOnly = State(initialValue: editing?.isReadOnly ?? false)
+        _mcpAccess = State(initialValue: editing?.allowsMCPAccess ?? false)
         if let ssh = editing?.ssh {
             _sshEnabled = State(initialValue: true)
             _sshHost = State(initialValue: ssh.host)
@@ -95,6 +97,13 @@ struct NewConnectionView: View {
                         ForEach(TLSMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                     Toggle("Read-only (warn before writing)", isOn: $readOnly)
+                    Toggle("Allow MCP access (let Claude query this connection)", isOn: $mcpAccess)
+                    if mcpAccess {
+                        Text(readOnly
+                             ? "MCP may read from this connection. Writes are refused because it is read-only."
+                             : "MCP may read from this connection. Writes will ask you to confirm first.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
 
                 Section {
@@ -187,7 +196,8 @@ struct NewConnectionView: View {
         return ConnectionProfile(
             id: editing?.id ?? UUID(),
             name: name, kind: kind, host: host, port: Int(port),
-            database: database, username: username, tlsMode: tlsMode, ssh: ssh, readOnly: readOnly)
+            database: database, username: username, tlsMode: tlsMode, ssh: ssh, readOnly: readOnly,
+            mcpAccess: mcpAccess)
     }
 
     private func makeSecrets() -> Secrets {
