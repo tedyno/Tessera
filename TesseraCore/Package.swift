@@ -14,10 +14,14 @@ let package = Package(
         // Database drivers implementing DBKit's DatabaseDriver.
         .library(name: "DBDriverPostgres", targets: ["DBDriverPostgres"]),
         .library(name: "DBDriverMySQL", targets: ["DBDriverMySQL"]),
+        // SSH local port forwarding.
+        .library(name: "DBTunnel", targets: ["DBTunnel"]),
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.21.0"),
         .package(url: "https://github.com/vapor/mysql-nio.git", from: "1.7.2"),
+        .package(url: "https://github.com/orlandos-nl/Citadel.git", from: "0.12.0"),
+        .package(url: "https://github.com/apple/swift-nio.git", from: "2.65.0"),
     ],
     targets: [
         .target(name: "DBKit"),
@@ -37,9 +41,24 @@ let package = Package(
                 .product(name: "MySQLNIO", package: "mysql-nio"),
             ]
         ),
+        .target(
+            name: "DBTunnel",
+            dependencies: [
+                "DBKit",
+                .product(name: "Citadel", package: "Citadel"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+            ],
+            // NIO channel handlers don't fit Swift 6 strict concurrency cleanly.
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "TesseraCoreTests",
             dependencies: ["DBKit", "DBPersistence", "DBSecurity"]
+        ),
+        .testTarget(
+            name: "DBTunnelTests",
+            dependencies: ["DBTunnel", "DBKit", "DBDriverPostgres"]
         ),
         .testTarget(
             name: "DBDriverPostgresTests",

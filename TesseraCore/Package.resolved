@@ -1,6 +1,24 @@
 {
-  "originHash" : "817237350c11fa60e581b527aaf20666471f190f4b0b0b1c742289cd84fc6d6b",
+  "originHash" : "3863fd6315997e6cbc4bfa89a5aa541e55801c33b18389316319507e42fe74fa",
   "pins" : [
+    {
+      "identity" : "bigint",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/attaswift/BigInt.git",
+      "state" : {
+        "revision" : "e07e00fa1fd435143a2dcf8b7eec9a7710b2fdfe",
+        "version" : "5.7.0"
+      }
+    },
+    {
+      "identity" : "citadel",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/orlandos-nl/Citadel.git",
+      "state" : {
+        "revision" : "ae8562f895de06ccb86fdb1cbb65fd99c8976e12",
+        "version" : "0.12.1"
+      }
+    },
     {
       "identity" : "mysql-nio",
       "kind" : "remoteSourceControl",
@@ -69,8 +87,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto.git",
       "state" : {
-        "revision" : "47d3869a7291f085c1fb9fb1e6d3b97a793f45c6",
-        "version" : "4.5.1"
+        "revision" : "95ba0316a9b733e92bb6b071255ff46263bbe7dc",
+        "version" : "3.15.1"
       }
     },
     {
@@ -98,6 +116,15 @@
       "state" : {
         "revision" : "0b18836bd8b0162e7e17a995a3fbee20ed8f3b2b",
         "version" : "2.101.3"
+      }
+    },
+    {
+      "identity" : "swift-nio-ssh",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Wellz26/swift-nio-ssh.git",
+      "state" : {
+        "revision" : "a05e6bbe6b141ee68da3030e00275504c0595d4d",
+        "version" : "0.3.6"
       }
     },
     {

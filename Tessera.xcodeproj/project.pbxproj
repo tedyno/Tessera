@@ -12,6 +12,7 @@
 		AA0000000000000000000016 /* DBDriverPostgres in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000015 /* DBDriverPostgres */; };
 		AA0000000000000000000018 /* DBSecurity in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000017 /* DBSecurity */; };
 		AA000000000000000000001A /* DBDriverMySQL in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000019 /* DBDriverMySQL */; };
+		AA000000000000000000001C /* DBTunnel in Frameworks */ = {isa = PBXBuildFile; productRef = AA000000000000000000001B /* DBTunnel */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +33,7 @@
 				AA0000000000000000000016 /* DBDriverPostgres in Frameworks */,
 				AA0000000000000000000018 /* DBSecurity in Frameworks */,
 				AA000000000000000000001A /* DBDriverMySQL in Frameworks */,
+				AA000000000000000000001C /* DBTunnel in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -79,6 +81,7 @@
 				AA0000000000000000000015 /* DBDriverPostgres */,
 				AA0000000000000000000017 /* DBSecurity */,
 				AA0000000000000000000019 /* DBDriverMySQL */,
+				AA000000000000000000001B /* DBTunnel */,
 			);
 			productName = Tessera;
 			productReference = AA0000000000000000000006 /* Tessera.app */;
@@ -286,6 +289,10 @@
 		AA0000000000000000000019 /* DBDriverMySQL */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DBDriverMySQL;
+		};
+		AA000000000000000000001B /* DBTunnel */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DBTunnel;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

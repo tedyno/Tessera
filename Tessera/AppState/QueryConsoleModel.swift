@@ -2,6 +2,7 @@ import SwiftUI
 import DBKit
 import DBDriverPostgres
 import DBDriverMySQL
+import DBTunnel
 
 /// Drives one query console: opens a connection for a chosen profile (Postgres or
 /// MySQL), runs SQL, publishes results and the schema tree. Secrets come from the
@@ -32,6 +33,7 @@ final class QueryConsoleModel {
     private(set) var schema: DatabaseTree?
 
     private var driver: (any DatabaseDriver)?
+    private var tunnel: SSHTunnel?
 
     var isBusy: Bool { status == .connecting || status == .running }
 
@@ -40,23 +42,35 @@ final class QueryConsoleModel {
     /// points it at the local end of the tunnel.
     func open(profile: ConnectionProfile, secrets: Secrets) async {
         await driver?.close()
+        await tunnel?.stop()
+        tunnel = nil
         connectionName = profile.name
         result = nil
         elapsedMS = nil
         schema = nil
         status = .connecting
 
-        let driver: any DatabaseDriver = switch profile.kind {
-        case .postgres: PostgresDriver()
-        case .mysql: MySQLDriver()
-        }
-        self.driver = driver
-
         do {
-            try await driver.connect(
-                profile: profile,
-                secrets: secrets,
-                endpoint: NetworkEndpoint(host: profile.host, port: profile.port))
+            // If the profile uses an SSH tunnel, forward a local port and connect
+            // the driver there; otherwise connect directly.
+            let endpoint: NetworkEndpoint
+            if let ssh = profile.ssh {
+                let tunnel = SSHTunnel()
+                endpoint = try await tunnel.start(
+                    ssh: ssh, secrets: secrets,
+                    remoteHost: profile.host, remotePort: profile.port)
+                self.tunnel = tunnel
+            } else {
+                endpoint = NetworkEndpoint(host: profile.host, port: profile.port)
+            }
+
+            let driver: any DatabaseDriver = switch profile.kind {
+            case .postgres: PostgresDriver()
+            case .mysql: MySQLDriver()
+            }
+            self.driver = driver
+
+            try await driver.connect(profile: profile, secrets: secrets, endpoint: endpoint)
             status = .ready
             schema = try? await driver.fetchSchema()
         } catch {
