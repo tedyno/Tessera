@@ -88,18 +88,27 @@ public actor PostgresDriver: DatabaseDriver {
             WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
             ORDER BY table_schema, table_name, ordinal_position
             """)
-        let pkResult = try await execute("""
-            SELECT tc.table_schema, tc.table_name, kcu.column_name
+        let keyResult = try await execute("""
+            SELECT tc.table_schema, tc.table_name, kcu.column_name, tc.constraint_type
             FROM information_schema.table_constraints tc
             JOIN information_schema.key_column_usage kcu
               ON tc.constraint_name = kcu.constraint_name
              AND tc.table_schema = kcu.table_schema
-            WHERE tc.constraint_type = 'PRIMARY KEY'
+            WHERE tc.constraint_type IN ('PRIMARY KEY', 'FOREIGN KEY')
+            """)
+        let indexResult = try await execute("""
+            SELECT schemaname, tablename, indexname, indexdef
+            FROM pg_indexes
+            WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY schemaname, tablename, indexname
             """)
 
         var primaryKeys: Set<String> = []
-        for row in pkResult.rows where row.count >= 3 {
-            primaryKeys.insert("\(row[0].text ?? "").\(row[1].text ?? "").\(row[2].text ?? "")")
+        var foreignKeys: Set<String> = []
+        for row in keyResult.rows where row.count >= 4 {
+            let path = "\(row[0].text ?? "").\(row[1].text ?? "").\(row[2].text ?? "")"
+            if row[3].text == "PRIMARY KEY" { primaryKeys.insert(path) }
+            else if row[3].text == "FOREIGN KEY" { foreignKeys.insert(path) }
         }
 
         struct TableKey: Hashable { let schema: String; let table: String }
@@ -114,7 +123,15 @@ public actor PostgresDriver: DatabaseDriver {
                     name: name,
                     dataType: row[3].text ?? "",
                     isPrimaryKey: primaryKeys.contains("\(schema).\(table).\(name)"),
+                    isForeignKey: foreignKeys.contains("\(schema).\(table).\(name)"),
                     isNullable: (row[4].text ?? "YES") == "YES"))
+        }
+
+        var indexesByTable: [TableKey: [SchemaIndex]] = [:]
+        for row in indexResult.rows where row.count >= 4 {
+            let key = TableKey(schema: row[0].text ?? "", table: row[1].text ?? "")
+            indexesByTable[key, default: []].append(
+                Self.parseIndex(name: row[2].text ?? "", definition: row[3].text ?? ""))
         }
 
         var schemaOrder: [String] = []
@@ -122,11 +139,13 @@ public actor PostgresDriver: DatabaseDriver {
         for row in tablesResult.rows where row.count >= 3 {
             let schema = row[0].text ?? ""
             let table = row[1].text ?? ""
+            let key = TableKey(schema: schema, table: table)
             let kind: SchemaTable.Kind = (row[2].text ?? "") == "VIEW" ? .view : .table
             if tablesBySchema[schema] == nil { schemaOrder.append(schema) }
             tablesBySchema[schema, default: []].append(
                 SchemaTable(name: table, kind: kind,
-                            columns: columnsByTable[TableKey(schema: schema, table: table)] ?? []))
+                            columns: columnsByTable[key] ?? [],
+                            indexes: indexesByTable[key] ?? []))
         }
 
         let namespaces = schemaOrder.map { SchemaNamespace(name: $0, tables: tablesBySchema[$0] ?? []) }
@@ -140,6 +159,20 @@ public actor PostgresDriver: DatabaseDriver {
     }
 
     // MARK: - Helpers
+
+    /// Parses a Postgres `indexdef` (e.g. `CREATE UNIQUE INDEX x ON t USING btree (a, b)`).
+    private static func parseIndex(name: String, definition: String) -> SchemaIndex {
+        let isUnique = definition.uppercased().contains("UNIQUE INDEX")
+        var columns: [String] = []
+        if let open = definition.lastIndex(of: "("), let close = definition.lastIndex(of: ")"), open < close {
+            let inner = definition[definition.index(after: open)..<close]
+            columns = inner.split(separator: ",").map {
+                $0.trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            }
+        }
+        return SchemaIndex(name: name, columns: columns, isUnique: isUnique)
+    }
 
     private static func makeTLS(_ mode: TLSMode) -> PostgresClient.Configuration.TLS {
         switch mode {

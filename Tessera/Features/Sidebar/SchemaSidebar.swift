@@ -39,19 +39,17 @@ struct SchemaSidebar: View {
 
     @ViewBuilder
     private func tableNode(namespace: String, table: SchemaTable) -> some View {
-        if table.columns.isEmpty {
+        if table.columns.isEmpty && table.indexes.isEmpty {
             tableLabel(namespace: namespace, table: table)
         } else {
             DisclosureGroup {
-                ForEach(table.columns) { column in
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(column.isPrimaryKey ? Color.yellow : Color.secondary)
-                            .frame(width: 6, height: 6)
-                        Text(column.name)
-                        Spacer(minLength: 8)
-                        Text(column.dataType)
-                            .font(.system(.caption2, design: .monospaced))
+                ForEach(table.columns) { column in columnRow(column) }
+                if !table.indexes.isEmpty {
+                    DisclosureGroup {
+                        ForEach(table.indexes) { index in indexRow(index) }
+                    } label: {
+                        Label("Indexes", systemImage: "number")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -59,6 +57,44 @@ struct SchemaSidebar: View {
                 tableLabel(namespace: namespace, table: table)
             }
         }
+    }
+
+    private func columnRow(_ column: SchemaColumn) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(column.isPrimaryKey ? Color.yellow
+                      : (column.isForeignKey ? Color.purple : Color.secondary))
+                .frame(width: 6, height: 6)
+            Text(column.name)
+            if column.isPrimaryKey { badge("PK", .orange) }
+            if column.isForeignKey { badge("FK", .purple) }
+            Spacer(minLength: 8)
+            Text(column.dataType)
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func indexRow(_ index: SchemaIndex) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "number.square").font(.caption2).foregroundStyle(.secondary)
+            Text(index.name)
+            if index.isUnique { badge("UNIQUE", .blue) }
+            Spacer(minLength: 8)
+            Text(index.columns.joined(separator: ", "))
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+    }
+
+    private func badge(_ text: String, _ color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .bold))
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(color.opacity(0.18), in: Capsule())
+            .foregroundStyle(color)
     }
 
     private func tableLabel(namespace: String, table: SchemaTable) -> some View {

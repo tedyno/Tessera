@@ -71,6 +71,20 @@ final class PostgresDriverTests: XCTestCase {
         XCTAssertEqual(probe?.columns.first { $0.name == "label" }?.isNullable, false)
     }
 
+    func testForeignKeysAndIndexes() async throws {
+        let (profile, secrets, endpoint) = try makeProfileOrSkip()
+        let driver = PostgresDriver()
+        try await driver.connect(profile: profile, secrets: secrets, endpoint: endpoint)
+        defer { Task { await driver.close() } }
+
+        let tree = try await driver.fetchSchema()
+        let orders = tree.schemas.first { $0.name == "public" }?.tables.first { $0.name == "orders" }
+        XCTAssertNotNil(orders, "seed the orders table before running")
+        XCTAssertEqual(orders?.columns.first { $0.name == "id" }?.isPrimaryKey, true)
+        XCTAssertEqual(orders?.columns.first { $0.name == "customer_id" }?.isForeignKey, true)
+        XCTAssertFalse(orders?.indexes.isEmpty ?? true) // at least the primary-key index
+    }
+
     func testLargeResultSet() async throws {
         let (profile, secrets, endpoint) = try makeProfileOrSkip()
         let driver = PostgresDriver()

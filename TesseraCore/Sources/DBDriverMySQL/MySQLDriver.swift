@@ -98,23 +98,66 @@ public actor MySQLDriver: DatabaseDriver {
             WHERE table_schema = DATABASE()
             ORDER BY table_name, ordinal_position
             """)
+        let foreignKeysResult = try await execute("""
+            SELECT table_name, column_name FROM information_schema.key_column_usage
+            WHERE table_schema = DATABASE() AND referenced_table_name IS NOT NULL
+            """)
+        let statistics = try await execute("""
+            SELECT table_name, index_name, non_unique, column_name, seq_in_index
+            FROM information_schema.statistics
+            WHERE table_schema = DATABASE()
+            ORDER BY table_name, index_name, seq_in_index
+            """)
+
+        var foreignKeys: Set<String> = []
+        for row in foreignKeysResult.rows where row.count >= 2 {
+            foreignKeys.insert("\(row[0].text ?? "").\(row[1].text ?? "")")
+        }
 
         var columnsByTable: [String: [SchemaColumn]] = [:]
         for row in columns.rows where row.count >= 5 {
             let table = row[0].text ?? ""
+            let name = row[1].text ?? ""
             columnsByTable[table, default: []].append(
                 SchemaColumn(
-                    name: row[1].text ?? "",
+                    name: name,
                     dataType: row[2].text ?? "",
                     isPrimaryKey: (row[4].text ?? "") == "PRI",
+                    isForeignKey: foreignKeys.contains("\(table).\(name)"),
                     isNullable: (row[3].text ?? "YES") == "YES"))
+        }
+
+        // Aggregate index columns (ordered by seq_in_index) per (table, index).
+        struct IndexKey: Hashable { let table: String; let index: String }
+        var indexColumns: [IndexKey: [String]] = [:]
+        var indexUnique: [IndexKey: Bool] = [:]
+        var indexOrder: [String: [String]] = [:]
+        for row in statistics.rows where row.count >= 5 {
+            let table = row[0].text ?? ""
+            let indexName = row[1].text ?? ""
+            let key = IndexKey(table: table, index: indexName)
+            if indexColumns[key] == nil {
+                indexOrder[table, default: []].append(indexName)
+                indexUnique[key] = (row[2].text ?? "1") == "0"
+            }
+            indexColumns[key, default: []].append(row[3].text ?? "")
+        }
+
+        var indexesByTable: [String: [SchemaIndex]] = [:]
+        for (table, names) in indexOrder {
+            indexesByTable[table] = names.map { name in
+                let key = IndexKey(table: table, index: name)
+                return SchemaIndex(name: name, columns: indexColumns[key] ?? [], isUnique: indexUnique[key] ?? false)
+            }
         }
 
         var schemaTables: [SchemaTable] = []
         for row in tables.rows where row.count >= 2 {
             let name = row[0].text ?? ""
             let kind: SchemaTable.Kind = (row[1].text ?? "").uppercased().contains("VIEW") ? .view : .table
-            schemaTables.append(SchemaTable(name: name, kind: kind, columns: columnsByTable[name] ?? []))
+            schemaTables.append(SchemaTable(name: name, kind: kind,
+                                            columns: columnsByTable[name] ?? [],
+                                            indexes: indexesByTable[name] ?? []))
         }
 
         return DatabaseTree(databaseName: database, schemas: [SchemaNamespace(name: database, tables: schemaTables)])

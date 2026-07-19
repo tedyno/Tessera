@@ -5,15 +5,33 @@ public struct SchemaColumn: Sendable, Hashable, Identifiable {
     public var name: String
     public var dataType: String
     public var isPrimaryKey: Bool
+    public var isForeignKey: Bool
     public var isNullable: Bool
 
     public var id: String { name }
 
-    public init(name: String, dataType: String, isPrimaryKey: Bool = false, isNullable: Bool = true) {
+    public init(name: String, dataType: String, isPrimaryKey: Bool = false,
+                isForeignKey: Bool = false, isNullable: Bool = true) {
         self.name = name
         self.dataType = dataType
         self.isPrimaryKey = isPrimaryKey
+        self.isForeignKey = isForeignKey
         self.isNullable = isNullable
+    }
+}
+
+/// An index on a table.
+public struct SchemaIndex: Sendable, Hashable, Identifiable {
+    public var name: String
+    public var columns: [String]
+    public var isUnique: Bool
+
+    public var id: String { name }
+
+    public init(name: String, columns: [String], isUnique: Bool = false) {
+        self.name = name
+        self.columns = columns
+        self.isUnique = isUnique
     }
 }
 
@@ -27,13 +45,16 @@ public struct SchemaTable: Sendable, Hashable, Identifiable {
     public var name: String
     public var kind: Kind
     public var columns: [SchemaColumn]
+    public var indexes: [SchemaIndex]
 
     public var id: String { name }
 
-    public init(name: String, kind: Kind = .table, columns: [SchemaColumn] = []) {
+    public init(name: String, kind: Kind = .table, columns: [SchemaColumn] = [],
+                indexes: [SchemaIndex] = []) {
         self.name = name
         self.kind = kind
         self.columns = columns
+        self.indexes = indexes
     }
 }
 
