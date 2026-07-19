@@ -181,11 +181,9 @@ final class QueryConsoleModel {
             return
         }
         do {
-            // Per-statement (PostgresClient is pooled, so a wrapping BEGIN/COMMIT
-            // wouldn't share one connection). A single-connection transaction is future work.
-            for statement in pendingStatements(tab) {
-                _ = try await driver.execute(statement)
-            }
+            // One transaction on a single connection: either every pending change
+            // lands or none of them do.
+            try await driver.executeTransaction(pendingStatements(tab))
             tab.edits = [:]
             tab.pendingDeletes = []
             tab.pendingInserts = []

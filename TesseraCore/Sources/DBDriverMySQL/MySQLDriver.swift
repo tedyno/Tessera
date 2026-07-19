@@ -84,6 +84,31 @@ public actor MySQLDriver: DatabaseDriver {
         }
     }
 
+    /// The single connection is already serialized by `lock()`, so a plain
+    /// START TRANSACTION … COMMIT is atomic here.
+    public func executeTransaction(_ statements: [String]) async throws {
+        guard let connection else { throw DatabaseError.notConnected }
+        guard !statements.isEmpty else { return }
+        await lock()
+        defer { unlock() }
+        do {
+            _ = try await connection.simpleQuery("START TRANSACTION").get()
+            do {
+                for statement in statements {
+                    _ = try await connection.simpleQuery(statement).get()
+                }
+                _ = try await connection.simpleQuery("COMMIT").get()
+            } catch {
+                _ = try? await connection.simpleQuery("ROLLBACK").get()
+                throw error
+            }
+        } catch is CancellationError {
+            throw DatabaseError.cancelled
+        } catch {
+            throw DatabaseError.queryFailed(String(describing: error))
+        }
+    }
+
     public func serverVersion() async throws -> String {
         let result = try await execute("SELECT VERSION()")
         return result.rows.first?.first?.text ?? "unknown"

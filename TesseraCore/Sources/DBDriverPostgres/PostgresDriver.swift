@@ -2,6 +2,7 @@ import Foundation
 import DBKit
 import PostgresNIO
 import NIOSSL
+import Logging
 
 /// PostgreSQL implementation of `DatabaseDriver`, built on PostgresNIO's async
 /// `PostgresClient` (with its built-in connection pool). One instance owns one
@@ -10,6 +11,7 @@ public actor PostgresDriver: DatabaseDriver {
     private var client: PostgresClient?
     private var runTask: Task<Void, Never>?
     private var databaseName: String?
+    private static let logger = Logger(label: "io.github.tedyno.tessera.postgres")
 
     public init() {}
 
@@ -66,6 +68,32 @@ public actor PostgresDriver: DatabaseDriver {
             }
 
             return QueryResult(columns: columns, rows: resultRows, elapsed: clock.now - start)
+        } catch is CancellationError {
+            throw DatabaseError.cancelled
+        } catch {
+            throw DatabaseError.queryFailed(Self.queryErrorMessage(error))
+        }
+    }
+
+    /// Leases one pooled connection and runs everything in a single transaction, so
+    /// a failed statement rolls the whole batch back.
+    public func executeTransaction(_ statements: [String]) async throws {
+        guard let client else { throw DatabaseError.notConnected }
+        guard !statements.isEmpty else { return }
+        do {
+            let logger = Self.logger
+            try await client.withConnection { connection in
+                _ = try await connection.query("BEGIN", logger: logger)
+                do {
+                    for statement in statements {
+                        _ = try await connection.query(PostgresQuery(unsafeSQL: statement), logger: logger)
+                    }
+                    _ = try await connection.query("COMMIT", logger: logger)
+                } catch {
+                    _ = try? await connection.query("ROLLBACK", logger: logger)
+                    throw error
+                }
+            }
         } catch is CancellationError {
             throw DatabaseError.cancelled
         } catch {
