@@ -11,6 +11,7 @@ struct DetailView: View {
     var cursor: Binding<Int>
     var isReadOnly: Bool = false
     var onRun: () -> Void
+    @State private var showingDataSQL = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -197,6 +198,23 @@ struct DetailView: View {
 
             if tab.isRunning { ProgressView().controlSize(.mini) }
             Spacer()
+            Button {
+                showingDataSQL.toggle()
+            } label: {
+                Label("SQL", systemImage: "curlybraces")
+            }
+            .controlSize(.small)
+            .help("Show the generated SQL (read-only)")
+            .popover(isPresented: $showingDataSQL, arrowEdge: .bottom) {
+                ScrollView {
+                    Text(tab.sql.isEmpty ? "—" : tab.sql)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(width: 440, height: 150)
+            }
             Button {
                 showingHistory = true
             } label: {
