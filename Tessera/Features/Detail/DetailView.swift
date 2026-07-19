@@ -465,6 +465,9 @@ struct DetailView: View {
                     } else {
                         Text("\(result.rows.count) rows")
                     }
+                    if let ms = tab.elapsedMS, tab.isRunning == false {
+                        Text("\(ms) ms").foregroundStyle(.secondary)
+                    }
                     if canLoadMore(tab, loaded: result.rows.count) {
                         Button("Load more") { Task { await model.loadMore(tab) } }
                             .buttonStyle(.link)
