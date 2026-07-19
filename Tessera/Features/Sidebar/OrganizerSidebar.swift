@@ -3,18 +3,6 @@ import UniformTypeIdentifiers
 import DBKit
 import DBPersistence
 
-extension UTType {
-    static let tesseraOrganizerNode = UTType(exportedAs: "io.github.tedyno.tessera.organizer-node")
-}
-
-/// Lightweight drag payload carrying a tree node's id for reordering.
-struct DraggedNode: Codable, Transferable {
-    let id: UUID
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .tesseraOrganizerNode)
-    }
-}
-
 /// Column 1 — the connection organizer tree (Workspace → Project → Folder →
 /// Connection) with CRUD via context menus and a bottom "+" menu. Drag & drop
 /// reordering is the remaining Phase 2b step.
@@ -48,9 +36,8 @@ struct OrganizerSidebar: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                     .contextMenu { workspaceMenu(workspace) }
-                    .dropDestination(for: DraggedNode.self) { items, _ in
-                        guard let dragged = items.first else { return false }
-                        return model.move(nodeID: dragged.id, toParent: workspace.id)
+                    .onDrop(of: [.plainText, .text], isTargeted: nil) { providers in
+                        handleDrop(providers, into: workspace.id)
                     }
                 }
             }
@@ -69,16 +56,26 @@ struct OrganizerSidebar: View {
     @ViewBuilder
     private func rowView(_ node: OrganizerNode) -> some View {
         let row = nodeLabel(node)
+            .contentShape(Rectangle())
             .contextMenu { nodeMenu(node) }
-            .draggable(DraggedNode(id: node.id))
+            .onDrag { NSItemProvider(object: node.id.uuidString as NSString) }
         if node.isContainer {
-            row.dropDestination(for: DraggedNode.self) { items, _ in
-                guard let dragged = items.first else { return false }
-                return model.move(nodeID: dragged.id, toParent: node.id)
+            row.onDrop(of: [.plainText, .text], isTargeted: nil) { providers in
+                handleDrop(providers, into: node.id)
             }
         } else {
             row
         }
+    }
+
+    /// Loads the dragged node id from the item provider and moves it under `parentID`.
+    private func handleDrop(_ providers: [NSItemProvider], into parentID: UUID) -> Bool {
+        guard let provider = providers.first else { return false }
+        provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let string = object as? String, let id = UUID(uuidString: string) else { return }
+            Task { @MainActor in model.move(nodeID: id, toParent: parentID) }
+        }
+        return true
     }
 
     @ViewBuilder
