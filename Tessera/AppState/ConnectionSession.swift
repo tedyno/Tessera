@@ -23,6 +23,16 @@ final class ConnectionSession: Identifiable {
     var name: String
     var colorName: String?
     let engine: DatabaseKind
+    /// Organizer folder path (workspace → … → folder), used to tell apart two
+    /// connections that share a name but live in different folders.
+    var location: [String] = []
+
+    /// Name qualified by its deepest folder when it has one ("db · staging").
+    var qualifiedName: String {
+        location.last.map { "\(name) · \($0)" } ?? name
+    }
+    /// Full breadcrumb including the connection name (for a tooltip).
+    var pathLabel: String { (location + [name]).joined(separator: " / ") }
 
     private(set) var status: Status = .idle
     private(set) var serverVersion: String?

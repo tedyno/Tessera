@@ -82,10 +82,11 @@ struct DetailView: View {
                 .font(.system(size: 12, weight: isActive ? .medium : .regular))
                 .foregroundStyle(isActive ? .primary : .secondary)
             if showConnection, let session = tab.session {
-                Text(session.name)
+                Text(session.qualifiedName)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .help(session.pathLabel)
             }
             if model.tabs.count > 1 {
                 Button {

@@ -81,10 +81,20 @@ final class AppModel {
 
     func connectProfile(profileID: UUID) {
         guard let profile = connections.profile(id: profileID) else { return }
-        let session = console.ensureSession(profile: profile)
+        let session = ensureSession(profile: profile)
         console.activateTab(for: session)
         guard !session.isReady, !session.isConnecting else { return }
         Task { await openSession(session, profile: profile) }
+    }
+
+    /// The session for a profile, with its name/folder location kept in sync so tabs
+    /// can disambiguate same-named connections.
+    private func ensureSession(profile: ConnectionProfile) -> ConnectionSession {
+        let session = console.ensureSession(profile: profile)
+        session.name = profile.name
+        session.colorName = profile.color
+        session.location = connections.path(forProfile: profile.id)
+        return session
     }
 
     func disconnect(profileID: UUID) {
@@ -94,7 +104,7 @@ final class AppModel {
 
     func reconnect(profileID: UUID) {
         guard let profile = connections.profile(id: profileID) else { return }
-        let session = console.ensureSession(profile: profile)
+        let session = ensureSession(profile: profile)
         Task {
             await session.close()
             await openSession(session, profile: profile)
@@ -212,7 +222,7 @@ final class AppModel {
         showingSpotlight = false
         guard let profile = connections.profile(id: result.profileID) else { return }
         Task {
-            let session = console.ensureSession(profile: profile)
+            let session = ensureSession(profile: profile)
             if !session.isReady, !session.isConnecting {
                 await openSession(session, profile: profile)
             }
