@@ -190,11 +190,12 @@ struct DetailView: View {
             }
 
             Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
-            TextField("WHERE …", text: Binding(get: { tab.filterWhere }, set: { tab.filterWhere = $0 }))
-                .textFieldStyle(.roundedBorder)
-                .font(.system(.caption, design: .monospaced))
-                .frame(maxWidth: 320)
-                .onSubmit { Task { await model.applyFilter(tab, where: tab.filterWhere) } }
+            FilterField(
+                text: Binding(get: { tab.filterWhere }, set: { tab.filterWhere = $0 }),
+                columns: tab.result?.columns.map(\.name) ?? [],
+                placeholder: String(localized: "WHERE …"),
+                onSubmit: { Task { await model.applyFilter(tab, where: tab.filterWhere) } })
+                .frame(maxWidth: 320, minHeight: 22)
 
             if tab.isRunning { ProgressView().controlSize(.mini) }
             Spacer()
