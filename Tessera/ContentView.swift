@@ -43,6 +43,11 @@ struct ContentView: View {
                         if let profileID = app.console.currentProfileID {
                             app.exportTable(profileID: profileID, schema: schema, table: table)
                         }
+                    },
+                    onDumpSchema: { schema in
+                        if let profileID = app.console.currentProfileID {
+                            app.exportSchema(profileID: profileID, schema: schema)
+                        }
                     })
                 .frame(minHeight: 80, idealHeight: geo.size.height / 2, maxHeight: .infinity)
             }

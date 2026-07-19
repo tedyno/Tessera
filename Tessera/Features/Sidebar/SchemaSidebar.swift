@@ -19,6 +19,7 @@ struct SchemaSidebar: View {
     var onOpenTable: (_ schema: String, _ table: String) -> Void
     var onOpenColumn: (_ schema: String, _ table: String, _ column: String) -> Void
     var onDumpTable: (_ schema: String, _ table: String) -> Void = { _, _ in }
+    var onDumpSchema: (_ schema: String) -> Void = { _ in }
 
     @State private var expanded: Set<String> = ["db"]
     @State private var highlightedID: String?
@@ -68,6 +69,9 @@ struct SchemaSidebar: View {
                 .modifier(HighlightRow(active: highlightedID == "s:\(namespace.name)"))
                 .contentShape(Rectangle())
                 .simultaneousGesture(TapGesture(count: 2).onEnded { toggle("s:\(namespace.name)") })
+                .contextMenu {
+                    Button("Dump Schema…") { onDumpSchema(namespace.name) }
+                }
         }
     }
 

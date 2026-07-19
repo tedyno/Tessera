@@ -203,7 +203,8 @@ struct ExportView: View {
     private var defaultFileName: String {
         let base: String
         switch context.scope {
-        case .database, .schema: base = context.database
+        case .database: base = context.database
+        case .schema(let schema): base = schema
         case .tables(_, let tables): base = tables.first ?? context.database
         }
         return "\(base).sql"

@@ -324,6 +324,10 @@ final class AppModel {
         exportTarget = ExportTarget(profileID: profileID, scope: .database)
     }
 
+    func exportSchema(profileID: UUID, schema: String) {
+        exportTarget = ExportTarget(profileID: profileID, scope: .schema(schema))
+    }
+
     func exportTable(profileID: UUID, schema: String, table: String) {
         exportTarget = ExportTarget(profileID: profileID, scope: .tables(schema: schema, tables: [table]))
     }
