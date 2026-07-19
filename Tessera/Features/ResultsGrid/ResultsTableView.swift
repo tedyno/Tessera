@@ -20,6 +20,14 @@ final class GridTextField: NSTextField {
     var columnIndex = -1
 }
 
+/// NSTableView that routes ⌘C/⌘V to the coordinator for multi-cell copy/paste.
+final class GridTableView: NSTableView {
+    var onPaste: (() -> Void)?
+    var onCopy: (() -> Void)?
+    @objc func paste(_ sender: Any?) { onPaste?() }
+    @objc func copy(_ sender: Any?) { onCopy?() }
+}
+
 /// Virtualized results grid backed by `NSTableView`. When the result maps to a
 /// single table (`tab.editSource`), cells are editable: edits are tracked in
 /// `tab.edits`, edited rows are highlighted, and ⌘↩ persists them via UPDATE.
@@ -27,15 +35,20 @@ struct ResultsTableView: NSViewRepresentable {
     let tab: QueryTab
 
     func makeNSView(context: Context) -> NSScrollView {
-        let tableView = NSTableView()
+        let tableView = GridTableView()
         tableView.style = .inset
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.allowsColumnResizing = true
         tableView.allowsColumnReordering = false
+        tableView.allowsMultipleSelection = true
         tableView.rowHeight = 18
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
+        tableView.target = context.coordinator
+        tableView.action = #selector(Coordinator.tableClicked)
+        tableView.onPaste = { [coordinator = context.coordinator] in coordinator.pasteIntoSelection() }
+        tableView.onCopy = { [coordinator = context.coordinator] in coordinator.copySelection() }
 
         let scrollView = NSScrollView()
         scrollView.documentView = tableView
@@ -59,8 +72,50 @@ struct ResultsTableView: NSViewRepresentable {
         private var tab: QueryTab
         weak var tableView: NSTableView?
         private var columnsSignature: [String] = []
+        /// The column last clicked; multi-paste targets this column.
+        private var focusedColumn = 0
 
         init(tab: QueryTab) { self.tab = tab }
+
+        @objc func tableClicked() {
+            if let column = tableView?.clickedColumn, column >= 0 { focusedColumn = column }
+        }
+
+        /// ⌘V — writes the clipboard string into `focusedColumn` for every selected row.
+        func pasteIntoSelection() {
+            guard tab.isEditable, let result = tab.result, let tableView,
+                  focusedColumn < result.columns.count,
+                  let value = NSPasteboard.general.string(forType: .string) else { return }
+            let rows = tableView.selectedRowIndexes
+            guard !rows.isEmpty else { return }
+            let columnName = result.columns[focusedColumn].name
+            for row in rows where row < result.rows.count {
+                let original = focusedColumn < result.rows[row].count ? result.rows[row][focusedColumn].text : nil
+                if value == (original ?? "") {
+                    tab.edits[row]?[columnName] = nil
+                    if tab.edits[row]?.isEmpty == true { tab.edits[row] = nil }
+                } else {
+                    tab.edits[row, default: [:]][columnName] = value
+                }
+            }
+            tableView.reloadData(forRowIndexes: rows,
+                                 columnIndexes: IndexSet(integersIn: 0..<result.columns.count))
+        }
+
+        /// ⌘C — copies `focusedColumn` values of the selected rows (newline-separated).
+        func copySelection() {
+            guard let result = tab.result, let tableView, focusedColumn < result.columns.count else { return }
+            let rows = tableView.selectedRowIndexes
+            guard !rows.isEmpty else { return }
+            let columnName = result.columns[focusedColumn].name
+            let lines = rows.map { row -> String in
+                if let edited = tab.edits[row]?[columnName] { return edited }
+                let cells = result.rows[row]
+                return (focusedColumn < cells.count ? cells[focusedColumn].text : nil) ?? ""
+            }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+        }
 
         private var result: QueryResult? { tab.result }
 
