@@ -50,7 +50,12 @@ security add-trusted-cert -r trustRoot -p codeSign \
 
 mkdir -p "$REPO/Config"
 if [ ! -f "$REPO/Config/Local.xcconfig" ]; then
-    printf 'CODE_SIGN_IDENTITY = %s\n' "$NAME" > "$REPO/Config/Local.xcconfig"
+    {
+        printf 'CODE_SIGN_IDENTITY = %s\n' "$NAME"
+        # Automatic signing insists on a development team; a self-signed
+        # certificate needs manual signing instead.
+        printf 'CODE_SIGN_STYLE = Manual\n'
+    } > "$REPO/Config/Local.xcconfig"
     echo "Wrote Config/Local.xcconfig."
 fi
 

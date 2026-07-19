@@ -2,3 +2,6 @@
 // See CONTRIBUTING notes in README; create the certificate with Scripts/make-signing-cert.sh.
 
 CODE_SIGN_IDENTITY = Tessera Self-Signed
+// Automatic signing insists on a development team; a self-signed
+// certificate needs manual signing instead.
+CODE_SIGN_STYLE = Manual
