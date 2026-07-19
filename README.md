@@ -12,22 +12,34 @@ which the whole picture is assembled.
 ## Features
 
 - **PostgreSQL and MySQL** through one interface, with several connections live at once —
-  staging and production side by side, each tab bound to its own session.
-- **Connection organizer** — nest connections in folders, colour-code them, and mark the
-  dangerous ones read-only.
-- **Schema browser** with search across schemas, tables and columns.
-- **SQL editor** with syntax highlighting, completion, run-statement-at-cursor, and
-  server-side cancellation (`pg_cancel_backend` / `KILL QUERY`).
+  staging and production side by side. Each tab is bound to its own session, labelled with
+  its connection and a live status dot, and a per-tab picker points it at any connection.
+- **Connection organizer** — nest connections in folders, colour-code them, mark the
+  dangerous ones read-only, and connect / disconnect / reconnect / re-introspect from the
+  sidebar (with a live green status dot).
+- **Schema browser** and a **global search** (double-Shift) across every connection's
+  schemas, tables and columns.
+- **SQL console** with syntax highlighting, Tab-to-complete autocompletion (schema-aware),
+  run-statement-at-cursor, server-side cancellation (`pg_cancel_backend` / `KILL QUERY`),
+  and running a `.sql` file statement by statement.
 - **Editable results grid** — edit, insert, duplicate and delete rows; changes are staged,
-  reviewable, discardable, and committed in a single transaction.
-- **Table view** separate from the console, with filtering, sorting, paging and row counts.
+  listed with per-row discard, reviewable as SQL, and committed together. Multi-cell
+  selection, copy/paste, and column auto-fit.
+- **Table view** separate from the console, with a completing WHERE filter, sortable
+  headers, an adjustable row limit, paging ("Load more") and total row counts.
 - **Schema editing** — add, rename, retype and drop columns, indexes and tables, with the
   generated DDL shown before it runs.
-- **Import and export** through `pg_dump`/`mysqldump`/`psql`/`pg_restore`/`mysql`, including
-  gzip, with the binary matched to the server's major version.
+- **Export** a table, a schema or the whole database through `pg_dump` / `mysqldump` — with
+  structure/data, DROP/CREATE options, INSERT-statement or custom format, and **gzip** so
+  you can send it straight on. The binary is matched to the server's major version. A
+  configurable default export folder (Downloads) with timestamped filenames, and
+  **reveal-in-Finder after export**.
+- **Import / restore** dumps through `psql` / `pg_restore` / `mysql`.
+- **Export query results** to CSV or JSON.
 - **SSH tunnelling** with password or key authentication (OpenSSH ed25519 and RSA keys).
 - **Secrets stay in the Keychain** — never in a config file, never in the organizer JSON.
-- **MCP server** — optionally let an AI assistant query your databases. See below.
+- **Built-in MCP server** — optionally let an AI assistant inspect your schema and run
+  queries, gated by per-connection read/write permissions. See below.
 - **Localized** — English and Czech.
 
 ## Requirements
@@ -72,6 +84,22 @@ The portable core is a local Swift package and builds and tests on its own:
 ```sh
 cd TesseraCore && swift build && swift test
 ```
+
+### Stop the Keychain re-asking on every build
+
+By default local builds are **ad-hoc** signed, which gives the app a different identity each
+time, so the Keychain treats every build as a new application and re-asks permission for each
+stored connection password. To give the app a stable identity, create a self-signed code
+signing certificate once:
+
+```sh
+Scripts/make-signing-cert.sh
+```
+
+It writes an untracked `Config/Local.xcconfig` pointing the build at the certificate. Rebuild,
+then click **Always Allow** on the Keychain prompt once per connection — because the signature
+is now stable, it won't ask again. (This does not get you past Gatekeeper; that still needs a
+paid Developer ID and notarization.)
 
 ## MCP server
 
