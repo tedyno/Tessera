@@ -24,25 +24,29 @@ final class GridTextField: NSTextField {
     var columnIndex = -1
 }
 
-/// Two-line column header: the column name above its SQL type (small, grey).
+/// Two-line column header: the column name (drawn by the system, so the sort
+/// indicator still appears) above its SQL type in small grey text.
 final class TypedHeaderCell: NSTableHeaderCell {
     var typeName = ""
+    private static let typeHeight: CGFloat = 11
 
-    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
-        let inset = cellFrame.insetBy(dx: 5, dy: 3)
-        let nameAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: NSColor.labelColor]
-        (stringValue as NSString).draw(
-            in: NSRect(x: inset.minX, y: inset.minY, width: inset.width, height: 14),
-            withAttributes: nameAttrs)
-        guard !typeName.isEmpty else { return }
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
+        guard !typeName.isEmpty else {
+            super.draw(withFrame: cellFrame, in: controlView)
+            return
+        }
+        // Let AppKit draw the background, the name, and the sort indicator in the
+        // upper part; append the type below it.
+        var top = cellFrame
+        top.size.height -= Self.typeHeight
+        super.draw(withFrame: top, in: controlView)
+
+        let typeRect = NSRect(x: cellFrame.minX + 6, y: cellFrame.maxY - Self.typeHeight,
+                              width: max(cellFrame.width - 8, 0), height: Self.typeHeight)
         let typeAttrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 9, weight: .regular),
             .foregroundColor: NSColor.tertiaryLabelColor]
-        (typeName as NSString).draw(
-            in: NSRect(x: inset.minX, y: inset.minY + 13, width: inset.width, height: 11),
-            withAttributes: typeAttrs)
+        (typeName as NSString).draw(in: typeRect, withAttributes: typeAttrs)
     }
 }
 
@@ -518,8 +522,11 @@ struct ResultsTableView: NSViewRepresentable {
             let text: String
             switch format {
             case .tsv:
+                // ⌘C honours the exact cells picked (a ⌘-toggled selection can be
+                // ragged); the structured formats below use the bounding rectangle.
                 text = block.rows.map { row in
-                    block.cols.map { cellString(row: row, col: $0) ?? "" }.joined(separator: "\t")
+                    selected.filter { $0.row == row }.map(\.col).sorted()
+                        .map { cellString(row: row, col: $0) ?? "" }.joined(separator: "\t")
                 }.joined(separator: "\n")
             case .csv:
                 let header = block.cols.map { csvField(result.columns[$0].name) }.joined(separator: ",")
@@ -531,7 +538,7 @@ struct ResultsTableView: NSViewRepresentable {
                 let objects = block.rows.map { row -> [String: Any] in
                     var object: [String: Any] = [:]
                     for col in block.cols {
-                        object[result.columns[col].name] = cellString(row: row, col: col) ?? NSNull()
+                        object[result.columns[col].name] = jsonValue(cellString(row: row, col: col), col: col)
                     }
                     return object
                 }
@@ -551,6 +558,18 @@ struct ResultsTableView: NSViewRepresentable {
             }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+        }
+
+        /// A JSON value for a cell: `null`, a real number for numeric columns (via
+        /// `NSDecimalNumber`, so large int8/numeric keep full precision), else a string.
+        private func jsonValue(_ value: String?, col: Int) -> Any {
+            guard let value else { return NSNull() }
+            guard let result = tab.result, col < result.columns.count,
+                  isNumericColumnType(result.columns[col].typeName) else { return value }
+            if let integer = Int(value) { return integer }
+            // POSIX locale so the decimal separator is always ".", not the user's.
+            let decimal = NSDecimalNumber(string: value, locale: Locale(identifier: "en_US_POSIX"))
+            return decimal == NSDecimalNumber.notANumber ? value : decimal
         }
 
         private func csvField(_ value: String?) -> String {
@@ -604,7 +623,14 @@ struct ResultsTableView: NSViewRepresentable {
             }
             tableView.reloadData()
             updateSortIndicator(tableView, result)
-            if selected.isEmpty, tab.inspected != nil { tab.inspected = nil }
+            // Clearing the inspector here (during updateNSView) would mutate observed
+            // state mid-render; defer it, and only if nothing got selected meanwhile.
+            if selected.isEmpty, tab.inspected != nil {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.selected.isEmpty, self.tab.inspected != nil else { return }
+                    self.tab.inspected = nil
+                }
+            }
 
             // Scroll a requested column into view (from a schema column double-click).
             if let target = tab.scrollToColumn,

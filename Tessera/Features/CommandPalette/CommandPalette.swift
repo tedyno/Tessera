@@ -104,6 +104,8 @@ struct CommandPalette: View {
     private func run(_ command: PaletteCommand) {
         guard command.enabled else { return }
         app.showingCommandPalette = false
-        command.action()
+        // Run after this sheet has dismissed: SwiftUI can't close one sheet and open
+        // another (Spotlight, New Connection, a run dialog…) in the same update.
+        DispatchQueue.main.async { command.action() }
     }
 }
