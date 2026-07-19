@@ -46,12 +46,22 @@ which the whole picture is assembled.
 
 macOS 26 or later, on Apple silicon or Intel. Building requires Xcode 26 or later.
 
+## Download
+
+Grab the latest **[`Tessera.dmg` from Releases](https://github.com/tedyno/Tessera/releases/latest)**,
+open it, and drag Tessera to your Applications folder. The DMG is a universal build (Apple
+silicon and Intel).
+
+Once installed, Tessera **keeps itself up to date** — it checks for new versions and offers
+to install them, and you can trigger a check anytime from **Tessera ▸ Check for Updates…**.
+Updates are cryptographically signed (Sparkle / EdDSA), so they're safe even though the app
+isn't notarized.
+
 ## Installing
 
-Releases are code-signed, but **not notarized**, because notarization requires a paid Apple
-Developer account and this is an open-source project without one. macOS will therefore
-refuse to open it on the first try, reporting that it cannot be checked for malicious
-software.
+The build is **not notarized**, because notarization requires a paid Apple Developer account
+and this is an open-source project without one. macOS will therefore refuse to open it on the
+first try, reporting that it cannot be checked for malicious software.
 
 To open it anyway, launch it once, dismiss the warning, then go to **System Settings ▸
 Privacy & Security**, scroll to the security section, and click **Open Anyway**. (The old
