@@ -24,7 +24,51 @@ final class GridTextField: NSTextField {
     var columnIndex = -1
 }
 
+/// Two-line column header: the column name above its SQL type (small, grey).
+final class TypedHeaderCell: NSTableHeaderCell {
+    var typeName = ""
+
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        let inset = cellFrame.insetBy(dx: 5, dy: 3)
+        let nameAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.labelColor]
+        (stringValue as NSString).draw(
+            in: NSRect(x: inset.minX, y: inset.minY, width: inset.width, height: 14),
+            withAttributes: nameAttrs)
+        guard !typeName.isEmpty else { return }
+        let typeAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 9, weight: .regular),
+            .foregroundColor: NSColor.tertiaryLabelColor]
+        (typeName as NSString).draw(
+            in: NSRect(x: inset.minX, y: inset.minY + 13, width: inset.width, height: 11),
+            withAttributes: typeAttrs)
+    }
+}
+
+/// Forces a taller header so the two-line `TypedHeaderCell` fits; the enclosing
+/// clip view otherwise resets the height on every layout pass.
+final class TallHeaderView: NSTableHeaderView {
+    override var frame: NSRect {
+        get { super.frame }
+        set { var f = newValue; f.size.height = 30; super.frame = f }
+    }
+}
+
 struct CellPos: Hashable { let row: Int; let col: Int }
+
+/// Column types whose values read as numbers and are right-aligned in the grid.
+/// Exact matches only, so `interval`/`inet`/`text` are never caught by a prefix.
+private let numericColumnTypes: Set<String> = [
+    "int2", "int4", "int8", "smallint", "integer", "bigint",
+    "serial", "bigserial", "smallserial", "serial2", "serial4", "serial8",
+    "numeric", "decimal", "real", "double precision", "float4", "float8", "money", "oid",
+    "tiny", "short", "int24", "long", "longlong", "float", "double", "newdecimal", "year",
+]
+
+private func isNumericColumnType(_ typeName: String) -> Bool {
+    numericColumnTypes.contains(typeName.lowercased())
+}
 
 /// NSTableView with spreadsheet-style cell selection: click/drag selects a
 /// rectangular block of cells, double-click edits, ⌘C/⌘V copy/paste the block.
@@ -139,6 +183,7 @@ struct ResultsTableView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let tableView = GridTableView()
         tableView.style = .inset
+        tableView.headerView = TallHeaderView()
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.allowsColumnResizing = true
@@ -184,6 +229,8 @@ struct ResultsTableView: NSViewRepresentable {
         private var tab: QueryTab
         weak var tableView: NSTableView?
         var onSort: (String) -> Void = { _ in }
+        static let mono = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        static let monoItalic = NSFontManager.shared.convert(mono, toHaveTrait: .italicFontMask)
         private var columnsSignature: [String] = []
         private var lastResultVersion = -1
         private var selected: Set<CellPos> = []
@@ -423,7 +470,9 @@ struct ResultsTableView: NSViewRepresentable {
                 for column in tableView.tableColumns { tableView.removeTableColumn(column) }
                 for (index, descriptor) in result.columns.enumerated() {
                     let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("\(index)"))
-                    column.title = descriptor.name
+                    let header = TypedHeaderCell(textCell: descriptor.name)
+                    header.typeName = descriptor.typeName
+                    column.headerCell = header
                     column.width = 150
                     column.minWidth = 40
                     column.resizingMask = [.userResizingMask, .autoresizingMask]
@@ -517,6 +566,9 @@ struct ResultsTableView: NSViewRepresentable {
             field.backgroundColor = selected ? NSColor.controlAccentColor.withAlphaComponent(0.30) : .clear
 
             let columnName = result.columns[columnIndex].name
+            // Numbers read better right-aligned; reset font/alignment on every reuse.
+            field.alignment = isNumericColumnType(result.columns[columnIndex].typeName) ? .right : .left
+            field.font = Self.mono
 
             if isInsertRow(row) {
                 let insertIndex = row - fetchedRowCount
@@ -541,8 +593,11 @@ struct ResultsTableView: NSViewRepresentable {
                 field.stringValue = value
                 field.textColor = .labelColor
             } else {
+                // SQL NULL rendered in grey italic so it's unmistakable from the
+                // literal string "NULL" or an empty string.
                 field.stringValue = "NULL"
                 field.textColor = .tertiaryLabelColor
+                field.font = Self.monoItalic
             }
             return field
         }
@@ -550,7 +605,7 @@ struct ResultsTableView: NSViewRepresentable {
         private func makeField(identifier: NSUserInterfaceItemIdentifier) -> GridTextField {
             let field = GridTextField(labelWithString: "")
             field.identifier = identifier
-            field.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+            field.font = Self.mono
             field.lineBreakMode = .byTruncatingTail
             field.isBordered = false
             field.drawsBackground = false
