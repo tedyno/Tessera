@@ -10,11 +10,16 @@ struct SQLEditor: NSViewRepresentable {
     var schema: DatabaseTree?
     var focusTrigger: Int
     var cursor: Binding<Int>?
+    /// Read-only mode: shows highlighted, selectable SQL that can't be edited
+    /// (used to display a data view's generated query).
+    var readOnly: Bool = false
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSTextView.scrollableTextView()
         let textView = scrollView.documentView as! NSTextView
         textView.delegate = context.coordinator
+        textView.isEditable = !readOnly
+        textView.isSelectable = true
         textView.isRichText = false
         textView.font = Self.font
         textView.isAutomaticQuoteSubstitutionEnabled = false

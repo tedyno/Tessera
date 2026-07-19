@@ -11,7 +11,6 @@ struct DetailView: View {
     var cursor: Binding<Int>
     var isReadOnly: Bool = false
     var onRun: () -> Void
-    @State private var showingDataSQL = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,6 +18,8 @@ struct DetailView: View {
             Divider()
             if let tab = model.activeTab, tab.kind == .data {
                 dataToolbar(tab)
+                Divider()
+                dataSQLView(tab)
             } else {
                 editorToolbar
                 Divider()
@@ -200,23 +201,6 @@ struct DetailView: View {
             if tab.isRunning { ProgressView().controlSize(.mini) }
             Spacer()
             Button {
-                showingDataSQL.toggle()
-            } label: {
-                Label("SQL", systemImage: "curlybraces")
-            }
-            .controlSize(.small)
-            .help("Show the generated SQL (read-only)")
-            .popover(isPresented: $showingDataSQL, arrowEdge: .bottom) {
-                ScrollView {
-                    Text(tab.sql.isEmpty ? "—" : tab.sql)
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(width: 440, height: 150)
-            }
-            Button {
                 showingHistory = true
             } label: {
                 Label("History", systemImage: "clock.arrow.circlepath")
@@ -224,6 +208,14 @@ struct DetailView: View {
             .controlSize(.small)
         }
         .padding(6)
+    }
+
+    /// The data view's generated query, shown read-only (highlighted, selectable)
+    /// so it's always visible like the console editor but can't be edited.
+    private func dataSQLView(_ tab: QueryTab) -> some View {
+        SQLEditor(text: .constant(tab.sql), schema: nil, focusTrigger: 0, cursor: nil, readOnly: true)
+            .frame(height: 52)
+            .background(.quaternary.opacity(0.25))
     }
 
     /// More rows are available when the page came back full and we're below the total.
