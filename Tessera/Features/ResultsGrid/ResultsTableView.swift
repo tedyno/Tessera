@@ -2,15 +2,18 @@ import SwiftUI
 import AppKit
 import DBKit
 
-/// Row view that tints its background when the row has unsaved edits.
+/// Row view tinted by its pending change: orange = update, red = delete.
 final class DirtyRowView: NSTableRowView {
-    var isDirty = false
+    enum State { case none, update, delete }
+    var state: State = .none
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
-        if isDirty {
-            NSColor.systemYellow.withAlphaComponent(0.18).setFill()
-            dirtyRect.fill()
+        let color: NSColor? = switch state {
+        case .none: nil
+        case .update: NSColor.systemOrange.withAlphaComponent(0.18)
+        case .delete: NSColor.systemRed.withAlphaComponent(0.22)
         }
+        if let color { color.setFill(); dirtyRect.fill() }
     }
 }
 
@@ -27,8 +30,17 @@ struct CellPos: Hashable { let row: Int; let col: Int }
 final class GridTableView: NSTableView {
     var onSelect: ((Int, Int, Bool, Bool) -> Void)?   // row, col, extend(shift), toggle(cmd)
     var onBeginEdit: ((Int, Int) -> Void)?
+    var onDeleteRows: (() -> Void)?
     var onPaste: (() -> Void)?
     var onCopy: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 51 || event.keyCode == 117 { // delete / forward-delete
+            onDeleteRows?()
+        } else {
+            super.keyDown(with: event)
+        }
+    }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
@@ -75,6 +87,7 @@ struct ResultsTableView: NSViewRepresentable {
             c.selectCell(row: row, col: col, extend: extend, toggle: toggle)
         }
         tableView.onBeginEdit = { [c = context.coordinator] row, col in c.beginEdit(row: row, col: col) }
+        tableView.onDeleteRows = { [c = context.coordinator] in c.deleteSelectedRows() }
         tableView.onPaste = { [c = context.coordinator] in c.pasteIntoSelection() }
         tableView.onCopy = { [c = context.coordinator] in c.copySelection() }
 
@@ -158,6 +171,30 @@ struct ResultsTableView: NSViewRepresentable {
         private func reload(rows: IndexSet) {
             guard let tableView, let result = tab.result else { return }
             tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integersIn: 0..<result.columns.count))
+            for row in rows {
+                if let rowView = tableView.rowView(atRow: row, makeIfNecessary: false) as? DirtyRowView {
+                    rowView.state = rowState(row)
+                    rowView.needsDisplay = true
+                }
+            }
+        }
+
+        func rowState(_ row: Int) -> DirtyRowView.State {
+            if tab.pendingDeletes.contains(row) { return .delete }
+            if tab.edits[row] != nil { return .update }
+            return .none
+        }
+
+        /// Backspace — toggles the selected rows' deletion mark (red highlight).
+        func deleteSelectedRows() {
+            guard tab.isEditable else { return }
+            let rows = selectionRows
+            guard !rows.isEmpty else { return }
+            let allMarked = rows.allSatisfy { tab.pendingDeletes.contains($0) }
+            for row in rows {
+                if allMarked { tab.pendingDeletes.remove(row) } else { tab.pendingDeletes.insert(row) }
+            }
+            reload(rows: rows)
         }
 
         /// ⌘V — writes the clipboard string into every selected cell.
@@ -227,7 +264,7 @@ struct ResultsTableView: NSViewRepresentable {
 
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
             let rowView = DirtyRowView()
-            rowView.isDirty = tab.edits[row] != nil
+            rowView.state = rowState(row)
             return rowView
         }
 
@@ -291,8 +328,7 @@ struct ResultsTableView: NSViewRepresentable {
             }
             let editedRow = row
             DispatchQueue.main.async { [weak self] in
-                self?.tableView?.reloadData(forRowIndexes: IndexSet(integer: editedRow),
-                                            columnIndexes: IndexSet(integersIn: 0..<(self?.result?.columns.count ?? 0)))
+                self?.reload(rows: IndexSet(integer: editedRow))
             }
         }
     }

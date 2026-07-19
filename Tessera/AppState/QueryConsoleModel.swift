@@ -143,6 +143,7 @@ final class QueryConsoleModel {
             let result = try await driver.execute(sql)
             tab.result = result
             tab.edits = [:]
+            tab.pendingDeletes = []
             tab.editSource = detectEditSource(sql: sql, columns: result.columns)
             let ms = result.elapsed.map(Self.milliseconds)
             tab.elapsedMS = ms
@@ -156,23 +157,17 @@ final class QueryConsoleModel {
     /// Writes pending cell edits as `UPDATE` statements (in a transaction), then
     /// re-runs the query to show the saved data.
     func commitEdits(_ tab: QueryTab) async {
-        guard status == .ready, let driver, let source = tab.editSource,
-              let result = tab.result, !tab.edits.isEmpty else { return }
+        guard status == .ready, let driver, tab.editSource != nil, tab.hasEdits else { return }
         tab.isRunning = true
         tab.errorMessage = nil
         do {
-            // Note: run per-statement (PostgresClient is pooled, so a wrapping
-            // BEGIN/COMMIT wouldn't share one connection). A single-connection
-            // transaction is future work.
-            for (rowIndex, changes) in tab.edits {
-                guard rowIndex < result.rows.count,
-                      let update = buildUpdate(source: source, columns: result.columns,
-                                               originalRow: result.rows[rowIndex], changes: changes) else {
-                    throw DatabaseError.queryFailed("Cannot build UPDATE for edited row")
-                }
-                _ = try await driver.execute(update)
+            // Per-statement (PostgresClient is pooled, so a wrapping BEGIN/COMMIT
+            // wouldn't share one connection). A single-connection transaction is future work.
+            for statement in pendingStatements(tab) {
+                _ = try await driver.execute(statement)
             }
             tab.edits = [:]
+            tab.pendingDeletes = []
             await run(tab, sqlToRun: tab.sql)
         } catch {
             tab.errorMessage = Self.message(for: error)
@@ -206,32 +201,73 @@ final class QueryConsoleModel {
         guard let found else { return nil }
         let primaryKeys = found.columns.filter(\.isPrimaryKey).map(\.name)
         let resultColumns = Set(columns.map(\.name))
-        guard !primaryKeys.isEmpty, primaryKeys.allSatisfy(resultColumns.contains) else { return nil }
-        return EditSource(schema: found.namespace, table: found.table, primaryKeys: primaryKeys)
+        if !primaryKeys.isEmpty {
+            // A PK exists but isn't in the result → can't target rows reliably.
+            guard primaryKeys.allSatisfy(resultColumns.contains) else { return nil }
+            return EditSource(schema: found.namespace, table: found.table, primaryKeys: primaryKeys)
+        }
+        // No primary key → fall back to matching all selected columns (may affect
+        // duplicate rows).
+        return EditSource(schema: found.namespace, table: found.table, primaryKeys: [])
     }
 
-    /// The UPDATE statements that ⌘↩ would run for the tab's pending edits.
-    func pendingUpdates(_ tab: QueryTab) -> [String] {
+    /// The UPDATE/DELETE statements that ⌘↩ would run for the tab's pending changes.
+    /// Rows with identical edits collapse into a single `… WHERE pk IN (…)`; deletes
+    /// likewise. Without a primary key the WHERE matches all selected columns.
+    func pendingStatements(_ tab: QueryTab) -> [String] {
         guard let source = tab.editSource, let result = tab.result else { return [] }
-        return tab.edits.sorted { $0.key < $1.key }.compactMap { rowIndex, changes in
-            guard rowIndex < result.rows.count else { return nil }
-            return buildUpdate(source: source, columns: result.columns,
-                               originalRow: result.rows[rowIndex], changes: changes)
+        let table = "\(quote(source.schema)).\(quote(source.table))"
+        let keyColumns = source.primaryKeys.isEmpty ? result.columns.map(\.name) : source.primaryKeys
+        var statements: [String] = []
+
+        // DELETEs first.
+        let deleteRows = tab.pendingDeletes.sorted()
+        if !deleteRows.isEmpty {
+            for clause in whereClauses(rows: deleteRows, keyColumns: keyColumns, result: result) {
+                statements.append("DELETE FROM \(table) WHERE \(clause);")
+            }
         }
+
+        // UPDATEs grouped by identical change-set (skip rows being deleted).
+        var groups: [String: (changes: [String: String], rows: [Int])] = [:]
+        for (row, changes) in tab.edits where !tab.pendingDeletes.contains(row) {
+            let key = changes.sorted { $0.key < $1.key }.map { "\($0.key)\u{1}\($0.value)" }.joined(separator: "\u{2}")
+            groups[key, default: (changes, [])].rows.append(row)
+        }
+        for group in groups.values.sorted(by: { ($0.rows.min() ?? 0) < ($1.rows.min() ?? 0) }) {
+            let setClause = group.changes.sorted { $0.key < $1.key }
+                .map { "\(quote($0.key)) = \(Self.literal($0.value))" }.joined(separator: ", ")
+            for clause in whereClauses(rows: group.rows.sorted(), keyColumns: keyColumns, result: result) {
+                statements.append("UPDATE \(table) SET \(setClause) WHERE \(clause);")
+            }
+        }
+        return statements
     }
 
-    private func buildUpdate(source: EditSource, columns: [ColumnDescriptor],
-                             originalRow: [Cell], changes: [String: String]) -> String? {
-        guard !changes.isEmpty else { return nil }
-        let setClause = changes.map { "\(quote($0.key)) = \(Self.literal($0.value))" }.joined(separator: ", ")
-        var whereClauses: [String] = []
-        for pk in source.primaryKeys {
-            guard let index = columns.firstIndex(where: { $0.name == pk }), index < originalRow.count else { return nil }
-            let value = originalRow[index].text
-            whereClauses.append(value == nil ? "\(quote(pk)) IS NULL" : "\(quote(pk)) = \(Self.literal(value!))")
+    /// WHERE clauses for the given rows: one `col IN (…)` when the key is a single
+    /// column with no NULLs, otherwise one AND-clause per row.
+    private func whereClauses(rows: [Int], keyColumns: [String], result: QueryResult) -> [String] {
+        if keyColumns.count == 1, let name = keyColumns.first,
+           let index = result.columns.firstIndex(where: { $0.name == name }) {
+            let values = rows.compactMap { row -> String? in
+                guard row < result.rows.count, index < result.rows[row].count,
+                      let text = result.rows[row][index].text else { return nil }
+                return Self.literal(text)
+            }
+            if values.count == rows.count, !values.isEmpty {
+                return ["\(quote(name)) IN (\(values.joined(separator: ", ")))"]
+            }
         }
-        guard !whereClauses.isEmpty else { return nil }
-        return "UPDATE \(quote(source.schema)).\(quote(source.table)) SET \(setClause) WHERE \(whereClauses.joined(separator: " AND "));"
+        return rows.map { rowWhere($0, keyColumns: keyColumns, result: result) }
+    }
+
+    private func rowWhere(_ row: Int, keyColumns: [String], result: QueryResult) -> String {
+        keyColumns.compactMap { name -> String? in
+            guard let index = result.columns.firstIndex(where: { $0.name == name }),
+                  row < result.rows.count, index < result.rows[row].count else { return nil }
+            let text = result.rows[row][index].text
+            return text == nil ? "\(quote(name)) IS NULL" : "\(quote(name)) = \(Self.literal(text!))"
+        }.joined(separator: " AND ")
     }
 
     private static func literal(_ value: String) -> String {

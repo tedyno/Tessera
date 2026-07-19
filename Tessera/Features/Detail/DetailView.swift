@@ -11,7 +11,6 @@ struct DetailView: View {
     var cursor: Binding<Int>
     var isReadOnly: Bool = false
     var onRun: () -> Void
-    @State private var showingPendingSQL = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,6 +22,10 @@ struct DetailView: View {
             Divider()
             resultsArea
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let tab = model.activeTab, tab.hasEdits {
+                Divider()
+                pendingPanel(tab)
+            }
             statusBar
         }
         .sheet(isPresented: $showingHistory) {
@@ -122,11 +125,24 @@ struct DetailView: View {
             .frame(height: 150)
     }
 
-    private func pendingSQLView(_ tab: QueryTab) -> some View {
-        let statements = model.pendingUpdates(tab)
-        return VStack(alignment: .leading, spacing: 6) {
-            Text("Pending changes — ⌘↩ to run").font(.headline)
-            Divider()
+    private func pendingSummary(updates: Int, deletes: Int) -> String {
+        var parts: [String] = []
+        if updates > 0 { parts.append("\(updates) to update") }
+        if deletes > 0 { parts.append("\(deletes) to delete") }
+        return parts.joined(separator: ", ") + " — ⌘↩ to commit"
+    }
+
+    /// Persistent preview of the exact SQL that ⌘↩ will run.
+    private func pendingPanel(_ tab: QueryTab) -> some View {
+        let statements = model.pendingStatements(tab)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Label("Pending changes", systemImage: "pencil.and.list.clipboard")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("⌘↩ to commit").font(.caption).foregroundStyle(.secondary)
+            }
             ScrollView {
                 Text(statements.isEmpty ? "— nothing to write —" : statements.joined(separator: "\n"))
                     .font(.system(.caption, design: .monospaced))
@@ -134,8 +150,9 @@ struct DetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(12)
-        .frame(width: 520, height: 280)
+        .padding(8)
+        .frame(height: 120)
+        .background(.quaternary.opacity(0.4))
     }
 
     private var sqlBinding: Binding<String> {
@@ -174,17 +191,9 @@ struct DetailView: View {
                     Text("Ready")
                 }
                 if let tab = model.activeTab, tab.hasEdits {
-                    Button {
-                        showingPendingSQL.toggle()
-                    } label: {
-                        Text("\(tab.edits.count) unsaved — ⌘↩ to commit")
-                            .foregroundStyle(.orange)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Show the UPDATE statements")
-                    .popover(isPresented: $showingPendingSQL, arrowEdge: .bottom) {
-                        pendingSQLView(tab)
-                    }
+                    let updates = tab.edits.keys.filter { !tab.pendingDeletes.contains($0) }.count
+                    Text(pendingSummary(updates: updates, deletes: tab.pendingDeletes.count))
+                        .foregroundStyle(.orange)
                 }
             }
             Spacer()

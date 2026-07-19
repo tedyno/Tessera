@@ -24,8 +24,10 @@ final class QueryTab: Identifiable {
     /// editing. `edits` holds pending, unsaved cell changes: row → column → value.
     var editSource: EditSource?
     var edits: [Int: [String: String]] = [:]
+    /// Row indices marked for deletion (Backspace on a selected row).
+    var pendingDeletes: Set<Int> = []
 
-    var hasEdits: Bool { !edits.isEmpty }
+    var hasEdits: Bool { !edits.isEmpty || !pendingDeletes.isEmpty }
     var isEditable: Bool { editSource != nil }
 
     /// Caret offset in the editor, used to run the statement under the cursor.
