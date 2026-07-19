@@ -27,7 +27,17 @@ struct TesseraCommands: Commands {
                 .keyboardShortcut("n")
         }
 
+        CommandGroup(after: .sidebar) {
+            Button("Toggle Sidebar") { app.toggleSidebar() }
+                .keyboardShortcut("s", modifiers: [.control, .command])
+        }
+
         CommandMenu("Query") {
+            Button("Search Everywhere…") { app.showingSpotlight = true }
+                .keyboardShortcut("o", modifiers: [.shift, .command])
+
+            Divider()
+
             Button("Run") { app.runActiveQuery() }
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(!app.canRun)

@@ -61,6 +61,11 @@ final class ConnectionsModel {
 
     private var defaultParentID: UUID? { organizer.workspaces.first?.id }
 
+    /// The tree node id for a given profile (first ref), for selecting it.
+    func firstNodeID(forProfile profileID: UUID) -> UUID? {
+        organizer.refs(toProfile: profileID).first?.id
+    }
+
     /// The node id of the first connection in the tree (for initial selection).
     var firstConnectionNodeID: UUID? {
         func scan(_ nodes: [OrganizerNode]) -> UUID? {

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import DBKit
 
 /// Scene-level state so menu-bar commands (keyboard shortcuts) can act on the
@@ -11,6 +12,7 @@ final class AppModel {
     let console = QueryConsoleModel()
 
     var selection: UUID?
+    var columnVisibility: NavigationSplitViewVisibility = .all
     var showingNewConnection = false
     var newConnectionParent: UUID?
     var showingHistory = false
@@ -20,6 +22,26 @@ final class AppModel {
     /// Set when a run needs the user to choose subselect vs. whole statement.
     var pendingRun: RunChoice?
     var showingRunChoice = false
+
+    /// Spotlight-style global search (double-Shift).
+    var showingSpotlight = false
+    /// Cached schema per profile, populated as connections are opened, so search
+    /// can span every connection visited this session.
+    private var schemaCache: [UUID: DatabaseTree] = [:]
+
+    @ObservationIgnored private var lastShiftPress: TimeInterval = 0
+    @ObservationIgnored private var shiftWasDown = false
+    @ObservationIgnored private var monitorInstalled = false
+
+    /// Installs the double-Shift local event monitor once.
+    func installShiftMonitor() {
+        guard !monitorInstalled else { return }
+        monitorInstalled = true
+        NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            if let self { MainActor.assumeIsolated { self.flagsChanged(event) } }
+            return event
+        }
+    }
 
     // MARK: Command targets
 
@@ -31,7 +53,76 @@ final class AppModel {
         guard let nodeID,
               let profileID = connections.profileID(forNode: nodeID),
               let profile = connections.profile(id: profileID) else { return }
-        Task { await console.open(profile: profile, secrets: connections.secrets(for: profile)) }
+        guard profileID != console.currentProfileID else { return }
+        Task {
+            await console.open(profile: profile, secrets: connections.secrets(for: profile))
+            if let schema = console.schema { schemaCache[profileID] = schema }
+        }
+    }
+
+    // MARK: Spotlight
+
+    /// Handles the double-Shift shortcut from a local event monitor.
+    func flagsChanged(_ event: NSEvent) {
+        let flags = event.modifierFlags
+        let onlyShift = flags.contains(.shift)
+            && flags.intersection([.command, .option, .control]).isEmpty
+        if onlyShift, !shiftWasDown {
+            if event.timestamp - lastShiftPress < 0.4 { showingSpotlight = true }
+            lastShiftPress = event.timestamp
+        }
+        shiftWasDown = flags.contains(.shift)
+    }
+
+    func spotlightResults(query: String) -> [SpotlightResult] {
+        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return [] }
+        var results: [SpotlightResult] = []
+
+        for profile in connections.profiles {
+            if profile.name.lowercased().contains(needle) {
+                results.append(SpotlightResult(kind: .connection, profileID: profile.id,
+                                               connectionName: profile.name, schema: nil, table: nil, column: nil))
+            }
+            guard let tree = schemaCache[profile.id] else { continue }
+            for namespace in tree.schemas {
+                if namespace.name.lowercased().contains(needle) {
+                    results.append(SpotlightResult(kind: .schema, profileID: profile.id,
+                                                   connectionName: profile.name, schema: namespace.name,
+                                                   table: nil, column: nil))
+                }
+                for table in namespace.tables {
+                    if table.name.lowercased().contains(needle) {
+                        results.append(SpotlightResult(kind: .table, profileID: profile.id,
+                                                       connectionName: profile.name, schema: namespace.name,
+                                                       table: table.name, column: nil))
+                    }
+                    for column in table.columns where column.name.lowercased().contains(needle) {
+                        results.append(SpotlightResult(kind: .column, profileID: profile.id,
+                                                       connectionName: profile.name, schema: namespace.name,
+                                                       table: table.name, column: column.name))
+                    }
+                }
+            }
+        }
+        return Array(results.prefix(80))
+    }
+
+    /// Opens the connection for a spotlight result and navigates to its context.
+    func open(_ result: SpotlightResult) {
+        showingSpotlight = false
+        guard let profile = connections.profile(id: result.profileID) else { return }
+        if let nodeID = connections.firstNodeID(forProfile: result.profileID) { selection = nodeID }
+        Task {
+            if console.currentProfileID != profile.id {
+                await console.open(profile: profile, secrets: connections.secrets(for: profile))
+                if let schema = console.schema { schemaCache[profile.id] = schema }
+            }
+            if let table = result.table, let schema = result.schema {
+                await console.selectAll(schema: schema, table: table)
+                if let column = result.column { console.activeTab?.scrollToColumn = column }
+            }
+        }
     }
 
     func runActiveQuery() {
@@ -74,4 +165,8 @@ final class AppModel {
     }
 
     func focusEditor() { editorFocusRequests += 1 }
+
+    func toggleSidebar() {
+        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+    }
 }

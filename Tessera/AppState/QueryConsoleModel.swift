@@ -20,6 +20,7 @@ final class QueryConsoleModel {
 
     private(set) var status: ConnectionStatus = .idle
     private(set) var connectionName: String?
+    private(set) var currentProfileID: UUID?
     private(set) var engine: DatabaseKind?
     private(set) var schema: DatabaseTree?
 
@@ -81,6 +82,7 @@ final class QueryConsoleModel {
         await tunnel?.stop()
         tunnel = nil
         connectionName = profile.name
+        currentProfileID = profile.id
         engine = profile.kind
         schema = nil
         status = .connecting

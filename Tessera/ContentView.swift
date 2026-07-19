@@ -4,7 +4,7 @@ struct ContentView: View {
     @Bindable var app: AppModel
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $app.columnVisibility) {
             OrganizerSidebar(model: app.connections, selection: $app.selection) { parent in
                 app.newConnectionParent = parent
                 app.showingNewConnection = true
@@ -50,6 +50,10 @@ struct ContentView: View {
         } message: { _ in
             Text("The cursor is inside a subselect.")
         }
+        .sheet(isPresented: $app.showingSpotlight) {
+            SpotlightView(app: app)
+        }
+        .onAppear { app.installShiftMonitor() }
     }
 
     private var cursorBinding: Binding<Int> {
