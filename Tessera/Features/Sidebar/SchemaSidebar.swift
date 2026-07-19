@@ -15,6 +15,9 @@ struct SchemaSidebar: View {
     let tree: DatabaseTree?
     var hiddenSchemas: Set<String> = []
     var reveal: SchemaRevealTarget?
+    /// Databases on the server, for the database-switcher menu.
+    var databases: [String] = []
+    var onSwitchDatabase: (String) -> Void = { _ in }
     var onToggleSchema: (String) -> Void = { _ in }
     var onOpenTable: (_ schema: String, _ table: String) -> Void
     var onOpenColumn: (_ schema: String, _ table: String, _ column: String) -> Void
@@ -63,6 +66,22 @@ struct SchemaSidebar: View {
                                     .contentShape(Rectangle())
                                     .simultaneousGesture(TapGesture(count: 2).onEnded { toggle("db") })
                                     .contextMenu {
+                                        if databases.count > 1 {
+                                            Menu("Switch Database") {
+                                                ForEach(databases, id: \.self) { database in
+                                                    Button {
+                                                        onSwitchDatabase(database)
+                                                    } label: {
+                                                        if database == tree.databaseName {
+                                                            Label(database, systemImage: "checkmark")
+                                                        } else {
+                                                            Text(database)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Divider()
+                                        }
                                         Button("Dump Database…") { onDumpDatabase() }
                                     }
                             }

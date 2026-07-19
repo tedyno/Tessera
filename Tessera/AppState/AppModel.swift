@@ -284,6 +284,20 @@ final class AppModel {
         }
     }
 
+    /// Switches the connection to another database by reconnecting to it (Postgres
+    /// cannot change database on a live connection). The choice sticks across
+    /// auto-reconnects via the session's `preferredDatabase`.
+    func switchDatabase(profileID: UUID, to database: String) {
+        guard let profile = connections.profile(id: profileID) else { return }
+        let session = ensureSession(profile: profile)
+        guard session.database != database else { return }
+        session.preferredDatabase = database
+        Task {
+            await session.close()
+            await openSession(session, profile: profile)
+        }
+    }
+
     func introspect(profileID: UUID) {
         guard let session = console.session(for: profileID) else { return }
         Task {

@@ -30,6 +30,12 @@ struct ContentView: View {
                     tree: app.console.schema,
                     hiddenSchemas: app.currentHiddenSchemas,
                     reveal: app.schemaReveal,
+                    databases: app.console.activeSession?.databases ?? [],
+                    onSwitchDatabase: { database in
+                        if let profileID = app.console.currentProfileID {
+                            app.switchDatabase(profileID: profileID, to: database)
+                        }
+                    },
                     onToggleSchema: { app.toggleSchema($0) },
                     onOpenTable: { schema, table in
                         Task { await app.console.openTable(schema: schema, table: table) }

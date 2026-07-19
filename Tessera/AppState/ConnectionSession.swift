@@ -42,6 +42,11 @@ final class ConnectionSession: Identifiable {
     private(set) var endpoint: NetworkEndpoint?
     /// The database name of the live connection, for dump/export.
     private(set) var database: String?
+    /// Databases available on the server, for the schema sidebar's switcher.
+    private(set) var databases: [String] = []
+    /// Overrides `profile.database` on the next open, so switching database (and any
+    /// later auto-reconnect) targets the chosen one rather than the profile default.
+    var preferredDatabase: String?
 
     private(set) var driver: (any DatabaseDriver)?
     private var tunnel: SSHTunnel?
@@ -77,7 +82,12 @@ final class ConnectionSession: Identifiable {
                 endpoint = NetworkEndpoint(host: profile.host, port: profile.port)
             }
             self.endpoint = endpoint
-            self.database = profile.database
+
+            // Reconnect to the chosen database when the user switched away from the
+            // profile default (Postgres can't change database on a live connection).
+            var effective = profile
+            if let preferred = preferredDatabase, !preferred.isEmpty { effective.database = preferred }
+            self.database = effective.database
 
             let driver: any DatabaseDriver = switch profile.kind {
             case .postgres: PostgresDriver()
@@ -85,10 +95,11 @@ final class ConnectionSession: Identifiable {
             }
             self.driver = driver
 
-            try await driver.connect(profile: profile, secrets: secrets, endpoint: endpoint)
+            try await driver.connect(profile: effective, secrets: secrets, endpoint: endpoint)
             status = .ready
             serverVersion = try? await driver.serverVersion()
             schema = try? await driver.fetchSchema()
+            databases = await fetchDatabases()
         } catch {
             status = .failed(Self.message(for: error))
         }
@@ -104,6 +115,7 @@ final class ConnectionSession: Identifiable {
         schema = nil
         endpoint = nil
         database = nil
+        databases = []
         status = .idle
     }
 
@@ -111,6 +123,25 @@ final class ConnectionSession: Identifiable {
     func refreshSchema() async {
         guard let driver else { return }
         schema = try? await driver.fetchSchema()
+    }
+
+    /// Lists the databases on the server (excluding templates/system schemas).
+    private func fetchDatabases() async -> [String] {
+        guard let driver else { return [] }
+        let sql: String
+        switch engine {
+        case .postgres:
+            sql = "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
+        case .mysql:
+            sql = """
+                SELECT schema_name FROM information_schema.schemata
+                WHERE schema_name NOT IN
+                  ('information_schema', 'performance_schema', 'mysql', 'sys')
+                ORDER BY schema_name
+                """
+        }
+        guard let result = try? await driver.execute(sql, maxRows: nil) else { return [] }
+        return result.rows.compactMap { $0.first?.text }
     }
 
     /// Marks the session failed without connecting (e.g. Keychain access denied).
