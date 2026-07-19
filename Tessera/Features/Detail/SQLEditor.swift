@@ -97,14 +97,27 @@ struct SQLEditor: NSViewRepresentable {
             cursor?.wrappedValue = textView.selectedRange().location
         }
 
-        /// Blocks automatic capitalization/autocorrect that only changes the case of
-        /// already-typed text (e.g. "li" → "Li"), while allowing real edits.
+        // Reject automatic capitalization/autocorrect (case-only changes). Automatic
+        // substitutions arrive via the plural method; manual typing via the singular.
         func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange,
                       replacementString: String?) -> Bool {
-            guard let replacement = replacementString, affectedCharRange.length > 0,
-                  affectedCharRange.length == (replacement as NSString).length else { return true }
+            guard let replacement = replacementString, affectedCharRange.length > 0 else { return true }
             let existing = (textView.string as NSString).substring(with: affectedCharRange)
-            return !(existing != replacement && existing.lowercased() == replacement.lowercased())
+            return !SQLText.isCaseOnlyChange(from: existing, to: replacement)
+        }
+
+        func textView(_ textView: NSTextView, shouldChangeTextInRanges affectedRanges: [NSValue],
+                      replacementStrings: [String]?) -> Bool {
+            guard let replacements = replacementStrings, replacements.count == affectedRanges.count else { return true }
+            let ns = textView.string as NSString
+            for (offset, value) in affectedRanges.enumerated() {
+                let range = value.rangeValue
+                guard range.length > 0, range.location + range.length <= ns.length else { continue }
+                if SQLText.isCaseOnlyChange(from: ns.substring(with: range), to: replacements[offset]) {
+                    return false
+                }
+            }
+            return true
         }
 
         // MARK: Highlighting
@@ -191,8 +204,7 @@ struct SQLEditor: NSViewRepresentable {
             guard let character = previous.first,
                   character.isLetter || character.isNumber || character == "_" || character == "." else { return }
             // Don't complete inside a string literal — the user is typing a value there.
-            let prefix = ns.substring(to: selection.location)
-            if prefix.reduce(0, { $1 == "'" ? $0 + 1 : $0 }) % 2 == 1 { return }
+            if SQLText.isInsideStringLiteral(ns.substring(to: selection.location)) { return }
             let range = textView.rangeForUserCompletion
             guard range.location != NSNotFound else { return }
             let partial = ns.substring(with: range)

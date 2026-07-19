@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import DBKit
 
 /// Single-line WHERE-filter field for data views, with autocompletion of the current
 /// table's column names and common SQL operators. Completion only commits on Tab /
@@ -102,28 +103,38 @@ struct FilterField: NSViewRepresentable {
             let previous = ns.substring(with: NSRange(location: caret - 1, length: 1))
             guard let character = previous.first,
                   character.isLetter || character.isNumber || character == "_" else { return false }
-            let before = ns.substring(to: caret)
-            return before.reduce(0, { $1 == "'" ? $0 + 1 : $0 }) % 2 == 0
+            return !SQLText.isInsideStringLiteral(ns.substring(to: caret))
         }
 
         func textView(_ textView: NSTextView, completions words: [String],
                       forPartialWordRange charRange: NSRange,
                       indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
-            let partial = (textView.string as NSString).substring(with: charRange).lowercased()
-            guard !partial.isEmpty else { return [] }
             index?.pointee = 0
-            return (columns + Self.keywords)
-                .filter { $0.lowercased().hasPrefix(partial) && $0.lowercased() != partial }
+            let partial = (textView.string as NSString).substring(with: charRange)
+            return SQLText.completions(for: partial, in: columns + Self.keywords)
         }
 
-        /// Blocks automatic capitalization/autocorrect that only changes the case of
-        /// already-typed text (e.g. "li" → "Li"), while allowing real edits.
+        // Reject automatic capitalization/autocorrect (case-only changes). Automatic
+        // substitutions arrive via the plural method; manual typing via the singular.
         func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange,
                       replacementString: String?) -> Bool {
-            guard let replacement = replacementString, affectedCharRange.length > 0,
-                  affectedCharRange.length == (replacement as NSString).length else { return true }
+            guard let replacement = replacementString, affectedCharRange.length > 0 else { return true }
             let existing = (textView.string as NSString).substring(with: affectedCharRange)
-            return !(existing != replacement && existing.lowercased() == replacement.lowercased())
+            return !SQLText.isCaseOnlyChange(from: existing, to: replacement)
+        }
+
+        func textView(_ textView: NSTextView, shouldChangeTextInRanges affectedRanges: [NSValue],
+                      replacementStrings: [String]?) -> Bool {
+            guard let replacements = replacementStrings, replacements.count == affectedRanges.count else { return true }
+            let ns = textView.string as NSString
+            for (offset, value) in affectedRanges.enumerated() {
+                let range = value.rangeValue
+                guard range.length > 0, range.location + range.length <= ns.length else { continue }
+                if SQLText.isCaseOnlyChange(from: ns.substring(with: range), to: replacements[offset]) {
+                    return false
+                }
+            }
+            return true
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
