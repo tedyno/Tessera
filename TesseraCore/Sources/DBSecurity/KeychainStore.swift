@@ -3,6 +3,9 @@ import Security
 
 public enum KeychainError: Error, Sendable, Equatable {
     case unexpectedStatus(OSStatus)
+    /// The user denied (or cancelled) the Keychain access prompt, or access is not
+    /// currently allowed. Retrying re-triggers the system prompt.
+    case accessDenied(OSStatus)
 }
 
 /// Thin wrapper over the macOS Keychain for generic-password secrets. Stores only
@@ -41,6 +44,10 @@ public struct KeychainStore: Sendable {
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecItemNotFound { return nil }
+        // User clicked Deny / Cancel on the access prompt, or access isn't allowed.
+        if status == errSecUserCanceled || status == errSecAuthFailed || status == errSecInteractionNotAllowed {
+            throw KeychainError.accessDenied(status)
+        }
         guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
         guard let data = item as? Data else { return nil }
         return String(data: data, encoding: .utf8)

@@ -76,7 +76,16 @@ final class AppModel {
               let profile = connections.profile(id: profileID) else { return }
         guard profileID != console.currentProfileID else { return }
         Task {
-            await console.open(profile: profile, secrets: connections.secrets(for: profile))
+            let secrets: Secrets
+            do {
+                secrets = try connections.loadSecrets(for: profile)
+            } catch {
+                console.reportConnectionFailure(
+                    profile: profile,
+                    message: String(localized: "Keychain access was denied. Click Connect again to allow it."))
+                return
+            }
+            await console.open(profile: profile, secrets: secrets)
             if let schema = console.schema { schemaCache[profileID] = schema }
         }
     }

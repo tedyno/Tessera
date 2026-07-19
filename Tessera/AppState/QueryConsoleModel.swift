@@ -77,6 +77,18 @@ final class QueryConsoleModel {
         return nil
     }
 
+    /// Puts the console into a failed state for `profile` (e.g. the Keychain prompt
+    /// was denied) without opening a connection. `currentProfileID` is cleared so a
+    /// retry via `connect` passes its "already connected" guard and re-prompts.
+    func reportConnectionFailure(profile: ConnectionProfile, message: String) {
+        connectionName = profile.name
+        currentProfileID = nil
+        engine = profile.kind
+        serverVersion = nil
+        schema = nil
+        status = .failed(message)
+    }
+
     func open(profile: ConnectionProfile, secrets: Secrets) async {
         tabs.forEach { $0.task?.cancel() }
         await driver?.close()

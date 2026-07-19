@@ -92,6 +92,17 @@ final class ConnectionsModel {
         (try? secretsStore.load(for: profile)) ?? Secrets()
     }
 
+    /// Loads secrets, propagating a Keychain *denial* (so the UI can prompt a retry)
+    /// while treating a missing/other error as simply no stored secret.
+    func loadSecrets(for profile: ConnectionProfile) throws -> Secrets {
+        do {
+            return try secretsStore.load(for: profile)
+        } catch let error as KeychainError {
+            if case .accessDenied = error { throw error }
+            return Secrets()
+        }
+    }
+
     private var defaultParentID: UUID? { organizer.workspaces.first?.id }
 
     /// The tree node id for a given profile (first ref), for selecting it.
