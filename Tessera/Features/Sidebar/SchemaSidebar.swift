@@ -21,6 +21,7 @@ struct SchemaSidebar: View {
 
     @State private var expanded: Set<String> = ["db"]
     @State private var highlightedID: String?
+    @State private var showingFilter = false
 
     var body: some View {
         Group {
@@ -35,6 +36,8 @@ struct SchemaSidebar: View {
                             } label: {
                                 Label(tree.databaseName, systemImage: "cylinder.split.1x2")
                                     .foregroundStyle(.tint)
+                                    .contentShape(Rectangle())
+                                    .simultaneousGesture(TapGesture(count: 2).onEnded { toggle("db") })
                             }
                         }
                     }
@@ -62,6 +65,8 @@ struct SchemaSidebar: View {
             Label(namespace.name, systemImage: "circle.grid.2x2")
                 .id("s:\(namespace.name)")
                 .modifier(HighlightRow(active: highlightedID == "s:\(namespace.name)"))
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture(count: 2).onEnded { toggle("s:\(namespace.name)") })
         }
     }
 
@@ -150,6 +155,11 @@ struct SchemaSidebar: View {
                 set: { if $0 { expanded.insert(key) } else { expanded.remove(key) } })
     }
 
+    /// Double-click on a container node (database or schema) expands/collapses it.
+    private func toggle(_ key: String) {
+        if expanded.contains(key) { expanded.remove(key) } else { expanded.insert(key) }
+    }
+
     private func applyReveal(_ target: SchemaRevealTarget, proxy: ScrollViewProxy) {
         expanded.insert("db")
         expanded.insert("s:\(target.schema)")
@@ -175,21 +185,16 @@ struct SchemaSidebar: View {
 
     private func filterBar(_ tree: DatabaseTree) -> some View {
         HStack {
-            Menu {
-                ForEach(tree.schemas) { namespace in
-                    Button {
-                        onToggleSchema(namespace.name)
-                    } label: {
-                        Label(namespace.name,
-                              systemImage: hiddenSchemas.contains(namespace.name) ? "square" : "checkmark.square")
-                    }
-                }
+            Button {
+                showingFilter.toggle()
             } label: {
                 Image(systemName: "line.3.horizontal.decrease.circle")
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            .buttonStyle(.borderless)
             .help("Choose visible schemas")
+            .popover(isPresented: $showingFilter, arrowEdge: .bottom) {
+                schemaFilterList(tree)
+            }
             let shown = tree.schemas.count - tree.schemas.filter { hiddenSchemas.contains($0.name) }.count
             Text("\(shown) of \(tree.schemas.count) schemas")
                 .font(.caption).foregroundStyle(.secondary)
@@ -198,6 +203,26 @@ struct SchemaSidebar: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(.bar)
+    }
+
+    /// A checklist of schemas that stays open across clicks (dismisses on click-away),
+    /// so several schemas can be toggled in one pass.
+    private func schemaFilterList(_ tree: DatabaseTree) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Visible schemas").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .padding(.bottom, 4)
+            ForEach(tree.schemas) { namespace in
+                Toggle(isOn: Binding(
+                    get: { !hiddenSchemas.contains(namespace.name) },
+                    set: { _ in onToggleSchema(namespace.name) }
+                )) {
+                    Text(namespace.name)
+                }
+                .toggleStyle(.checkbox)
+            }
+        }
+        .padding(12)
+        .frame(minWidth: 180, alignment: .leading)
     }
 }
 
