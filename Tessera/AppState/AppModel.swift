@@ -34,6 +34,8 @@ final class AppModel {
 
     /// Spotlight-style global search (double-Shift).
     var showingSpotlight = false
+    /// A schema-tree item to expand/scroll to after a spotlight selection.
+    var schemaReveal: SchemaRevealTarget?
     /// Cached schema per profile, populated as connections are opened, so search
     /// can span every connection visited this session.
     private var schemaCache: [UUID: DatabaseTree] = [:]
@@ -153,6 +155,9 @@ final class AppModel {
             if let table = result.table, let schema = result.schema {
                 await console.selectAll(schema: schema, table: table)
                 if let column = result.column { console.activeTab?.scrollToColumn = column }
+                schemaReveal = SchemaRevealTarget(schema: schema, table: table, column: result.column)
+            } else if result.kind == .schema, let schema = result.schema {
+                schemaReveal = SchemaRevealTarget(schema: schema, table: nil, column: nil)
             }
         }
     }
