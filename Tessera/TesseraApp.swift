@@ -56,6 +56,13 @@ struct TesseraCommands: Commands {
             Button("Close Tab") { app.closeActiveTab() }
                 .keyboardShortcut("w")
 
+            Button("Export Result as CSV…") { app.exportResult(format: .csv) }
+                .disabled(!app.canExportResult)
+            Button("Export Result as JSON…") { app.exportResult(format: .json) }
+                .disabled(!app.canExportResult)
+
+            Divider()
+
             Button("Open SQL File…") { app.openSQLFile() }
                 .keyboardShortcut("o", modifiers: .command)
             Button("Run SQL File…") { app.runSQLFile() }

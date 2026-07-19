@@ -315,6 +315,27 @@ final class AppModel {
         console.discardPending(tab)
     }
 
+    /// Saves the active tab's result as CSV or JSON.
+    func exportResult(format: ResultExport.Format) {
+        guard let tab = console.activeTab, let result = tab.result else { return }
+        let panel = NSSavePanel()
+        panel.directoryURL = ExportSettings.directory
+        let base = tab.dataTable ?? tab.title
+        panel.nameFieldStringValue = ExportSettings.fileName(base: base, extension: format.fileExtension)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let text = ResultExport.string(from: result, format: format)
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            if ExportSettings.revealAfterExport {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
+        } catch {
+            console.activeTab?.errorMessage = "Could not write \(url.lastPathComponent): \(error.localizedDescription)"
+        }
+    }
+
+    var canExportResult: Bool { console.activeTab?.result != nil }
+
     // MARK: Export (pg_dump / mysqldump)
 
     let dumpService = DumpService()

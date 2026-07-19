@@ -11,6 +11,7 @@ struct DetailView: View {
     var cursor: Binding<Int>
     var isReadOnly: Bool = false
     var onRun: () -> Void
+    var onExportResult: (ResultExport.Format) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -425,6 +426,17 @@ struct DetailView: View {
                 }
             }
             Spacer()
+            if model.activeTab?.result != nil {
+                Menu {
+                    Button("CSV…") { onExportResult(.csv) }
+                    Button("JSON…") { onExportResult(.json) }
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Export these results to a file")
+            }
             if isReadOnly {
                 Label("read-only", systemImage: "lock.fill").foregroundStyle(.orange)
             }

@@ -64,7 +64,8 @@ struct ContentView: View {
                        focusTrigger: app.editorFocusRequests,
                        cursor: cursorBinding,
                        isReadOnly: app.currentIsReadOnly,
-                       onRun: { app.runActiveQuery() })
+                       onRun: { app.runActiveQuery() },
+                       onExportResult: { app.exportResult(format: $0) })
         }
         .task {
             if app.selection == nil { app.selection = app.connections.firstConnectionNodeID }
