@@ -6,7 +6,8 @@ import DBKit
 /// connection.
 struct DetailView: View {
     @Bindable var model: QueryConsoleModel
-    @State private var showingHistory = false
+    @Binding var showingHistory: Bool
+    var focusTrigger: Int
 
     var body: some View {
         VStack(spacing: 0) {
@@ -87,7 +88,6 @@ struct DetailView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
             .disabled(model.status != .ready || (model.activeTab?.isRunning ?? true))
-            .keyboardShortcut(.return, modifiers: .command)
 
             Button {
                 model.activeTab?.task?.cancel()
@@ -112,7 +112,7 @@ struct DetailView: View {
     }
 
     private var editor: some View {
-        SQLEditor(text: sqlBinding)
+        SQLEditor(text: sqlBinding, schema: model.schema, focusTrigger: focusTrigger)
             .frame(height: 150)
     }
 

@@ -1,46 +1,37 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var connections = ConnectionsModel()
-    @State private var console = QueryConsoleModel()
-    @State private var selection: UUID?
-    @State private var showingNewConnection = false
-    @State private var newConnectionParent: UUID?
+    @Bindable var app: AppModel
 
     var body: some View {
         NavigationSplitView {
-            OrganizerSidebar(model: connections, selection: $selection) { parent in
-                newConnectionParent = parent
-                showingNewConnection = true
+            OrganizerSidebar(model: app.connections, selection: $app.selection) { parent in
+                app.newConnectionParent = parent
+                app.showingNewConnection = true
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 320)
         } content: {
-            SchemaSidebar(tree: console.schema) { schema, table in
-                Task { await console.selectAll(schema: schema, table: table) }
+            SchemaSidebar(tree: app.console.schema) { schema, table in
+                Task { await app.console.selectAll(schema: schema, table: table) }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
         } detail: {
-            DetailView(model: console)
+            DetailView(model: app.console,
+                       showingHistory: $app.showingHistory,
+                       focusTrigger: app.editorFocusRequests)
                 .navigationSplitViewColumnWidth(min: 480, ideal: 760)
         }
         .task {
-            if selection == nil { selection = connections.firstConnectionNodeID }
+            if app.selection == nil { app.selection = app.connections.firstConnectionNodeID }
         }
-        .onChange(of: selection) { _, newValue in
-            connect(nodeID: newValue)
+        .onChange(of: app.selection) { _, newValue in
+            app.connect(nodeID: newValue)
         }
-        .sheet(isPresented: $showingNewConnection) {
+        .sheet(isPresented: $app.showingNewConnection) {
             NewConnectionView { profile, secrets in
-                let nodeID = connections.addConnection(profile, secrets: secrets, into: newConnectionParent)
-                selection = nodeID
+                let nodeID = app.connections.addConnection(profile, secrets: secrets, into: app.newConnectionParent)
+                app.selection = nodeID
             }
         }
-    }
-
-    private func connect(nodeID: UUID?) {
-        guard let nodeID,
-              let profileID = connections.profileID(forNode: nodeID),
-              let profile = connections.profile(id: profileID) else { return }
-        Task { await console.open(profile: profile, secrets: connections.secrets(for: profile)) }
     }
 }
