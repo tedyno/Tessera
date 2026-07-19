@@ -170,6 +170,9 @@ struct SQLEditor: NSViewRepresentable {
             let previous = ns.substring(with: NSRange(location: selection.location - 1, length: 1))
             guard let character = previous.first,
                   character.isLetter || character.isNumber || character == "_" || character == "." else { return }
+            // Don't complete inside a string literal — the user is typing a value there.
+            let prefix = ns.substring(to: selection.location)
+            if prefix.reduce(0, { $1 == "'" ? $0 + 1 : $0 }) % 2 == 1 { return }
             let range = textView.rangeForUserCompletion
             guard range.location != NSNotFound else { return }
             let partial = ns.substring(with: range)

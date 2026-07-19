@@ -37,6 +37,9 @@ struct FilterField: NSViewRepresentable {
         private var previousLength = 0
         /// Set by Esc/Backspace so the completion list isn't reopened right after.
         private var suppressCompletion = false
+        /// True while `complete(nil)` is inserting a tentative match, so the resulting
+        /// text change doesn't recursively reopen the list.
+        private var isCompleting = false
 
         /// Operators handy inside a WHERE clause, offered alongside column names.
         private static let keywords = [
@@ -55,13 +58,30 @@ struct FilterField: NSViewRepresentable {
             let editor = field.currentEditor() as? NSTextView
             let isInsertion = field.stringValue.count > previousLength
             previousLength = field.stringValue.count
-            // Skip when the change came from completion inserting a tentative match (it
-            // leaves the appended text selected) or from Esc/Backspace — otherwise the
-            // list reopens on itself and can't be dismissed.
-            if isInsertion, !suppressCompletion, let editor, editor.selectedRange().length == 0 {
-                DispatchQueue.main.async { [weak editor] in editor?.complete(nil) }
+            guard isInsertion, !suppressCompletion, !isCompleting,
+                  let editor, editor.selectedRange().length == 0, shouldComplete(editor) else {
+                suppressCompletion = false
+                return
             }
-            suppressCompletion = false
+            isCompleting = true
+            DispatchQueue.main.async { [weak self, weak editor] in
+                editor?.complete(nil)
+                self?.isCompleting = false
+            }
+        }
+
+        /// Only complete when the caret sits right after an identifier character and is
+        /// NOT inside a single-quoted string literal (where the user types a value).
+        private func shouldComplete(_ editor: NSTextView) -> Bool {
+            let ns = editor.string as NSString
+            let caret = editor.selectedRange().location
+            guard caret > 0, caret <= ns.length else { return false }
+            let previous = ns.substring(with: NSRange(location: caret - 1, length: 1))
+            guard let character = previous.first,
+                  character.isLetter || character.isNumber || character == "_" else { return false }
+            let before = ns.substring(to: caret)
+            let quotes = before.reduce(0) { $1 == "'" ? $0 + 1 : $0 }
+            return quotes % 2 == 0   // even = outside a string literal
         }
 
         func control(_ control: NSControl, textView: NSTextView, completions words: [String],
