@@ -33,7 +33,14 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 echo "==> Testing the core"
-(cd TesseraCore && swift test 2>&1 | tail -1)
+TESTLOG="$(mktemp)"
+if ! (cd TesseraCore && swift test) > "$TESTLOG" 2>&1; then
+    echo "error: core tests failed" >&2
+    tail -30 "$TESTLOG" >&2
+    exit 1
+fi
+grep -E 'Executed [0-9]+ tests' "$TESTLOG" | tail -1 || true
+rm -f "$TESTLOG"
 
 echo "==> Building $APP_NAME $VERSION (Release)"
 rm -rf "$BUILD"
@@ -53,8 +60,10 @@ APP="$BUILD/Build/Products/Release/$APP_NAME.app"
 # an accidentally ad-hoc release would silently break that for everyone.
 echo "==> Verifying the signature"
 codesign --verify --strict --deep "$APP"
-AUTHORITY="$(codesign -dv "$APP" 2>&1 | sed -n 's/^Authority=//p' | head -1)"
-if [[ -z "$AUTHORITY" ]]; then
+# Authority only appears at verbosity 2 and above.
+SIGINFO="$(codesign -dvv "$APP" 2>&1)"
+AUTHORITY="$(sed -n 's/^Authority=//p' <<<"$SIGINFO" | head -1)"
+if [[ -z "$AUTHORITY" ]] || grep -q '^Signature=adhoc' <<<"$SIGINFO"; then
     cat >&2 <<'EOF'
 error: the app is ad-hoc signed.
 
