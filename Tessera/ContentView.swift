@@ -129,6 +129,9 @@ struct ContentView: View {
                 }.padding(30)
             }
         }
+        .sheet(isPresented: $app.showingMCPLog) {
+            MCPAuditView(app: app)
+        }
         .sheet(isPresented: $app.showingSpotlight) {
             SpotlightView(app: app)
         }

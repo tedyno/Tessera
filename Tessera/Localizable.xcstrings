@@ -937,6 +937,28 @@
         }
       }
     },
+    "MCP Activity": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivita MCP"
+          }
+        }
+      }
+    },
+    "MCP Activity…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivita MCP…"
+          }
+        }
+      }
+    },
     "MCP server": {
       "extractionState": "manual",
       "localizations": {
@@ -1087,6 +1109,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nový typ"
+          }
+        }
+      }
+    },
+    "No MCP activity": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Žádná aktivita MCP"
           }
         }
       }
@@ -1399,6 +1432,17 @@
         }
       }
     },
+    "Requests from MCP clients will appear here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Požadavky od MCP klientů se objeví zde."
+          }
+        }
+      }
+    },
     "Restart the app to apply the language.": {
       "extractionState": "manual",
       "localizations": {
@@ -1637,6 +1681,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Hledat dotazy…"
+          }
+        }
+      }
+    },
+    "Server off — enable it in Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server vypnutý — zapni ho v Nastavení"
           }
         }
       }

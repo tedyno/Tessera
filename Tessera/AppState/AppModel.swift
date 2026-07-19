@@ -19,6 +19,7 @@ final class AppModel {
     let mcpAudit = MCPAuditLog()
     @ObservationIgnored private let mcpServer = MCPHTTPServer()
     @ObservationIgnored private lazy var mcpBridge = MCPBridge(app: self)
+    var showingMCPLog = false
     private(set) var mcpRunning = false
     private(set) var mcpError: String?
 

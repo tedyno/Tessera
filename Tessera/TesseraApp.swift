@@ -82,6 +82,7 @@ struct TesseraCommands: Commands {
                 .disabled(!app.isConnected)
             Button("Query History") { app.showHistory() }
                 .keyboardShortcut("y")
+            Button("MCP Activity…") { app.showingMCPLog = true }
 
             Divider()
 
