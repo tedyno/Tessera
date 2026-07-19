@@ -23,6 +23,9 @@ public protocol DatabaseDriver: Sendable {
     /// Runs `statements` atomically on a single connection (BEGIN … COMMIT, with
     /// ROLLBACK on the first failure), so a partial write can't be left behind.
     func executeTransaction(_ statements: [String]) async throws
+    /// Asks the server to abort the query currently running on this driver
+    /// (Postgres `pg_cancel_backend`, MySQL `KILL QUERY`). Best effort.
+    func cancelRunningQuery() async
     /// The database server version string (e.g. "16.3").
     func serverVersion() async throws -> String
     func close() async

@@ -141,7 +141,7 @@ struct DetailView: View {
                       || model.activeTab?.session == nil)
 
             Button {
-                model.activeTab?.task?.cancel()
+                if let tab = model.activeTab { Task { await model.cancel(tab) } }
             } label: {
                 Label("Stop", systemImage: "stop.fill")
             }

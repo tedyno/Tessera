@@ -325,7 +325,10 @@ final class AppModel {
 
     func cancelReadOnlyCommit() { pendingCommitTab = nil }
 
-    func stopActiveQuery() { console.activeTab?.task?.cancel() }
+    func stopActiveQuery() {
+        guard let tab = console.activeTab else { return }
+        Task { await console.cancel(tab) }
+    }
     func newTab() { console.addTab() }
     func closeActiveTab() { if let id = console.activeTabID { console.closeTab(id) } }
 

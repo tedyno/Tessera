@@ -11,6 +11,8 @@ public actor PostgresDriver: DatabaseDriver {
     private var client: PostgresClient?
     private var runTask: Task<Void, Never>?
     private var databaseName: String?
+    /// Backend PID of the connection currently running a query, for cancellation.
+    private var runningBackendPID: Int?
     private static let logger = Logger(label: "io.github.tedyno.tessera.postgres")
 
     public init() {}
@@ -49,29 +51,48 @@ public actor PostgresDriver: DatabaseDriver {
 
         let clock = ContinuousClock()
         let start = clock.now
+        let logger = Self.logger
         do {
-            let rows = try await client.query(PostgresQuery(unsafeSQL: sql))
-            var columns: [ColumnDescriptor] = []
-            var resultRows: [[Cell]] = []
-
-            for try await row in rows {
-                var cells: [Cell] = []
-                var index = 0
-                for cell in row {
-                    if columns.count <= index {
-                        columns.append(ColumnDescriptor(name: cell.columnName, typeName: Self.typeName(cell.dataType)))
-                    }
-                    cells.append(Cell(Self.stringify(cell)))
-                    index += 1
+            return try await client.withConnection { connection in
+                // Remember which backend runs this query so it can be cancelled.
+                if let pidRow = try await connection.query("SELECT pg_backend_pid()", logger: logger)
+                    .collect().first, let pid = try? pidRow.decode(Int32.self) {
+                    self.runningBackendPID = Int(pid)
                 }
-                resultRows.append(cells)
-            }
+                defer { self.runningBackendPID = nil }
 
-            return QueryResult(columns: columns, rows: resultRows, elapsed: clock.now - start)
+                let rows = try await connection.query(PostgresQuery(unsafeSQL: sql), logger: logger)
+                var columns: [ColumnDescriptor] = []
+                var resultRows: [[Cell]] = []
+
+                for try await row in rows {
+                    var cells: [Cell] = []
+                    var index = 0
+                    for cell in row {
+                        if columns.count <= index {
+                            columns.append(ColumnDescriptor(name: cell.columnName,
+                                                            typeName: Self.typeName(cell.dataType)))
+                        }
+                        cells.append(Cell(Self.stringify(cell)))
+                        index += 1
+                    }
+                    resultRows.append(cells)
+                }
+                return QueryResult(columns: columns, rows: resultRows, elapsed: clock.now - start)
+            }
         } catch is CancellationError {
             throw DatabaseError.cancelled
         } catch {
             throw DatabaseError.queryFailed(Self.queryErrorMessage(error))
+        }
+    }
+
+    /// Cancels the running query from a second connection via `pg_cancel_backend`.
+    public func cancelRunningQuery() async {
+        guard let client, let pid = runningBackendPID else { return }
+        let logger = Self.logger
+        _ = try? await client.withConnection { connection in
+            _ = try await connection.query("SELECT pg_cancel_backend(\(pid))", logger: logger)
         }
     }
 

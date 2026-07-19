@@ -601,6 +601,13 @@ final class QueryConsoleModel {
 
     // MARK: History
 
+    /// Stops a running query: cancels the client task *and* asks the server to abort
+    /// it, so a heavy query doesn't keep burning resources after Stop.
+    func cancel(_ tab: QueryTab) async {
+        tab.task?.cancel()
+        await tab.session?.driver?.cancelRunningQuery()
+    }
+
     /// Empties the query history (and its on-disk store).
     func clearHistory() {
         history = []

@@ -12,6 +12,9 @@ import Logging
 public actor MySQLDriver: DatabaseDriver {
     private var connection: MySQLConnection?
     private var databaseName: String?
+    /// Kept so a second connection can be opened to `KILL QUERY` the running one.
+    private var reconnectInfo: (profile: ConnectionProfile, secrets: Secrets, endpoint: NetworkEndpoint)?
+    private var connectionID: Int?
 
     // Serializes access to the single connection: actor reentrancy would otherwise
     // let a second execute() interleave with a first at its `await`, and MySQLNIO's
@@ -46,6 +49,12 @@ public actor MySQLDriver: DatabaseDriver {
             ).get()
             self.connection = connection
             self.databaseName = profile.database
+            self.reconnectInfo = (profile, secrets, endpoint)
+            // Needed to target KILL QUERY at this session.
+            if let rows = try? await connection.simpleQuery("SELECT CONNECTION_ID()").get(),
+               let text = rows.first.flatMap({ Self.text($0.column("CONNECTION_ID()")) }) {
+                self.connectionID = Int(text)
+            }
         } catch {
             await close()
             throw DatabaseError.connectionFailed(String(describing: error))
@@ -107,6 +116,24 @@ public actor MySQLDriver: DatabaseDriver {
         } catch {
             throw DatabaseError.queryFailed(String(describing: error))
         }
+    }
+
+    /// Opens a short-lived second connection and issues `KILL QUERY` — the busy
+    /// primary connection can't carry the request itself.
+    public func cancelRunningQuery() async {
+        guard let connectionID, let info = reconnectInfo else { return }
+        guard let address = try? SocketAddress.makeAddressResolvingHost(info.endpoint.host,
+                                                                       port: info.endpoint.port),
+              let killer = try? await MySQLConnection.connect(
+                to: address,
+                username: info.profile.username,
+                database: info.profile.database,
+                password: info.secrets.databasePassword ?? "",
+                tlsConfiguration: Self.makeTLS(info.profile.tlsMode),
+                on: MultiThreadedEventLoopGroup.singleton.next()).get()
+        else { return }
+        _ = try? await killer.simpleQuery("KILL QUERY \(connectionID)").get()
+        try? await killer.close().get()
     }
 
     public func serverVersion() async throws -> String {
