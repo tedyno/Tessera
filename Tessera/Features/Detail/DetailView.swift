@@ -196,7 +196,7 @@ struct DetailView: View {
                 columns: tab.result?.columns.map(\.name) ?? [],
                 placeholder: String(localized: "WHERE …"),
                 onSubmit: { Task { await model.applyFilter(tab, where: tab.filterWhere) } })
-                .frame(maxWidth: 280, minHeight: 22)
+                .frame(width: 260, height: 24)
 
             sortMenu(tab)
             limitField(tab)
