@@ -19,21 +19,26 @@ struct DetailView: View {
         VStack(spacing: 0) {
             tabBar
             Divider()
-            if let tab = model.activeTab, tab.kind == .data {
-                dataToolbar(tab)
-                Divider()
-                dataSQLView(tab)
+            if model.activeTab == nil {
+                emptyState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                editorToolbar
+                if let tab = model.activeTab, tab.kind == .data {
+                    dataToolbar(tab)
+                    Divider()
+                    dataSQLView(tab)
+                } else {
+                    editorToolbar
+                    Divider()
+                    editor
+                }
                 Divider()
-                editor
-            }
-            Divider()
-            resultsArea
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if let tab = model.activeTab, tab.hasEdits {
-                Divider()
-                pendingPanel(tab)
+                resultsArea
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let tab = model.activeTab, tab.hasEdits {
+                    Divider()
+                    pendingPanel(tab)
+                }
             }
             statusBar
         }
@@ -50,6 +55,18 @@ struct DetailView: View {
                     onRunSQL(sql)
                 },
                 onClear: { model.clearHistory() })
+        }
+    }
+
+    // MARK: Empty state
+
+    private var emptyState: some View {
+        ContentUnavailableView {
+            Label("No tab open", systemImage: "macwindow")
+        } description: {
+            Text("Double-click a table in the schema to browse it, or press ⌘T for a new query tab.")
+        } actions: {
+            Button("New Query Tab") { model.addTab() }
         }
     }
 
@@ -101,15 +118,14 @@ struct DetailView: View {
                     .lineLimit(1)
                     .help(session.pathLabel)
             }
-            if model.tabs.count > 1 {
-                Button {
-                    model.closeTab(tab.id)
-                } label: {
-                    Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.tertiary)
+            Button {
+                model.closeTab(tab.id)
+            } label: {
+                Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
             }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.tertiary)
+            .help("Close tab")
         }
         .padding(.horizontal, 12)
         .frame(maxHeight: .infinity)
