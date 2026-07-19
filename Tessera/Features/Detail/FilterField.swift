@@ -2,9 +2,8 @@ import SwiftUI
 import AppKit
 import DBKit
 
-/// Single-line WHERE-filter field for data views, with autocompletion of the current
-/// table's column names and common SQL operators. Completion only commits on Tab /
-/// Return (never on arrow keys); Return submits when no completion is active.
+/// Single-line WHERE-filter field for data views. Uses the same custom completion as
+/// the SQL editor (list shows while typing, only Tab commits) and submits on Return.
 struct FilterField: NSViewRepresentable {
     @Binding var text: String
     var columns: [String]
@@ -17,7 +16,7 @@ struct FilterField: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.borderType = .bezelBorder
 
-        let textView = CompletingTextView(frame: .zero)
+        let textView = CompletingTextView(frame: .zero, textContainer: nil)
         textView.placeholder = placeholder
         textView.delegate = context.coordinator
         textView.isRichText = false
@@ -36,6 +35,9 @@ struct FilterField: NSViewRepresentable {
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                        height: CGFloat.greatestFiniteMagnitude)
         textView.string = text
+        textView.completionSource = { [weak c = context.coordinator] text, caret in
+            c?.completion(text: text, caret: caret) ?? (NSRange(location: caret, length: 0), [])
+        }
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
@@ -63,8 +65,6 @@ struct FilterField: NSViewRepresentable {
         var onSubmit: () -> Void
         weak var textView: NSTextView?
         var previousLength = 0
-        private var suppressCompletion = false
-        private var isCompleting = false
 
         private static let keywords = [
             "AND", "OR", "NOT", "LIKE", "ILIKE", "IN", "IS NULL", "IS NOT NULL", "BETWEEN",
@@ -79,50 +79,25 @@ struct FilterField: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text.wrappedValue = textView.string
+            previousLength = (textView.string as NSString).length
             textView.needsDisplay = true   // repaint placeholder
-            let length = (textView.string as NSString).length
-            let isInsertion = length > previousLength
-            previousLength = length
-            guard isInsertion, !suppressCompletion, !isCompleting,
-                  textView.selectedRange().length == 0, shouldComplete(textView) else {
-                suppressCompletion = false
-                return
+        }
+
+        /// Candidates for the caret: the table's columns plus WHERE operators, unless
+        /// the caret is inside a string literal.
+        func completion(text: String, caret: Int) -> (NSRange, [String]) {
+            let ns = text as NSString
+            guard caret > 0, caret <= ns.length,
+                  !SQLText.isInsideStringLiteral(ns.substring(to: caret)) else {
+                return (NSRange(location: caret, length: 0), [])
             }
-            isCompleting = true
-            DispatchQueue.main.async { [weak self, weak textView] in
-                textView?.complete(nil)
-                self?.isCompleting = false
-            }
+            let range = SQLText.identifierRange(in: text, caret: caret)
+            guard range.length > 0 else { return (range, []) }
+            let partial = ns.substring(with: range)
+            return (range, SQLText.completions(for: partial, in: columns + Self.keywords))
         }
 
-        /// Complete only right after an identifier character and never inside a string.
-        private func shouldComplete(_ textView: NSTextView) -> Bool {
-            let ns = textView.string as NSString
-            let caret = textView.selectedRange().location
-            guard caret > 0, caret <= ns.length else { return false }
-            let previous = ns.substring(with: NSRange(location: caret - 1, length: 1))
-            guard let character = previous.first,
-                  character.isLetter || character.isNumber || character == "_" else { return false }
-            return !SQLText.isInsideStringLiteral(ns.substring(to: caret))
-        }
-
-        func textView(_ textView: NSTextView, completions words: [String],
-                      forPartialWordRange charRange: NSRange,
-                      indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
-            index?.pointee = 0
-            let partial = (textView.string as NSString).substring(with: charRange)
-            return SQLText.completions(for: partial, in: columns + Self.keywords)
-        }
-
-        // Reject automatic capitalization/autocorrect (case-only changes). Automatic
-        // substitutions arrive via the plural method; manual typing via the singular.
-        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange,
-                      replacementString: String?) -> Bool {
-            guard let replacement = replacementString, affectedCharRange.length > 0 else { return true }
-            let existing = (textView.string as NSString).substring(with: affectedCharRange)
-            return !SQLText.isCaseOnlyChange(from: existing, to: replacement)
-        }
-
+        // Reject automatic case-only substitutions that bypass the field editor.
         func textView(_ textView: NSTextView, shouldChangeTextInRanges affectedRanges: [NSValue],
                       replacementStrings: [String]?) -> Bool {
             guard let replacements = replacementStrings, replacements.count == affectedRanges.count else { return true }
@@ -138,16 +113,12 @@ struct FilterField: NSViewRepresentable {
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            switch commandSelector {
-            case #selector(NSResponder.insertNewline(_:)):
+            // Return submits the filter (the popup captures Return itself when open).
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 onSubmit()
                 return true
-            case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.deleteBackward(_:)):
-                suppressCompletion = true
-                return false
-            default:
-                return false
             }
+            return false
         }
     }
 }

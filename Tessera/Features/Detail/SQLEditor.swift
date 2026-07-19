@@ -18,7 +18,7 @@ struct SQLEditor: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
-        let textView = CompletingTextView(frame: .zero)
+        let textView = CompletingTextView(frame: .zero, textContainer: nil)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
@@ -42,6 +42,11 @@ struct SQLEditor: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 4, height: 6)
         context.coordinator.textView = textView
         context.coordinator.schema = schema
+        if !readOnly {
+            textView.completionSource = { [weak c = context.coordinator] text, caret in
+                c?.completion(text: text, caret: caret) ?? (NSRange(location: caret, length: 0), [])
+            }
+        }
         textView.string = text
         context.coordinator.previousLength = (text as NSString).length
         context.coordinator.highlight()
@@ -82,14 +87,24 @@ struct SQLEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
-            let newLength = (textView.string as NSString).length
-            let isInsertion = newLength > previousLength
-            previousLength = newLength
+            previousLength = (textView.string as NSString).length
             text.wrappedValue = textView.string
             highlight()
-            // Show the suggestion list while typing — but the text itself never changes
-            // until the user presses Tab (enforced by CompletingTextView).
-            if isInsertion { scheduleAutocomplete(in: textView) }
+            // The completion popup is driven by CompletingTextView (Tab-only commit).
+        }
+
+        /// Supplies the replace-range and candidates for the caret (schema-aware).
+        func completion(text: String, caret: Int) -> (NSRange, [String]) {
+            let ns = text as NSString
+            guard caret > 0, caret <= ns.length,
+                  !SQLText.isInsideStringLiteral(ns.substring(to: caret)) else {
+                return (NSRange(location: caret, length: 0), [])
+            }
+            let range = SQLText.identifierRange(in: text, caret: caret)
+            guard range.length > 0 else { return (range, []) }
+            let partial = ns.substring(with: range)
+            let before = ns.substring(to: range.location)
+            return (range, completionCandidates(partial: partial, before: before))
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -192,35 +207,6 @@ struct SQLEditor: NSViewRepresentable {
             }
             tableNames = tables.sorted()
             columnNames = columns.sorted()
-        }
-
-        // MARK: Autocomplete triggering
-
-        private func scheduleAutocomplete(in textView: NSTextView) {
-            let selection = textView.selectedRange()
-            guard selection.length == 0, selection.location > 0 else { return }
-            let ns = textView.string as NSString
-            let previous = ns.substring(with: NSRange(location: selection.location - 1, length: 1))
-            guard let character = previous.first,
-                  character.isLetter || character.isNumber || character == "_" || character == "." else { return }
-            // Don't complete inside a string literal — the user is typing a value there.
-            if SQLText.isInsideStringLiteral(ns.substring(to: selection.location)) { return }
-            let range = textView.rangeForUserCompletion
-            guard range.location != NSNotFound else { return }
-            let partial = ns.substring(with: range)
-            let before = ns.substring(to: range.location)
-            guard !completionCandidates(partial: partial, before: before).isEmpty else { return }
-            DispatchQueue.main.async { [weak textView] in textView?.complete(nil) }
-        }
-
-        func textView(_ textView: NSTextView, completions words: [String],
-                      forPartialWordRange charRange: NSRange,
-                      indexOfSelectedItem index: UnsafeMutablePointer<Int>?) -> [String] {
-            let ns = textView.string as NSString
-            let partial = ns.substring(with: charRange)
-            let before = ns.substring(to: charRange.location)
-            index?.pointee = 0
-            return completionCandidates(partial: partial, before: before)
         }
 
         private func completionCandidates(partial: String, before: String) -> [String] {

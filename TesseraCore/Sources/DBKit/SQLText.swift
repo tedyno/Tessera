@@ -24,4 +24,19 @@ public enum SQLText {
         guard !lower.isEmpty else { return [] }
         return pool.filter { $0.lowercased().hasPrefix(lower) && $0.lowercased() != lower }
     }
+
+    /// The range (UTF-16) of the identifier word ending at `caret` — the run of
+    /// letters/digits/underscore immediately before it. Length 0 when the caret isn't
+    /// after such a character.
+    public static func identifierRange(in text: String, caret: Int) -> NSRange {
+        let ns = text as NSString
+        let position = min(max(caret, 0), ns.length)
+        var start = position
+        while start > 0 {
+            let character = ns.substring(with: NSRange(location: start - 1, length: 1)).first
+            guard let character, character.isLetter || character.isNumber || character == "_" else { break }
+            start -= 1
+        }
+        return NSRange(location: start, length: position - start)
+    }
 }

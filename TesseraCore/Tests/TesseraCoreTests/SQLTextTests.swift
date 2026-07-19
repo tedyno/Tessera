@@ -34,6 +34,20 @@ final class SQLTextTests: XCTestCase {
 
     // MARK: Completion matching
 
+    func testIdentifierRange() {
+        // "SELECT na|" → the word "na" ending at the caret.
+        let text = "SELECT na"
+        let range = SQLText.identifierRange(in: text, caret: text.count)
+        XCTAssertEqual((text as NSString).substring(with: range), "na")
+
+        // Caret right after a dot → empty (nothing to replace yet).
+        let dotted = "public."
+        XCTAssertEqual(SQLText.identifierRange(in: dotted, caret: dotted.count).length, 0)
+
+        // Caret after a space → empty.
+        XCTAssertEqual(SQLText.identifierRange(in: "a ", caret: 2).length, 0)
+    }
+
     func testCompletions() {
         let pool = ["id", "name", "created_at", "LIKE", "IN"]
         XCTAssertEqual(SQLText.completions(for: "na", in: pool), ["name"])
