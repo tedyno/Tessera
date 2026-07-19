@@ -48,9 +48,10 @@ macOS 26 or later, on Apple silicon or Intel. Building requires Xcode 26 or late
 
 ## Installing
 
-Tessera is distributed as an **unsigned, un-notarized** build, because it is an open-source
-project without a paid Apple Developer account. macOS will therefore refuse to open it on
-the first try, reporting that it cannot be checked for malicious software.
+Releases are code-signed, but **not notarized**, because notarization requires a paid Apple
+Developer account and this is an open-source project without one. macOS will therefore
+refuse to open it on the first try, reporting that it cannot be checked for malicious
+software.
 
 To open it anyway, launch it once, dismiss the warning, then go to **System Settings ▸
 Privacy & Security**, scroll to the security section, and click **Open Anyway**. (The old
@@ -166,3 +167,16 @@ even the implied warranty of merchantability or fitness for a particular purpose
 
 Third-party components and their notices are listed in
 [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md).
+
+## Releasing
+
+Maintainers only:
+
+```sh
+Scripts/make-release.sh 0.1.0            # build, sign, package into dist/
+Scripts/make-release.sh 0.1.0 --publish  # ...and create the GitHub release
+```
+
+The release is signed locally rather than in CI: the certificate is what every user's
+Keychain trusts, so it never leaves the maintainer's machine. The script refuses to package
+an ad-hoc signed build, because releasing one would reset every user's stored passwords.
