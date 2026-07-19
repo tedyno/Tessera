@@ -1,0 +1,232 @@
+import Foundation
+import DBKit
+
+/// Serves the MCP core from the app's live state. Only connections that granted MCP
+/// read access are ever visible here — the core never learns the others exist.
+/// Writes, imports, and exports go through the approval prompt.
+@MainActor
+final class MCPBridge: MCPDataSource {
+    unowned let app: AppModel
+
+    init(app: AppModel) { self.app = app }
+
+    // MARK: Exposed connections
+
+    /// Profiles that opted in, keyed by a name unique among them (two connections
+    /// may share a name in different folders, so those get their folder appended).
+    private var exposed: [String: ConnectionProfile] {
+        let profiles = app.connections.profiles.filter(\.allowsMCPRead)
+        var counts: [String: Int] = [:]
+        for profile in profiles { counts[profile.name, default: 0] += 1 }
+        var result: [String: ConnectionProfile] = [:]
+        for profile in profiles {
+            if counts[profile.name] == 1 {
+                result[profile.name] = profile
+            } else {
+                let folder = app.connections.path(forProfile: profile.id).last ?? profile.database
+                result["\(profile.name) (\(folder))"] = profile
+            }
+        }
+        return result
+    }
+
+    private func info(name: String, profile: ConnectionProfile) -> MCPConnectionInfo {
+        MCPConnectionInfo(name: name,
+                          engine: profile.kind.displayName,
+                          database: profile.database,
+                          canWrite: profile.allowsMCPWrite,
+                          isConnected: app.console.session(for: profile.id)?.isReady ?? false)
+    }
+
+    func listConnections() async -> [MCPConnectionInfo] {
+        exposed.map { info(name: $0.key, profile: $0.value) }.sorted { $0.name < $1.name }
+    }
+
+    func connection(named name: String) async -> MCPConnectionInfo? {
+        guard let profile = exposed[name] else { return nil }
+        return info(name: name, profile: profile)
+    }
+
+    private func profile(_ name: String) throws -> ConnectionProfile {
+        guard let profile = exposed[name] else {
+            throw MCPToolError("Unknown connection “\(name)”.")
+        }
+        return profile
+    }
+
+    /// Connects on demand — MCP shouldn't fail just because a tab isn't open yet.
+    private func readySession(_ name: String) async throws -> ConnectionSession {
+        let profile = try profile(name)
+        guard let session = await app.ensureSessionReady(profileID: profile.id) else {
+            throw MCPToolError("Could not connect to “\(name)”: "
+                               + (app.console.session(for: profile.id)?.errorMessage ?? "unavailable"))
+        }
+        return session
+    }
+
+    // MARK: Introspection
+
+    func serverInfo(connection: String) async throws -> [String: String] {
+        let session = try await readySession(connection)
+        return ["engine": session.engine.displayName,
+                "version": session.serverVersion ?? "unknown",
+                "database": session.database ?? ""]
+    }
+
+    func listSchemas(connection: String) async throws -> [String] {
+        let session = try await readySession(connection)
+        return (session.schema?.schemas ?? []).map(\.name)
+    }
+
+    func listTables(connection: String, schema: String?) async throws -> [MCPTableInfo] {
+        let session = try await readySession(connection)
+        return (session.schema?.schemas ?? [])
+            .filter { schema == nil || $0.name == schema }
+            .flatMap { namespace in
+                namespace.tables.map {
+                    MCPTableInfo(schema: namespace.name, name: $0.name,
+                                 kind: $0.kind == .view ? "view" : "table")
+                }
+            }
+    }
+
+    func describeTable(connection: String, schema: String?, table: String) async throws -> MCPTableDetail {
+        let session = try await readySession(connection)
+        for namespace in session.schema?.schemas ?? [] {
+            guard schema == nil || namespace.name == schema else { continue }
+            guard let match = namespace.tables.first(where: {
+                $0.name.caseInsensitiveCompare(table) == .orderedSame
+            }) else { continue }
+            return MCPTableDetail(
+                schema: namespace.name,
+                table: match.name,
+                columns: match.columns.map {
+                    MCPColumnInfo(name: $0.name, type: $0.dataType, nullable: $0.isNullable,
+                                  primaryKey: $0.isPrimaryKey, foreignKey: $0.isForeignKey,
+                                  autoIncrement: $0.isAutoIncrement)
+                },
+                indexes: match.indexes.map {
+                    MCPIndexInfo(name: $0.name, columns: $0.columns, unique: $0.isUnique)
+                })
+        }
+        throw MCPToolError("Table “\(table)” not found on “\(connection)”.")
+    }
+
+    func search(term: String) async -> [MCPSearchHit] {
+        let needle = term.lowercased()
+        guard !needle.isEmpty else { return [] }
+        var hits: [MCPSearchHit] = []
+        for (name, profile) in exposed {
+            guard let tree = app.console.session(for: profile.id)?.schema else { continue }
+            for namespace in tree.schemas {
+                if namespace.name.lowercased().contains(needle) {
+                    hits.append(MCPSearchHit(connection: name, schema: namespace.name,
+                                             table: nil, column: nil))
+                }
+                for table in namespace.tables {
+                    if table.name.lowercased().contains(needle) {
+                        hits.append(MCPSearchHit(connection: name, schema: namespace.name,
+                                                 table: table.name, column: nil))
+                    }
+                    for column in table.columns where column.name.lowercased().contains(needle) {
+                        hits.append(MCPSearchHit(connection: name, schema: namespace.name,
+                                                 table: table.name, column: column.name))
+                    }
+                }
+            }
+        }
+        return Array(hits.prefix(100))
+    }
+
+    // MARK: Queries
+
+    func runReadQuery(connection: String, sql: String, limit: Int?) async throws -> MCPQueryResult {
+        let session = try await readySession(connection)
+        guard let driver = session.driver else { throw MCPToolError("Not connected.") }
+        let cap = limit ?? (ExportSettings.maxRows > 0 ? ExportSettings.maxRows : nil)
+        do {
+            let result = try await driver.execute(sql, maxRows: cap)
+            app.mcpAudit.record(tool: "run_query", connection: connection, detail: sql,
+                                outcome: "\(result.rows.count) rows")
+            return MCPQueryResult(result)
+        } catch {
+            let message = ConnectionSession.message(for: error)
+            app.mcpAudit.record(tool: "run_query", connection: connection, detail: sql,
+                                outcome: "failed: \(message)")
+            throw MCPToolError(message)
+        }
+    }
+
+    func runWriteQuery(connection: String, sql: String) async throws -> MCPQueryResult {
+        let profile = try profile(connection)
+        // Belt and braces: the core checks this too.
+        guard profile.allowsMCPWrite else {
+            throw MCPToolError("“\(connection)” is not permitted to write over MCP.")
+        }
+        let approved = await app.mcpApprovals.request(
+            title: "Claude wants to modify “\(connection)”", connection: connection, detail: sql)
+        guard approved else {
+            app.mcpAudit.record(tool: "run_query (write)", connection: connection,
+                                detail: sql, outcome: "declined")
+            throw MCPToolError("The user declined the write.")
+        }
+        let session = try await readySession(connection)
+        guard let driver = session.driver else { throw MCPToolError("Not connected.") }
+        do {
+            let result = try await driver.execute(sql, maxRows: nil)
+            app.mcpAudit.record(tool: "run_query (write)", connection: connection,
+                                detail: sql, outcome: "applied")
+            await session.refreshSchema()
+            return MCPQueryResult(result)
+        } catch {
+            let message = ConnectionSession.message(for: error)
+            app.mcpAudit.record(tool: "run_query (write)", connection: connection,
+                                detail: sql, outcome: "failed: \(message)")
+            throw MCPToolError(message)
+        }
+    }
+
+    // MARK: Dumps
+
+    func exportDump(connection: String, schemas: [String], tables: [String],
+                    structure: Bool, data: Bool, gzip: Bool) async throws -> MCPExportResult {
+        let profile = try profile(connection)
+        let scope = tables.isEmpty ? (schemas.isEmpty ? "the whole database" : schemas.joined(separator: ", "))
+                                   : tables.joined(separator: ", ")
+        let approved = await app.mcpApprovals.request(
+            title: "Claude wants to export “\(connection)”", connection: connection,
+            detail: "Dump \(scope)\(gzip ? " (gzipped)" : "") into your export folder.")
+        guard approved else {
+            app.mcpAudit.record(tool: "export_dump", connection: connection,
+                                detail: scope, outcome: "declined")
+            throw MCPToolError("The user declined the export.")
+        }
+        let result = try await app.runMCPExport(profile: profile, schemas: schemas, tables: tables,
+                                                structure: structure, data: data, gzip: gzip)
+        app.mcpAudit.record(tool: "export_dump", connection: connection,
+                            detail: scope, outcome: "wrote \(result.path)")
+        return result
+    }
+
+    func importDump(connection: String, filePath: String) async throws -> MCPImportResult {
+        let profile = try profile(connection)
+        guard profile.allowsMCPWrite else {
+            throw MCPToolError("“\(connection)” is not permitted to write over MCP.")
+        }
+        guard FileManager.default.fileExists(atPath: filePath) else {
+            throw MCPToolError("No file at \(filePath).")
+        }
+        let approved = await app.mcpApprovals.request(
+            title: "Claude wants to import into “\(connection)”", connection: connection,
+            detail: "Restore \(filePath). This writes to the database and can overwrite data.")
+        guard approved else {
+            app.mcpAudit.record(tool: "import_dump", connection: connection,
+                                detail: filePath, outcome: "declined")
+            throw MCPToolError("The user declined the import.")
+        }
+        let result = try await app.runMCPImport(profile: profile, filePath: filePath)
+        app.mcpAudit.record(tool: "import_dump", connection: connection,
+                            detail: filePath, outcome: result.message)
+        return result
+    }
+}

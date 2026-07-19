@@ -79,6 +79,17 @@
         }
       }
     },
+    "Allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povolit"
+          }
+        }
+      }
+    },
     "Allow NULL": {
       "extractionState": "manual",
       "localizations": {
@@ -255,6 +266,17 @@
         }
       }
     },
+    "Client config": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfigurace klienta"
+          }
+        }
+      }
+    },
     "Close": {
       "extractionState": "manual",
       "localizations": {
@@ -343,6 +365,17 @@
         }
       }
     },
+    "Copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopírovat"
+          }
+        }
+      }
+    },
     "Copy SQL": {
       "extractionState": "manual",
       "localizations": {
@@ -405,6 +438,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Databáze"
+          }
+        }
+      }
+    },
+    "Decline": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odmítnout"
           }
         }
       }
@@ -1025,6 +1069,17 @@
         }
       }
     },
+    "New token": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nový token"
+          }
+        }
+      }
+    },
     "New type": {
       "extractionState": "manual",
       "localizations": {
@@ -1142,6 +1197,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Heslo"
+          }
+        }
+      }
+    },
+    "Paste the copied JSON into your MCP client. Generating a new token invalidates the old one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zkopírovaný JSON vlož do svého MCP klienta. Vygenerováním nového tokenu přestane starý platit."
           }
         }
       }
@@ -1318,6 +1384,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Přejmenovat tabulku…"
+          }
+        }
+      }
+    },
+    "Requested over MCP. Review it before allowing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Požadavek přes MCP. Než povolíš, zkontroluj ho."
           }
         }
       }

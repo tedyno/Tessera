@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import DBKit
+import DBMCPServer
 import UniformTypeIdentifiers
 
 /// Scene-level state so menu-bar commands (keyboard shortcuts) can act on the
@@ -12,12 +13,110 @@ final class AppModel {
     let connections = ConnectionsModel()
     let console = QueryConsoleModel()
 
+    // MARK: MCP
+
+    let mcpApprovals = MCPApprovals()
+    let mcpAudit = MCPAuditLog()
+    @ObservationIgnored private let mcpServer = MCPHTTPServer()
+    @ObservationIgnored private lazy var mcpBridge = MCPBridge(app: self)
+    private(set) var mcpRunning = false
+    private(set) var mcpError: String?
+
     init() {
         // Let a run auto-reconnect a dropped session before executing.
         console.reconnect = { [weak self] session in
             guard let self, let profile = self.connections.profile(id: session.id) else { return }
             await self.openSession(session, profile: profile)
         }
+        NotificationCenter.default.addObserver(forName: .mcpSettingsChanged, object: nil,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.syncMCPServer() }
+        }
+    }
+
+    /// Brings the MCP server in line with the setting: running when enabled, stopped
+    /// otherwise. Safe to call repeatedly.
+    func syncMCPServer() {
+        Task { await applyMCPSetting() }
+    }
+
+    private func applyMCPSetting() async {
+        guard MCPSettings.isEnabled else {
+            await mcpServer.stop()
+            mcpRunning = false
+            mcpError = nil
+            return
+        }
+        let service = MCPService(source: mcpBridge)
+        do {
+            try await mcpServer.start(port: MCPSettings.port, token: MCPSettings.token) { data in
+                await service.handle(data)
+            }
+            mcpRunning = true
+            mcpError = nil
+        } catch {
+            mcpRunning = false
+            mcpError = "Could not listen on port \(MCPSettings.port): \(error.localizedDescription)"
+        }
+    }
+
+    /// Connects a profile if needed and returns its live session.
+    func ensureSessionReady(profileID: UUID) async -> ConnectionSession? {
+        guard let profile = connections.profile(id: profileID) else { return nil }
+        let session = ensureSession(profile: profile)
+        if !session.isReady { await openSession(session, profile: profile) }
+        return session.isReady ? session : nil
+    }
+
+    /// Export driven by MCP: destination is ours, never the caller's.
+    func runMCPExport(profile: ConnectionProfile, schemas: [String], tables: [String],
+                      structure: Bool, data: Bool, gzip: Bool) async throws -> MCPExportResult {
+        let target = ExportTarget(profileID: profile.id, schemas: schemas, tables: tables)
+        guard let context = exportContext(for: target) else {
+            throw MCPToolError("Could not resolve connection details.")
+        }
+        let serverMajor = context.serverVersion.flatMap(DumpTool.majorVersion)
+        guard let binary = await dumpService.locateBest(kind: context.kind, serverMajor: serverMajor,
+                                                        override: UserDefaults.standard.string(
+                                                            forKey: "tessera.dumpPath.\(context.kind.rawValue)")) else {
+            throw MCPToolError("\(DumpTool.binaryName(for: context.kind)) is not installed.")
+        }
+        let base = tables.first ?? schemas.first ?? context.database
+        let url = ExportSettings.directory.appendingPathComponent(
+            ExportSettings.fileName(base: base, extension: gzip ? "sql.gz" : "sql"))
+        let options = DumpOptions(schemas: schemas, tables: tables,
+                                  includeStructure: structure, includeData: data, gzip: gzip)
+        let result = await dumpService.dump(kind: context.kind, binaryPath: binary,
+                                            host: context.host, port: context.port, user: context.user,
+                                            database: context.database, password: context.password,
+                                            options: options, outputURL: url)
+        guard result.success else { throw MCPToolError(result.message) }
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+        return MCPExportResult(path: url.path, bytes: size ?? 0)
+    }
+
+    /// Import driven by MCP, after approval.
+    func runMCPImport(profile: ConnectionProfile, filePath: String) async throws -> MCPImportResult {
+        guard let context = exportContext(for: ExportTarget(profileID: profile.id)) else {
+            throw MCPToolError("Could not resolve connection details.")
+        }
+        let url = URL(fileURLWithPath: filePath)
+        let input = RestoreInput.detect(fileName: url.lastPathComponent)
+        let binaryName = RestoreTool.binaryName(for: context.kind, input: input)
+        guard let binary = await dumpService.locateBest(
+            named: binaryName, engine: context.kind,
+            serverMajor: context.serverVersion.flatMap(DumpTool.majorVersion),
+            override: UserDefaults.standard.string(
+                forKey: "tessera.restorePath.\(context.kind.rawValue).\(binaryName)")) else {
+            throw MCPToolError("\(binaryName) is not installed.")
+        }
+        let result = await dumpService.restore(engine: context.kind, binaryPath: binary,
+                                               host: context.host, port: context.port, user: context.user,
+                                               database: context.database, password: context.password,
+                                               input: input, fileURL: url, options: RestoreOptions())
+        guard result.success else { throw MCPToolError(result.message) }
+        if let session = console.session(for: profile.id) { await session.refreshSchema() }
+        return MCPImportResult(file: filePath, message: "Imported \(url.lastPathComponent)")
     }
 
     var selection: UUID?

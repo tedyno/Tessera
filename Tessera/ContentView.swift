@@ -139,7 +139,36 @@ struct ContentView: View {
         } message: {
             Text("You marked this connection read-only. Save the edited rows to the database?")
         }
-        .onAppear { app.installShiftMonitor() }
+        .sheet(item: Binding(get: { app.mcpApprovals.pending }, set: { if $0 == nil { app.mcpApprovals.decline() } })) { request in
+            VStack(alignment: .leading, spacing: 14) {
+                Label(request.title, systemImage: "sparkles")
+                    .font(.headline)
+                Text("Requested over MCP. Review it before allowing.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ScrollView {
+                    Text(request.detail)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: 110)
+                .padding(8)
+                .background(.quaternary.opacity(0.4))
+                HStack {
+                    Spacer()
+                    Button("Decline") { app.mcpApprovals.decline() }
+                        .keyboardShortcut(.cancelAction)
+                    Button("Allow") { app.mcpApprovals.approve() }
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(20)
+            .frame(width: 520)
+        }
+        .onAppear {
+            app.installShiftMonitor()
+            app.syncMCPServer()
+        }
     }
 
     private var cursorBinding: Binding<Int> {

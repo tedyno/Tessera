@@ -1,6 +1,11 @@
 import SwiftUI
 import AppKit
 
+extension Notification.Name {
+    /// Posted when the MCP settings change, so the app restarts the server.
+    static let mcpSettingsChanged = Notification.Name("tessera.mcpSettingsChanged")
+}
+
 /// Where exports are written by default. Persisted in UserDefaults; defaults to the
 /// user's Downloads folder.
 enum ExportSettings {
@@ -93,13 +98,35 @@ struct ExportSettingsView: View {
             }
             Section("MCP server") {
                 Toggle("Enable the MCP server", isOn: $mcpEnabled)
-                    .onChange(of: mcpEnabled) { _, newValue in MCPSettings.isEnabled = newValue }
+                    .onChange(of: mcpEnabled) { _, newValue in
+                        MCPSettings.isEnabled = newValue
+                        NotificationCenter.default.post(name: .mcpSettingsChanged, object: nil)
+                    }
                 if mcpEnabled {
                     LabeledContent("Port") {
                         TextField("", value: $mcpPort, format: .number.grouping(.never))
                             .frame(width: 90)
-                            .onSubmit { MCPSettings.port = mcpPort }
+                            .onSubmit {
+                                MCPSettings.port = mcpPort
+                                NotificationCenter.default.post(name: .mcpSettingsChanged, object: nil)
+                            }
                     }
+                    LabeledContent("Client config") {
+                        HStack {
+                            Button("Copy") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(MCPSettings.clientConfigSnippet,
+                                                               forType: .string)
+                            }
+                            Button("New token") {
+                                MCPSettings.regenerateToken()
+                                NotificationCenter.default.post(name: .mcpSettingsChanged, object: nil)
+                            }
+                        }
+                    }
+                    Text("Paste the copied JSON into your MCP client. Generating a new token "
+                         + "invalidates the old one.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Text("Off by default. When on, Tessera listens on 127.0.0.1 so an MCP client "
                      + "such as Claude can query it — but only connections that individually "
