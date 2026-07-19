@@ -129,14 +129,14 @@ final class ConnectionsModel {
         saveOrganizer()
     }
 
-    /// Moves a node under a new parent container. Rejects no-op moves and moving a
-    /// container into its own subtree.
+    /// Moves a node under a new parent container, optionally at a specific index.
+    /// Rejects no-op moves and moving a container into its own subtree.
     @discardableResult
-    func move(nodeID: UUID, toParent parentID: UUID) -> Bool {
+    func move(nodeID: UUID, toParent parentID: UUID, at index: Int? = nil) -> Bool {
         guard nodeID != parentID else { return false }
         guard !organizer.descendants(of: nodeID).contains(parentID) else { return false }
         guard let removed = organizer.remove(nodeID) else { return false }
-        if !organizer.append(removed, toParent: parentID) {
+        if !organizer.insert(removed, toParent: parentID, at: index) {
             organizer.append(removed, toParent: defaultParentID ?? UUID())
             saveOrganizer()
             return false
@@ -148,6 +148,20 @@ final class ConnectionsModel {
     func deleteWorkspace(_ id: UUID) {
         organizer.workspaces.removeAll { $0.id == id }
         saveOrganizer()
+    }
+
+    /// Deletes by id whether it is a workspace or a tree node.
+    func delete(id: UUID) {
+        if organizer.workspaces.contains(where: { $0.id == id }) {
+            deleteWorkspace(id)
+        } else {
+            deleteNode(id)
+        }
+    }
+
+    func name(forNode id: UUID) -> String? {
+        if let workspace = organizer.workspaces.first(where: { $0.id == id }) { return workspace.name }
+        return organizer.node(id: id)?.displayName
     }
 
     private func saveOrganizer() {

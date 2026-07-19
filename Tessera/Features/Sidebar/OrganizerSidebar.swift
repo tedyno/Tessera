@@ -1,11 +1,10 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import DBKit
 import DBPersistence
 
 /// Column 1 — the connection organizer tree (Workspace → Project → Folder →
-/// Connection) with CRUD via context menus and a bottom "+" menu. Drag & drop
-/// reordering is the remaining Phase 2b step.
+/// Connection), backed by NSOutlineView for reliable drag & drop. This wrapper
+/// adds the bottom "+" menu and the name-entry alerts.
 struct OrganizerSidebar: View {
     let model: ConnectionsModel
     @Binding var selection: UUID?
@@ -13,7 +12,7 @@ struct OrganizerSidebar: View {
     var onNewConnection: (UUID?) -> Void
 
     private enum PendingEdit {
-        case rename(id: UUID, current: String)
+        case rename(id: UUID)
         case newFolder(parent: UUID)
         case newProject(workspace: UUID)
         case newWorkspace
@@ -22,27 +21,14 @@ struct OrganizerSidebar: View {
     @State private var editText = ""
 
     var body: some View {
-        List(selection: $selection) {
-            ForEach(model.organizer.workspaces) { workspace in
-                Section {
-                    OutlineGroup(workspace.children, children: \.children) { node in
-                        rowView(node)
-                    }
-                } header: {
-                    HStack {
-                        Text(workspace.name)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .contextMenu { workspaceMenu(workspace) }
-                    .onDrop(of: [.plainText, .text], isTargeted: nil) { providers in
-                        handleDrop(providers, into: workspace.id)
-                    }
-                }
-            }
-        }
-        .listStyle(.sidebar)
+        OrganizerOutlineView(
+            model: model,
+            selection: $selection,
+            onNewConnection: onNewConnection,
+            onNewFolder: { startNewFolder(parent: $0) },
+            onNewProject: { startNewProject(workspace: $0) },
+            onNewWorkspace: { editText = ""; pending = .newWorkspace },
+            onRename: { id, current in editText = current; pending = .rename(id: id) })
         .safeAreaInset(edge: .bottom) { bottomBar }
         .alert(alertTitle, isPresented: pendingBinding) {
             TextField("Name", text: $editText)
@@ -51,94 +37,13 @@ struct OrganizerSidebar: View {
         }
     }
 
-    // MARK: Rows
-
-    @ViewBuilder
-    private func rowView(_ node: OrganizerNode) -> some View {
-        let row = nodeLabel(node)
-            .contentShape(Rectangle())
-            .contextMenu { nodeMenu(node) }
-            .onDrag { NSItemProvider(object: node.id.uuidString as NSString) }
-        if node.isContainer {
-            row.onDrop(of: [.plainText, .text], isTargeted: nil) { providers in
-                handleDrop(providers, into: node.id)
-            }
-        } else {
-            row
-        }
-    }
-
-    /// Loads the dragged node id from the item provider and moves it under `parentID`.
-    private func handleDrop(_ providers: [NSItemProvider], into parentID: UUID) -> Bool {
-        guard let provider = providers.first else { return false }
-        provider.loadObject(ofClass: NSString.self) { object, _ in
-            guard let string = object as? String, let id = UUID(uuidString: string) else { return }
-            Task { @MainActor in model.move(nodeID: id, toParent: parentID) }
-        }
-        return true
-    }
-
-    @ViewBuilder
-    private func nodeLabel(_ node: OrganizerNode) -> some View {
-        switch node {
-        case .project(let project):
-            Label(project.name, systemImage: "square.stack.3d.up.fill")
-        case .folder(let folder):
-            Label(folder.name, systemImage: "folder.fill").foregroundStyle(.tint)
-        case .connection(let ref):
-            let profile = model.profile(id: ref.profileID)
-            Label {
-                Text(profile?.name ?? "Connection")
-            } icon: {
-                RoundedRectangle(cornerRadius: 2.5)
-                    .fill(color(for: profile?.kind))
-                    .frame(width: 9, height: 9)
-            }
-        }
-    }
-
-    // MARK: Menus
-
-    @ViewBuilder
-    private func nodeMenu(_ node: OrganizerNode) -> some View {
-        if node.isContainer {
-            Button("New Connection") { onNewConnection(node.id) }
-            Button("New Folder") { startNewFolder(parent: node.id) }
-            Divider()
-            Button("Rename") { startRename(id: node.id, current: node.displayName ?? "") }
-        } else {
-            Button("Connect") { selection = node.id }
-        }
-        moveMenu(node)
-        Button("Delete", role: .destructive) { model.deleteNode(node.id) }
-    }
-
-    @ViewBuilder
-    private func moveMenu(_ node: OrganizerNode) -> some View {
-        Menu("Move to") {
-            ForEach(model.organizer.workspaces) { workspace in
-                Button(workspace.name) { model.move(nodeID: node.id, toParent: workspace.id) }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func workspaceMenu(_ workspace: Workspace) -> some View {
-        Button("New Connection") { onNewConnection(workspace.id) }
-        Button("New Folder") { startNewFolder(parent: workspace.id) }
-        Button("New Project") { startNewProject(workspace: workspace.id) }
-        Divider()
-        Button("Rename") { startRename(id: workspace.id, current: workspace.name) }
-        Button("Delete Workspace", role: .destructive) { model.deleteWorkspace(workspace.id) }
-    }
-
     private var bottomBar: some View {
         HStack {
             Menu {
                 Button("New Connection") { onNewConnection(model.organizer.workspaces.first?.id) }
                 Button("New Folder") { startNewFolder(parent: model.organizer.workspaces.first?.id) }
                 Divider()
-                Button("New Workspace") { pending = .newWorkspace; editText = "" }
+                Button("New Workspace") { editText = ""; pending = .newWorkspace }
             } label: {
                 Image(systemName: "plus")
             }
@@ -170,18 +75,13 @@ struct OrganizerSidebar: View {
 
     private func commit() {
         switch pending {
-        case .rename(let id, _): model.rename(id, to: editText)
+        case .rename(let id): model.rename(id, to: editText)
         case .newFolder(let parent): model.addFolder(name: editText, into: parent)
         case .newProject(let workspace): model.addProject(name: editText, into: workspace)
         case .newWorkspace: model.addWorkspace(name: editText)
         case nil: break
         }
         pending = nil
-    }
-
-    private func startRename(id: UUID, current: String) {
-        editText = current
-        pending = .rename(id: id, current: current)
     }
 
     private func startNewFolder(parent: UUID?) {
@@ -193,13 +93,5 @@ struct OrganizerSidebar: View {
     private func startNewProject(workspace: UUID) {
         editText = ""
         pending = .newProject(workspace: workspace)
-    }
-
-    private func color(for kind: DatabaseKind?) -> Color {
-        switch kind {
-        case .postgres: .blue
-        case .mysql: .orange
-        case nil: .secondary
-        }
     }
 }

@@ -1,0 +1,365 @@
+import SwiftUI
+import AppKit
+import DBKit
+import DBPersistence
+
+/// Reference wrapper so NSOutlineView has stable, id-based item identity.
+final class OrganizerItem: NSObject {
+    enum Category { case workspace, project, folder, connection }
+
+    let id: UUID
+    let title: String
+    let category: Category
+    let profileKind: DatabaseKind?
+    let children: [OrganizerItem]
+
+    var isContainer: Bool { category != .connection }
+
+    init(id: UUID, title: String, category: Category,
+         profileKind: DatabaseKind? = nil, children: [OrganizerItem] = []) {
+        self.id = id
+        self.title = title
+        self.category = category
+        self.profileKind = profileKind
+        self.children = children
+    }
+
+    override func isEqual(_ object: Any?) -> Bool { (object as? OrganizerItem)?.id == id }
+    override var hash: Int { id.hashValue }
+}
+
+/// NSOutlineView subclass that builds a context menu for the right-clicked row.
+final class ContextualOutlineView: NSOutlineView {
+    var contextMenuProvider: (@MainActor (Int) -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        return contextMenuProvider?(row(at: point))
+    }
+}
+
+/// The connection organizer backed by NSOutlineView for reliable drag & drop.
+struct OrganizerOutlineView: NSViewRepresentable {
+    let model: ConnectionsModel
+    @Binding var selection: UUID?
+    var onNewConnection: (UUID?) -> Void
+    var onNewFolder: (UUID) -> Void
+    var onNewProject: (UUID) -> Void
+    var onNewWorkspace: () -> Void
+    var onRename: (UUID, String) -> Void
+
+    private static let nodeType = NSPasteboard.PasteboardType("io.github.tedyno.tessera.node")
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let outline = ContextualOutlineView()
+        outline.style = .sourceList
+        outline.headerView = nil
+        outline.rowHeight = 22
+        outline.indentationPerLevel = 14
+        outline.autoresizesOutlineColumn = false
+        outline.dataSource = context.coordinator
+        outline.delegate = context.coordinator
+        outline.registerForDraggedTypes([Self.nodeType])
+        outline.setDraggingSourceOperationMask(.move, forLocal: true)
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("main"))
+        column.resizingMask = .autoresizingMask
+        outline.addTableColumn(column)
+        outline.outlineTableColumn = column
+
+        outline.contextMenuProvider = { [coordinator = context.coordinator] row in
+            coordinator.menu(forRow: row)
+        }
+
+        let scrollView = NSScrollView()
+        scrollView.documentView = outline
+        scrollView.hasVerticalScroller = true
+        scrollView.drawsBackground = false
+
+        context.coordinator.outlineView = outline
+        context.coordinator.pasteboardType = Self.nodeType
+        context.coordinator.rebuild(expandingAll: true)
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        context.coordinator.sync()
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(model: model, selection: $selection,
+                    onNewConnection: onNewConnection, onNewFolder: onNewFolder,
+                    onNewProject: onNewProject, onNewWorkspace: onNewWorkspace,
+                    onRename: onRename)
+    }
+
+    // MARK: Coordinator
+
+    @MainActor
+    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
+        let model: ConnectionsModel
+        let selection: Binding<UUID?>
+        let onNewConnection: (UUID?) -> Void
+        let onNewFolder: (UUID) -> Void
+        let onNewProject: (UUID) -> Void
+        let onNewWorkspace: () -> Void
+        let onRename: (UUID, String) -> Void
+
+        weak var outlineView: NSOutlineView?
+        var pasteboardType: NSPasteboard.PasteboardType = .string
+        private var roots: [OrganizerItem] = []
+        private var lastHash: Int?
+        private var isSyncingSelection = false
+
+        init(model: ConnectionsModel, selection: Binding<UUID?>,
+             onNewConnection: @escaping (UUID?) -> Void, onNewFolder: @escaping (UUID) -> Void,
+             onNewProject: @escaping (UUID) -> Void, onNewWorkspace: @escaping () -> Void,
+             onRename: @escaping (UUID, String) -> Void) {
+            self.model = model
+            self.selection = selection
+            self.onNewConnection = onNewConnection
+            self.onNewFolder = onNewFolder
+            self.onNewProject = onNewProject
+            self.onNewWorkspace = onNewWorkspace
+            self.onRename = onRename
+        }
+
+        // MARK: Building
+
+        func rebuild(expandingAll: Bool) {
+            roots = model.organizer.workspaces.map(Self.item(forWorkspace:))
+            lastHash = model.organizer.hashValue
+            outlineView?.reloadData()
+            if expandingAll { outlineView?.expandItem(nil, expandChildren: true) }
+            applySelection()
+        }
+
+        /// Rebuilds only when the organizer changed; always re-syncs selection.
+        func sync() {
+            if model.organizer.hashValue != lastHash {
+                rebuild(expandingAll: false)
+            } else {
+                applySelection()
+            }
+        }
+
+        private static func item(forWorkspace workspace: Workspace) -> OrganizerItem {
+            OrganizerItem(id: workspace.id, title: workspace.name, category: .workspace,
+                          children: workspace.children.map(item(forNode:)))
+        }
+
+        private static func item(forNode node: OrganizerNode) -> OrganizerItem {
+            switch node {
+            case .project(let p):
+                OrganizerItem(id: p.id, title: p.name, category: .project,
+                              children: p.children.map(item(forNode:)))
+            case .folder(let f):
+                OrganizerItem(id: f.id, title: f.name, category: .folder,
+                              children: f.children.map(item(forNode:)))
+            case .connection(let ref):
+                OrganizerItem(id: ref.id, title: "", category: .connection,
+                              profileKind: nil)
+            }
+        }
+
+        private func title(for item: OrganizerItem) -> String {
+            if item.category == .connection {
+                // Resolve the live profile name (title on the item is a placeholder).
+                if let profileID = model.organizer.profileID(forNode: item.id),
+                   let profile = model.profile(id: profileID) {
+                    return profile.name
+                }
+                return "Connection"
+            }
+            return item.title
+        }
+
+        private func profileKind(for item: OrganizerItem) -> DatabaseKind? {
+            guard item.category == .connection,
+                  let profileID = model.organizer.profileID(forNode: item.id) else { return nil }
+            return model.profile(id: profileID)?.kind
+        }
+
+        // MARK: Selection
+
+        private func applySelection() {
+            guard let outlineView, let id = selection.wrappedValue else { return }
+            guard let item = find(id, in: roots) else { return }
+            let row = outlineView.row(forItem: item)
+            if row >= 0, outlineView.selectedRow != row {
+                isSyncingSelection = true
+                outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                isSyncingSelection = false
+            }
+        }
+
+        private func find(_ id: UUID, in items: [OrganizerItem]) -> OrganizerItem? {
+            for item in items {
+                if item.id == id { return item }
+                if let found = find(id, in: item.children) { return found }
+            }
+            return nil
+        }
+
+        func outlineViewSelectionDidChange(_ notification: Notification) {
+            guard !isSyncingSelection, let outlineView else { return }
+            let row = outlineView.selectedRow
+            guard row >= 0, let item = outlineView.item(atRow: row) as? OrganizerItem else { return }
+            selection.wrappedValue = item.id
+        }
+
+        // MARK: DataSource
+
+        func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
+            (item as? OrganizerItem)?.children.count ?? roots.count
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
+            (item as? OrganizerItem)?.children[index] ?? roots[index]
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
+            (item as? OrganizerItem)?.isContainer ?? false
+        }
+
+        // MARK: Delegate — cells
+
+        func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
+            guard let orgItem = item as? OrganizerItem else { return nil }
+            let identifier = NSUserInterfaceItemIdentifier("cell")
+            let cell = (outlineView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView)
+                ?? Self.makeCellView(identifier: identifier)
+            cell.textField?.stringValue = title(for: orgItem)
+            let (symbol, color) = Self.symbol(for: orgItem, kind: profileKind(for: orgItem))
+            cell.imageView?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            cell.imageView?.contentTintColor = color
+            return cell
+        }
+
+        private static func makeCellView(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
+            let cell = NSTableCellView()
+            cell.identifier = identifier
+            let imageView = NSImageView()
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            let textField = NSTextField(labelWithString: "")
+            textField.translatesAutoresizingMaskIntoConstraints = false
+            textField.lineBreakMode = .byTruncatingTail
+            textField.font = .systemFont(ofSize: 13)
+            cell.addSubview(imageView)
+            cell.addSubview(textField)
+            cell.imageView = imageView
+            cell.textField = textField
+            NSLayoutConstraint.activate([
+                imageView.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+                imageView.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                imageView.widthAnchor.constraint(equalToConstant: 16),
+                imageView.heightAnchor.constraint(equalToConstant: 16),
+                textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
+                textField.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            ])
+            return cell
+        }
+
+        private static func symbol(for item: OrganizerItem, kind: DatabaseKind?) -> (String, NSColor?) {
+            switch item.category {
+            case .workspace: return ("rectangle.3.group", nil)
+            case .project: return ("square.stack.3d.up.fill", nil)
+            case .folder: return ("folder.fill", .controlAccentColor)
+            case .connection:
+                switch kind {
+                case .postgres: return ("circle.fill", .systemBlue)
+                case .mysql: return ("circle.fill", .systemOrange)
+                case nil: return ("circle.fill", .secondaryLabelColor)
+                }
+            }
+        }
+
+        // MARK: Drag & drop
+
+        func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
+            guard let orgItem = item as? OrganizerItem, orgItem.category != .workspace else { return nil }
+            let pbItem = NSPasteboardItem()
+            pbItem.setString(orgItem.id.uuidString, forType: pasteboardType)
+            return pbItem
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo,
+                         proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
+            guard let draggedID = draggedID(from: info),
+                  let target = item as? OrganizerItem, target.isContainer,
+                  target.id != draggedID,
+                  !model.organizer.descendants(of: draggedID).contains(target.id)
+            else { return [] }
+            return .move
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo,
+                         item: Any?, childIndex index: Int) -> Bool {
+            guard let draggedID = draggedID(from: info),
+                  let target = item as? OrganizerItem else { return false }
+            let ok = model.move(nodeID: draggedID, toParent: target.id, at: index >= 0 ? index : nil)
+            if ok { rebuild(expandingAll: false) }
+            return ok
+        }
+
+        private func draggedID(from info: NSDraggingInfo) -> UUID? {
+            guard let string = info.draggingPasteboard.string(forType: pasteboardType) else { return nil }
+            return UUID(uuidString: string)
+        }
+
+        // MARK: Context menu
+
+        func menu(forRow row: Int) -> NSMenu? {
+            guard let outlineView else { return nil }
+            let menu = NSMenu()
+            guard row >= 0, let item = outlineView.item(atRow: row) as? OrganizerItem else {
+                add(menu, "New Workspace", #selector(actionNewWorkspace), nil)
+                return menu
+            }
+            if item.isContainer {
+                add(menu, "New Connection", #selector(actionNewConnection), item)
+                add(menu, "New Folder", #selector(actionNewFolder), item)
+                if item.category == .workspace {
+                    add(menu, "New Project", #selector(actionNewProject), item)
+                }
+                menu.addItem(.separator())
+                add(menu, "Rename", #selector(actionRename), item)
+            } else {
+                add(menu, "Connect", #selector(actionConnect), item)
+            }
+            add(menu, "Delete", #selector(actionDelete), item)
+            return menu
+        }
+
+        private func add(_ menu: NSMenu, _ title: String, _ action: Selector, _ item: OrganizerItem?) {
+            let menuItem = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            menuItem.target = self
+            menuItem.representedObject = item
+            menu.addItem(menuItem)
+        }
+
+        @objc private func actionNewConnection(_ sender: NSMenuItem) {
+            onNewConnection((sender.representedObject as? OrganizerItem)?.id)
+        }
+        @objc private func actionNewFolder(_ sender: NSMenuItem) {
+            if let item = sender.representedObject as? OrganizerItem { onNewFolder(item.id) }
+        }
+        @objc private func actionNewProject(_ sender: NSMenuItem) {
+            if let item = sender.representedObject as? OrganizerItem { onNewProject(item.id) }
+        }
+        @objc private func actionNewWorkspace(_ sender: NSMenuItem) { onNewWorkspace() }
+        @objc private func actionRename(_ sender: NSMenuItem) {
+            if let item = sender.representedObject as? OrganizerItem { onRename(item.id, title(for: item)) }
+        }
+        @objc private func actionConnect(_ sender: NSMenuItem) {
+            if let item = sender.representedObject as? OrganizerItem { selection.wrappedValue = item.id }
+        }
+        @objc private func actionDelete(_ sender: NSMenuItem) {
+            if let item = sender.representedObject as? OrganizerItem {
+                model.delete(id: item.id)
+                rebuild(expandingAll: false)
+            }
+        }
+    }
+}
