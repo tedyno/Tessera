@@ -11,9 +11,17 @@ struct ContentView: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 320)
         } content: {
-            SchemaSidebar(tree: app.console.schema) { schema, table in
-                Task { await app.console.selectAll(schema: schema, table: table) }
-            }
+            SchemaSidebar(
+                tree: app.console.schema,
+                onOpenTable: { schema, table in
+                    Task { await app.console.selectAll(schema: schema, table: table) }
+                },
+                onOpenColumn: { schema, table, column in
+                    Task {
+                        await app.console.selectAll(schema: schema, table: table)
+                        app.console.activeTab?.scrollToColumn = column
+                    }
+                })
             .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
         } detail: {
             DetailView(model: app.console,

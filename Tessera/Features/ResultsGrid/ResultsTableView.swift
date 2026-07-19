@@ -81,6 +81,14 @@ struct ResultsTableView: NSViewRepresentable {
                 }
             }
             tableView.reloadData()
+
+            // Scroll a requested column into view (from a schema column double-click).
+            if let target = tab.scrollToColumn,
+               let index = result.columns.firstIndex(where: { $0.name == target }) {
+                tableView.scrollColumnToVisible(index)
+                let editedTab = tab
+                DispatchQueue.main.async { editedTab.scrollToColumn = nil }
+            }
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int { result?.rows.count ?? 0 }

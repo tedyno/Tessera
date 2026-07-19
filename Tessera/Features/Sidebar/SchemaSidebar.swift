@@ -7,6 +7,7 @@ import DBKit
 struct SchemaSidebar: View {
     let tree: DatabaseTree?
     var onOpenTable: (_ schema: String, _ table: String) -> Void
+    var onOpenColumn: (_ schema: String, _ table: String, _ column: String) -> Void
 
     var body: some View {
         Group {
@@ -43,7 +44,13 @@ struct SchemaSidebar: View {
             tableLabel(namespace: namespace, table: table)
         } else {
             DisclosureGroup {
-                ForEach(table.columns) { column in columnRow(column) }
+                ForEach(table.columns) { column in
+                    columnRow(column)
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(TapGesture(count: 2).onEnded {
+                            onOpenColumn(namespace, table.name, column.name)
+                        })
+                }
                 if !table.indexes.isEmpty {
                     DisclosureGroup {
                         ForEach(table.indexes) { index in indexRow(index) }
