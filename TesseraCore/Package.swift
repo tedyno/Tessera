@@ -5,6 +5,7 @@ let package = Package(
     name: "TesseraCore",
     platforms: [.macOS(.v15)],
     products: [
+        .library(name: "DBMCPServer", targets: ["DBMCPServer"]),
         // Domain models + protocols, with no networking/NIO dependency.
         .library(name: "DBKit", targets: ["DBKit"]),
         // Organizer and connection-profile persistence (JSON), depends only on DBKit.
@@ -51,6 +52,15 @@ let package = Package(
             ],
             // NIO channel handlers don't fit Swift 6 strict concurrency cleanly.
             swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .target(
+            name: "DBMCPServer",
+            dependencies: [
+                "DBKit",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+            ]
         ),
         .testTarget(
             name: "TesseraCoreTests",

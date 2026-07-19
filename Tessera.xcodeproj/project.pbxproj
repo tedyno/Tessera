@@ -13,6 +13,7 @@
 		AA0000000000000000000018 /* DBSecurity in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000017 /* DBSecurity */; };
 		AA000000000000000000001A /* DBDriverMySQL in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000019 /* DBDriverMySQL */; };
 		AA000000000000000000001C /* DBTunnel in Frameworks */ = {isa = PBXBuildFile; productRef = AA000000000000000000001B /* DBTunnel */; };
+		AA000000000000000000001E /* DBMCPServer in Frameworks */ = {isa = PBXBuildFile; productRef = AA000000000000000000001D /* DBMCPServer */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +35,7 @@
 				AA0000000000000000000018 /* DBSecurity in Frameworks */,
 				AA000000000000000000001A /* DBDriverMySQL in Frameworks */,
 				AA000000000000000000001C /* DBTunnel in Frameworks */,
+				AA000000000000000000001E /* DBMCPServer in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -82,6 +84,7 @@
 				AA0000000000000000000017 /* DBSecurity */,
 				AA0000000000000000000019 /* DBDriverMySQL */,
 				AA000000000000000000001B /* DBTunnel */,
+				AA000000000000000000001D /* DBMCPServer */,
 			);
 			productName = Tessera;
 			productReference = AA0000000000000000000006 /* Tessera.app */;
@@ -294,6 +297,10 @@
 		AA000000000000000000001B /* DBTunnel */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DBTunnel;
+		};
+		AA000000000000000000001D /* DBMCPServer */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DBMCPServer;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
