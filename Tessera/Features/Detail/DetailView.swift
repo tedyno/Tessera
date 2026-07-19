@@ -1,12 +1,12 @@
 import SwiftUI
 import DBKit
 
-/// Column 3 — detail with tabs, SQL editor and results table. Phase 1: the editor
-/// is live and Run executes a real query against the local Postgres via
-/// `QueryConsoleModel`; results render in a dynamic-column `Table`. Syntax
-/// highlighting (STTextView) and streaming for large sets arrive in Phases 7/8.
+/// Column 3 — detail with query tabs, a live SQL editor, Run, the results table,
+/// and query history. Each tab has its own editor and result but shares the
+/// connection.
 struct DetailView: View {
     @Bindable var model: QueryConsoleModel
+    @State private var showingHistory = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,83 +19,117 @@ struct DetailView: View {
             resultsArea
             statusBar
         }
+        .sheet(isPresented: $showingHistory) {
+            HistoryView(history: model.history) { sql in
+                model.loadIntoActiveTab(sql)
+                showingHistory = false
+            }
+        }
     }
 
+    // MARK: Tabs
+
     private var tabBar: some View {
-        HStack(spacing: 0) {
-            tab("orders", active: true)
-            tab("customers", active: false)
-            Spacer()
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 0) {
+                ForEach(model.tabs) { tab in
+                    tabChip(tab)
+                }
+                Button {
+                    model.addTab()
+                } label: {
+                    Image(systemName: "plus").padding(.horizontal, 10)
+                }
+                .buttonStyle(.borderless)
+                Spacer()
+            }
         }
         .frame(height: 30)
         .background(.bar)
     }
 
-    private func tab(_ title: String, active: Bool) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "xmark")
-                .font(.system(size: 9, weight: .semibold))
+    private func tabChip(_ tab: QueryTab) -> some View {
+        let isActive = tab.id == model.activeTabID
+        return HStack(spacing: 6) {
+            if tab.isRunning {
+                ProgressView().controlSize(.mini)
+            }
+            Text(tab.title)
+                .font(.system(size: 12, weight: isActive ? .medium : .regular))
+                .foregroundStyle(isActive ? .primary : .secondary)
+            if model.tabs.count > 1 {
+                Button {
+                    model.closeTab(tab.id)
+                } label: {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
+                }
+                .buttonStyle(.borderless)
                 .foregroundStyle(.tertiary)
-            Text(title)
-                .font(.system(size: 12, weight: active ? .medium : .regular))
-                .foregroundStyle(active ? .primary : .secondary)
+            }
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .frame(maxHeight: .infinity)
-        .background(active ? AnyShapeStyle(.background) : AnyShapeStyle(.clear))
+        .background(isActive ? AnyShapeStyle(.background) : AnyShapeStyle(.clear))
         .overlay(alignment: .trailing) { Divider() }
+        .contentShape(Rectangle())
+        .onTapGesture { model.activeTabID = tab.id }
     }
+
+    // MARK: Editor
 
     private var editorToolbar: some View {
         HStack(spacing: 10) {
             Button {
-                Task { await model.run() }
+                if let tab = model.activeTab { Task { await model.run(tab) } }
             } label: {
                 Label("Run", systemImage: "play.fill")
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
-            .disabled(model.status != .ready)
+            .disabled(model.status != .ready || (model.activeTab?.isRunning ?? true))
             .keyboardShortcut(.return, modifiers: .command)
 
-            Button { } label: { Label("Stop", systemImage: "stop.fill") }
-                .controlSize(.small)
-                .disabled(true)
-
-            if model.status == .running {
-                ProgressView().controlSize(.small)
-            } else if let ms = model.elapsedMS {
+            if let ms = model.activeTab?.elapsedMS, model.activeTab?.isRunning == false {
                 Text("\(ms) ms").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            Button {
+                showingHistory = true
+            } label: {
+                Label("History", systemImage: "clock.arrow.circlepath")
+            }
+            .controlSize(.small)
         }
         .padding(6)
     }
 
     private var editor: some View {
-        TextEditor(text: $model.sql)
+        TextEditor(text: sqlBinding)
             .font(.system(.body, design: .monospaced))
             .scrollContentBackground(.hidden)
             .padding(6)
             .frame(height: 150)
     }
 
+    private var sqlBinding: Binding<String> {
+        Binding(get: { model.activeTab?.sql ?? "" }, set: { model.activeTab?.sql = $0 })
+    }
+
+    // MARK: Results
+
     @ViewBuilder
     private var resultsArea: some View {
-        if let message = model.errorMessage {
+        if let message = model.activeTab?.errorMessage {
             ContentUnavailableView {
                 Label("Query failed", systemImage: "exclamationmark.triangle")
             } description: {
                 Text(message).font(.callout.monospaced())
             }
-        } else if let result = model.result {
+        } else if let result = model.activeTab?.result {
             ResultsTable(result: result)
         } else {
-            ContentUnavailableView(
-                "No results",
-                systemImage: "tablecells",
-                description: Text("Press Run to execute the query.")
-            )
+            ContentUnavailableView("No results", systemImage: "tablecells",
+                                   description: Text("Press Run to execute the query."))
         }
     }
 
@@ -104,18 +138,19 @@ struct DetailView: View {
             switch model.status {
             case .idle: Text("Idle")
             case .connecting: Text("Connecting…")
-            case .running: Text("Running…")
+            case .failed: Text("Connection error")
             case .ready:
-                if let result = model.result {
+                if let result = model.activeTab?.result {
                     Text("\(result.rows.count) rows")
                     Text("\(result.columns.count) columns")
                 } else {
                     Text("Ready")
                 }
-            case .failed: Text("Error")
             }
             Spacer()
-            Text("PostgreSQL · \(model.status == .ready ? "connected" : "—")")
+            if let name = model.connectionName {
+                Text(name).foregroundStyle(model.status == .ready ? .green : .secondary)
+            }
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -125,7 +160,7 @@ struct DetailView: View {
     }
 }
 
-/// Renders a `QueryResult` in a native `Table` with columns known only at runtime.
+/// Renders a `QueryResult` in a native `Table` with runtime-defined columns.
 private struct ResultsTable: View {
     let result: QueryResult
 

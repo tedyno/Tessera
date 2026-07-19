@@ -23,7 +23,7 @@ struct NewConnectionView: View {
     @State private var sshHost = ""
     @State private var sshPort = "22"
     @State private var sshUser = ""
-    @State private var sshAuth: SSHAuthKind = .privateKey
+    @State private var sshAuth: SSHAuthKind = .password
     @State private var sshPassword = ""
     @State private var sshKeyPath = "~/.ssh/id_ed25519"
     @State private var sshPassphrase = ""
