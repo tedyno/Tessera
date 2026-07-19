@@ -72,9 +72,8 @@ struct ContentView: View {
                        connectionOptions: app.connectionOptions,
                        onSelectConnection: { app.selectConnection($0) })
         }
-        .task {
-            if app.selection == nil { app.selection = app.connections.firstConnectionNodeID }
-        }
+        // Nothing connects on launch — no Keychain access until the user picks a
+        // connection, which then connects it.
         .onChange(of: app.selection) { _, newValue in
             app.connect(nodeID: newValue)
         }
