@@ -18,6 +18,17 @@ final class QueryConsoleModel {
     private(set) var history: [QueryHistoryEntry] = []
     private let historyStore: QueryHistoryStore
 
+    /// Injected by `AppModel`: reconnects a dropped session (it needs Keychain
+    /// secrets, which live outside the console). Lets a run auto-reconnect first.
+    var reconnect: (ConnectionSession) async -> Void = { _ in }
+
+    /// Ensures the session is live, reconnecting on demand, before a query runs.
+    private func ensureReady(_ session: ConnectionSession) async -> Bool {
+        if session.isReady { return true }
+        if !session.isConnecting { await reconnect(session) }
+        return session.isReady
+    }
+
     init() {
         let url = (try? QueryHistoryStore.defaultURL())
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("tessera-history.json")
@@ -94,12 +105,17 @@ final class QueryConsoleModel {
     }
 
     func run(_ tab: QueryTab, sqlToRun: String? = nil, preserveSort: Bool = false) async {
-        guard let session = tab.session, session.isReady, let driver = session.driver,
-              !tab.isRunning else { return }
+        guard let session = tab.session, !tab.isRunning else { return }
         let sql = sqlToRun ?? tab.sql
         if !preserveSort { tab.sortColumn = nil }
         tab.isRunning = true
         tab.errorMessage = nil
+        // Reconnect a dropped connection first, then run.
+        guard await ensureReady(session), let driver = session.driver else {
+            tab.errorMessage = session.errorMessage ?? "Not connected"
+            tab.isRunning = false
+            return
+        }
         do {
             let result = try await driver.execute(sql)
             tab.result = result
@@ -119,10 +135,14 @@ final class QueryConsoleModel {
 
     /// Writes pending edits/deletes/inserts, then re-runs the query to show saved data.
     func commitEdits(_ tab: QueryTab) async {
-        guard let session = tab.session, session.isReady, let driver = session.driver,
-              tab.editSource != nil, tab.hasEdits else { return }
+        guard let session = tab.session, tab.editSource != nil, tab.hasEdits else { return }
         tab.isRunning = true
         tab.errorMessage = nil
+        guard await ensureReady(session), let driver = session.driver else {
+            tab.errorMessage = session.errorMessage ?? "Not connected"
+            tab.isRunning = false
+            return
+        }
         do {
             // Per-statement (PostgresClient is pooled, so a wrapping BEGIN/COMMIT
             // wouldn't share one connection). A single-connection transaction is future work.

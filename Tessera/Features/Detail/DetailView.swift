@@ -124,7 +124,8 @@ struct DetailView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
-            .disabled(model.status != .ready || (model.activeTab?.isRunning ?? true))
+            .disabled(model.status == .connecting || (model.activeTab?.isRunning ?? true)
+                      || model.activeTab?.session == nil)
 
             Button {
                 model.activeTab?.task?.cancel()
@@ -176,7 +177,7 @@ struct DetailView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
-            .disabled(model.status != .ready || tab.isRunning)
+            .disabled(model.status == .connecting || tab.isRunning || tab.session == nil)
 
             if tab.isEditable {
                 Button {

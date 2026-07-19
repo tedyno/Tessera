@@ -11,6 +11,14 @@ final class AppModel {
     let connections = ConnectionsModel()
     let console = QueryConsoleModel()
 
+    init() {
+        // Let a run auto-reconnect a dropped session before executing.
+        console.reconnect = { [weak self] session in
+            guard let self, let profile = self.connections.profile(id: session.id) else { return }
+            await self.openSession(session, profile: profile)
+        }
+    }
+
     var selection: UUID?
     var columnVisibility: NavigationSplitViewVisibility = .all
     var showingNewConnection = false
@@ -66,7 +74,12 @@ final class AppModel {
 
     // MARK: Command targets
 
-    var canRun: Bool { console.status == .ready && !(console.activeTab?.isRunning ?? false) }
+    // Runnable whenever a tab has a connection and isn't mid-connect/mid-run — a
+    // disconnected tab reconnects on run.
+    var canRun: Bool {
+        guard let tab = console.activeTab, tab.session != nil, !tab.isRunning else { return false }
+        return console.status != .connecting
+    }
     var isRunning: Bool { console.activeTab?.isRunning ?? false }
     var isConnected: Bool { console.status == .ready }
     var canEditRows: Bool { console.activeTab?.isEditable ?? false }
