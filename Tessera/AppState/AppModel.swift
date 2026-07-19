@@ -128,6 +128,8 @@ final class AppModel {
     var editingProfile: ConnectionProfile?
     @ObservationIgnored var editingSecrets = Secrets()
     var showingHistory = false
+    /// The ⌘K command palette.
+    var showingCommandPalette = false
     /// Bumped to request first-responder focus in the SQL editor (⌘L).
     var editorFocusRequests = 0
 
@@ -563,6 +565,41 @@ final class AppModel {
     }
 
     func focusEditor() { editorFocusRequests += 1 }
+
+    /// The commands offered by the ⌘K palette (rebuilt each time it opens so the
+    /// enabled flags reflect current state). Shortcuts mirror the menu bar.
+    func paletteCommands() -> [PaletteCommand] {
+        var commands: [PaletteCommand] = []
+        func add(_ id: String, _ title: String, _ shortcut: String?, _ image: String,
+                 enabled: Bool = true, _ action: @escaping () -> Void) {
+            commands.append(PaletteCommand(id: id, title: title, shortcut: shortcut,
+                                           systemImage: image, enabled: enabled, action: action))
+        }
+        add("run", String(localized: "Run Query"), "⌘↩", "play.fill", enabled: canRun) { self.runActiveQuery() }
+        add("stop", String(localized: "Stop"), "⌘.", "stop.fill", enabled: isRunning) { self.stopActiveQuery() }
+        add("new-tab", String(localized: "New Query Tab"), "⌘T", "plus.square") { self.newTab() }
+        add("close-tab", String(localized: "Close Tab"), "⌘W", "xmark.square") { self.closeActiveTab() }
+        add("new-connection", String(localized: "New Connection…"), "⇧⌘N", "point.3.connected.trianglepath.dotted") { self.newConnection() }
+        add("search", String(localized: "Search Everywhere…"), "⇧⌘O", "magnifyingglass") { self.showingSpotlight = true }
+        add("toggle-sidebar", String(localized: "Toggle Sidebar"), "⌘S", "sidebar.left") { self.toggleSidebar() }
+        add("focus-editor", String(localized: "Focus Editor"), "⌘L", "text.cursor") { self.focusEditor() }
+        add("refresh", String(localized: "Refresh Schema"), "⌘R", "arrow.clockwise",
+            enabled: isConnected) { self.refreshSchema() }
+        add("history", String(localized: "Query History"), "⌘Y", "clock.arrow.circlepath") { self.showHistory() }
+        add("open-sql", String(localized: "Open SQL File…"), "⌘O", "doc") { self.openSQLFile() }
+        add("run-sql", String(localized: "Run SQL File…"), "⇧⌘R", "doc.badge.gearshape",
+            enabled: isConnected) { self.runSQLFile() }
+        add("add-row", String(localized: "Add Row"), "⌘N", "plus.rectangle",
+            enabled: canEditRows) { self.addRowToActiveTab() }
+        add("discard", String(localized: "Discard Pending Changes"), nil, "arrow.uturn.backward",
+            enabled: hasPendingChanges) { self.discardPendingChanges() }
+        add("export-csv", String(localized: "Export Result as CSV…"), nil, "tablecells",
+            enabled: canExportResult) { self.exportResult(format: .csv) }
+        add("export-json", String(localized: "Export Result as JSON…"), nil, "curlybraces",
+            enabled: canExportResult) { self.exportResult(format: .json) }
+        add("mcp", String(localized: "MCP Activity…"), nil, "sparkles") { self.showingMCPLog = true }
+        return commands
+    }
 
     /// Loads a `.sql` file into a new console tab (bound to the active connection).
     func openSQLFile() {

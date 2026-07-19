@@ -49,6 +49,8 @@ struct TesseraCommands: Commands {
         }
 
         CommandMenu("Query") {
+            Button("Command Palette…") { app.showingCommandPalette = true }
+                .keyboardShortcut("k", modifiers: .command)
             Button("Search Everywhere…") { app.showingSpotlight = true }
                 .keyboardShortcut("o", modifiers: [.shift, .command])
 

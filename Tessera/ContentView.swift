@@ -136,6 +136,9 @@ struct ContentView: View {
         .sheet(isPresented: $app.showingSpotlight) {
             SpotlightView(app: app)
         }
+        .sheet(isPresented: $app.showingCommandPalette) {
+            CommandPalette(app: app)
+        }
         .confirmationDialog("This connection is read-only",
                             isPresented: $app.showingReadOnlyConfirm) {
             Button("Write Anyway", role: .destructive) { app.confirmReadOnlyCommit() }
