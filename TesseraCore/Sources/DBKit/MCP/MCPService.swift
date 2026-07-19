@@ -136,6 +136,29 @@ public struct MCPService: Sendable {
         case "run_query":
             return try await runQuery(arguments)
 
+        case "export_dump":
+            let connection = try string(arguments, "connection")
+            try await requireConnection(connection)
+            // Reading data out is safe for the database, but it writes a file, so the
+            // app still asks. The destination is chosen by the app, not by MCP.
+            return try encodeJSON(await source.exportDump(
+                connection: connection,
+                schemas: stringList(arguments, "schemas"),
+                tables: stringList(arguments, "tables"),
+                structure: arguments["structure"].flatMap(boolValue) ?? true,
+                data: arguments["data"].flatMap(boolValue) ?? true,
+                gzip: arguments["gzip"].flatMap(boolValue) ?? false))
+
+        case "import_dump":
+            let connection = try string(arguments, "connection")
+            let info = try await requireConnection(connection)
+            guard !info.isReadOnly else {
+                throw MCPToolError("“\(connection)” is marked read-only in Tessera, "
+                                   + "so importing is refused.")
+            }
+            return try encodeJSON(await source.importDump(connection: connection,
+                                                          filePath: try string(arguments, "file")))
+
         default:
             throw MCPToolError("Unknown tool: \(tool)")
         }
@@ -172,6 +195,16 @@ public struct MCPService: Sendable {
                                + "is not enabled for it in Tessera.")
         }
         return info
+    }
+
+    private func stringList(_ arguments: [String: JSONValue], _ key: String) -> [String] {
+        guard case .array(let values)? = arguments[key] else { return [] }
+        return values.compactMap(\.stringValue)
+    }
+
+    private func boolValue(_ value: JSONValue) -> Bool? {
+        if case .bool(let flag) = value { return flag }
+        return nil
     }
 
     private func string(_ arguments: [String: JSONValue], _ key: String) throws -> String {

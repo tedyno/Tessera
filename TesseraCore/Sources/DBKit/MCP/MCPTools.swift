@@ -62,6 +62,27 @@ enum MCPTools {
                           "sql": stringSchema("A single SQL statement."),
                           "limit": integerSchema("Maximum rows to return for reads.")],
              required: ["connection", "sql"]),
+
+        tool(name: "export_dump",
+             description: "Dump a connection (optionally limited to schemas or tables) with "
+                        + "pg_dump/mysqldump. The user approves it first, and Tessera chooses the "
+                        + "destination inside their export folder — the path cannot be set here. "
+                        + "Returns the file that was written.",
+             properties: ["connection": stringSchema("Connection name."),
+                          "schemas": arraySchema("Optional schemas to limit the dump to."),
+                          "tables": arraySchema("Optional tables to limit the dump to."),
+                          "structure": booleanSchema("Include CREATE statements (default true)."),
+                          "data": booleanSchema("Include row data (default true)."),
+                          "gzip": booleanSchema("Compress the dump with gzip (default false).")],
+             required: ["connection"]),
+
+        tool(name: "import_dump",
+             description: "Restore a .sql, .sql.gz, or .dump file into a connection. Writes to the "
+                        + "database, so the user approves it first; refused on connections marked "
+                        + "read-only.",
+             properties: ["connection": stringSchema("Connection name."),
+                          "file": stringSchema("Absolute path of the dump file to restore.")],
+             required: ["connection", "file"]),
     ])
 
     // MARK: Schema builders
@@ -85,5 +106,15 @@ enum MCPTools {
 
     private static func integerSchema(_ description: String) -> JSONValue {
         .object(["type": .string("integer"), "description": .string(description)])
+    }
+
+    private static func booleanSchema(_ description: String) -> JSONValue {
+        .object(["type": .string("boolean"), "description": .string(description)])
+    }
+
+    private static func arraySchema(_ description: String) -> JSONValue {
+        .object(["type": .string("array"),
+                 "items": .object(["type": .string("string")]),
+                 "description": .string(description)])
     }
 }

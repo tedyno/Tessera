@@ -33,6 +33,22 @@ private actor FakeSource: MCPDataSource {
         guard approveWrites else { throw MCPToolError("The user declined the write.") }
         return MCPQueryResult(columns: [], rows: [], truncated: false)
     }
+
+    private(set) var exports: [String] = []
+    private(set) var imports: [String] = []
+
+    func exportDump(connection: String, schemas: [String], tables: [String],
+                    structure: Bool, data: Bool, gzip: Bool) async throws -> MCPExportResult {
+        exports.append(connection)
+        guard approveWrites else { throw MCPToolError("The user declined the export.") }
+        return MCPExportResult(path: "/tmp/shop.sql", bytes: 42)
+    }
+
+    func importDump(connection: String, filePath: String) async throws -> MCPImportResult {
+        imports.append(filePath)
+        guard approveWrites else { throw MCPToolError("The user declined the import.") }
+        return MCPImportResult(file: filePath, message: "ok")
+    }
 }
 
 final class MCPServiceTests: XCTestCase {
@@ -154,6 +170,64 @@ final class MCPServiceTests: XCTestCase {
         let (_, isError) = try await call(service, tool: "explain_query",
                                           ["connection": "staging", "sql": "DELETE FROM t"])
         XCTAssertTrue(isError)
+    }
+
+    func testCreateTableGoesThroughApproval() async throws {
+        let source = FakeSource(connections: [writable])
+        let service = MCPService(source: source)
+        _ = try await call(service, tool: "run_query",
+                           ["connection": "staging", "sql": "CREATE TABLE t (a int)"])
+        let writes = await source.writeQueries
+        XCTAssertEqual(writes.count, 1)
+    }
+
+    func testExportGoesThroughApprovalPath() async throws {
+        let source = FakeSource(connections: [writable])
+        let service = MCPService(source: source)
+        let (text, isError) = try await call(service, tool: "export_dump", ["connection": "staging"])
+        XCTAssertFalse(isError)
+        XCTAssertTrue(text.contains("shop.sql"), "unexpected payload: \(text)")
+        let exports = await source.exports
+        XCTAssertEqual(exports, ["staging"])
+    }
+
+    func testExportAllowedOnReadOnlyConnection() async throws {
+        // Exporting only reads from the database, so read-only doesn't block it.
+        let source = FakeSource(connections: [readOnly])
+        let service = MCPService(source: source)
+        let (_, isError) = try await call(service, tool: "export_dump", ["connection": "prod"])
+        XCTAssertFalse(isError)
+    }
+
+    func testImportRefusedOnReadOnlyConnection() async throws {
+        let source = FakeSource(connections: [readOnly])
+        let service = MCPService(source: source)
+        let (text, isError) = try await call(service, tool: "import_dump",
+                                             ["connection": "prod", "file": "/tmp/a.sql"])
+        XCTAssertTrue(isError)
+        XCTAssertTrue(text.contains("read-only"))
+        let imports = await source.imports
+        XCTAssertTrue(imports.isEmpty)   // never even offered for approval
+    }
+
+    func testImportGoesThroughApprovalPath() async throws {
+        let source = FakeSource(connections: [writable])
+        let service = MCPService(source: source)
+        let (_, isError) = try await call(service, tool: "import_dump",
+                                          ["connection": "staging", "file": "/tmp/a.sql"])
+        XCTAssertFalse(isError)
+        let imports = await source.imports
+        XCTAssertEqual(imports, ["/tmp/a.sql"])
+    }
+
+    func testDeclinedImportSurfacesAsError() async throws {
+        let source = FakeSource(connections: [writable])
+        await source.setApproveWrites(false)
+        let service = MCPService(source: source)
+        let (text, isError) = try await call(service, tool: "import_dump",
+                                             ["connection": "staging", "file": "/tmp/a.sql"])
+        XCTAssertTrue(isError)
+        XCTAssertTrue(text.contains("declined"))
     }
 
     func testDeclinedWriteSurfacesAsError() async throws {

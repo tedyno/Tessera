@@ -110,6 +110,26 @@ public struct MCPQueryResult: Codable, Equatable, Sendable {
     }
 }
 
+public struct MCPExportResult: Codable, Equatable, Sendable {
+    public let path: String
+    public let bytes: Int
+
+    public init(path: String, bytes: Int) {
+        self.path = path
+        self.bytes = bytes
+    }
+}
+
+public struct MCPImportResult: Codable, Equatable, Sendable {
+    public let file: String
+    public let message: String
+
+    public init(file: String, message: String) {
+        self.file = file
+        self.message = message
+    }
+}
+
 public struct MCPToolError: Error, Equatable, Sendable {
     public let message: String
     public init(_ message: String) { self.message = message }
@@ -131,4 +151,12 @@ public protocol MCPDataSource: Sendable {
     /// Runs a writing statement — the app must get the user's approval first and
     /// throw if they decline.
     func runWriteQuery(connection: String, sql: String) async throws -> MCPQueryResult
+
+    /// Dumps the connection (or part of it) to a file. The app picks the destination
+    /// inside the user's export folder — MCP never chooses a path on disk — and must
+    /// get approval first.
+    func exportDump(connection: String, schemas: [String], tables: [String],
+                    structure: Bool, data: Bool, gzip: Bool) async throws -> MCPExportResult
+    /// Restores a dump file. The app must show the file and get approval first.
+    func importDump(connection: String, filePath: String) async throws -> MCPImportResult
 }
