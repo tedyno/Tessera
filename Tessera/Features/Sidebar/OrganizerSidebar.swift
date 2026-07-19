@@ -17,6 +17,7 @@ struct OrganizerSidebar: View {
     var onReconnect: (UUID) -> Void = { _ in }
     var onIntrospect: (UUID) -> Void = { _ in }
     var onExport: (UUID) -> Void = { _ in }
+    var onImport: (UUID) -> Void = { _ in }
     var connectionDot: (UUID) -> ConnectionDot = { _ in .none }
     var statusVersion: Int = 0
 
@@ -46,6 +47,7 @@ struct OrganizerSidebar: View {
             onReconnect: onReconnect,
             onIntrospect: onIntrospect,
             onExport: onExport,
+            onImport: onImport,
             connectionDot: connectionDot,
             version: model.stateVersion,
             statusVersion: statusVersion)

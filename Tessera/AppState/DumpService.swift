@@ -11,7 +11,7 @@ final class DumpService {
     /// the first match on `$PATH` and the known install locations.
     func locate(kind: DatabaseKind, override: String?) -> String? {
         if let override, !override.isEmpty, FileManager.default.isExecutableFile(atPath: override) { return override }
-        return candidateBinaries(kind: kind).first
+        return candidateBinaries(named: DumpTool.binaryName(for: kind), engine: kind).first
     }
 
     /// Picks the best binary for a server of `serverMajor`: a valid manual override
@@ -19,8 +19,15 @@ final class DumpService {
     /// matches the server (or the lowest that is ≥ it, since e.g. pg_dump must be at
     /// least as new as the server). Falls back to the newest, then the first found.
     func locateBest(kind: DatabaseKind, serverMajor: Int?, override: String?) async -> String? {
+        await locateBest(named: DumpTool.binaryName(for: kind), engine: kind,
+                         serverMajor: serverMajor, override: override)
+    }
+
+    /// Same version-aware search, for any client binary (pg_dump, psql, pg_restore, mysql…).
+    func locateBest(named name: String, engine: DatabaseKind,
+                    serverMajor: Int?, override: String?) async -> String? {
         if let override, !override.isEmpty, FileManager.default.isExecutableFile(atPath: override) { return override }
-        let candidates = candidateBinaries(kind: kind)
+        let candidates = candidateBinaries(named: name, engine: engine)
         guard candidates.count > 1, let serverMajor else { return candidates.first }
 
         var versioned: [(path: String, major: Int)] = []
@@ -39,8 +46,7 @@ final class DumpService {
 
     /// Every installed copy of the binary: `$PATH`, the known dirs, and versioned
     /// Homebrew formulae (`postgresql@16`, `libpq`, `mysql@8`, …) and Postgres.app.
-    private func candidateBinaries(kind: DatabaseKind) -> [String] {
-        let name = DumpTool.binaryName(for: kind)
+    private func candidateBinaries(named name: String, engine: DatabaseKind) -> [String] {
         let fileManager = FileManager.default
         var paths: [String] = []
         func add(dir: String) {
@@ -55,7 +61,7 @@ final class DumpService {
         (pathDirectories + DumpTool.searchDirectories).forEach { add(dir: $0) }
 
         // Versioned / keg-only Homebrew formulae under opt/.
-        let formulaPrefixes = kind == .postgres ? ["postgresql", "libpq"] : ["mysql"]
+        let formulaPrefixes = engine == .postgres ? ["postgresql", "libpq"] : ["mysql"]
         for optRoot in ["/opt/homebrew/opt", "/usr/local/opt"] {
             guard let entries = try? fileManager.contentsOfDirectory(atPath: optRoot) else { continue }
             for entry in entries where formulaPrefixes.contains(where: { entry.hasPrefix($0) }) {
@@ -63,7 +69,7 @@ final class DumpService {
             }
         }
         // Postgres.app bundles one bin dir per major version.
-        if kind == .postgres {
+        if engine == .postgres {
             let versionsRoot = "/Applications/Postgres.app/Contents/Versions"
             if let versions = try? fileManager.contentsOfDirectory(atPath: versionsRoot) {
                 for version in versions {
@@ -153,6 +159,81 @@ final class DumpService {
                         ? "Exit code \(dumpProcess.terminationStatus == 0 ? gzipStatus : dumpProcess.terminationStatus)"
                         : stderr
                     continuation.resume(returning: DumpResult(success: false, message: message))
+                }
+            }
+        }
+    }
+
+    /// Restores a dump. Plain files are handed to the tool (psql `-f`, pg_restore) or
+    /// piped on stdin (mysql); gzipped files stream through `gzip -dc`.
+    func restore(engine: DatabaseKind, binaryPath: String, host: String, port: Int, user: String,
+                 database: String, password: String?, input: RestoreInput, fileURL: URL,
+                 options: RestoreOptions) async -> DumpResult {
+        let arguments = RestoreTool.arguments(engine: engine, host: host, port: port, user: user,
+                                              database: database, input: input,
+                                              filePath: fileURL.path, options: options)
+        let extraEnvironment = RestoreTool.environment(engine: engine, password: password)
+        // psql/pg_restore open the file themselves; everything else reads stdin.
+        let toolOpensFile = engine == .postgres && !input.readsStandardInput
+
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let restoreProcess = Process()
+                restoreProcess.executableURL = URL(fileURLWithPath: binaryPath)
+                restoreProcess.arguments = arguments
+                var environment = ProcessInfo.processInfo.environment
+                for (key, value) in extraEnvironment { environment[key] = value }
+                restoreProcess.environment = environment
+
+                let errorPipe = Pipe()
+                restoreProcess.standardError = errorPipe
+                let outputPipe = Pipe()
+                restoreProcess.standardOutput = outputPipe
+
+                var gunzipProcess: Process?
+                var gunzipPipe: Pipe?
+                if !toolOpensFile {
+                    if input == .gzippedSQL {
+                        // gzip -dc file | tool
+                        let pipe = Pipe()
+                        gunzipPipe = pipe
+                        let gunzip = Process()
+                        gunzip.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+                        gunzip.arguments = ["-dc", fileURL.path]
+                        gunzip.standardOutput = pipe
+                        restoreProcess.standardInput = pipe
+                        gunzipProcess = gunzip
+                    } else if let handle = try? FileHandle(forReadingFrom: fileURL) {
+                        restoreProcess.standardInput = handle
+                    } else {
+                        continuation.resume(returning: DumpResult(
+                            success: false, message: "Cannot read \(fileURL.path)"))
+                        return
+                    }
+                }
+
+                do {
+                    try gunzipProcess?.run()
+                    try restoreProcess.run()
+                } catch {
+                    continuation.resume(returning: DumpResult(
+                        success: false, message: String(describing: error)))
+                    return
+                }
+                try? gunzipPipe?.fileHandleForWriting.close()
+
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                _ = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                restoreProcess.waitUntilExit()
+                gunzipProcess?.waitUntilExit()
+
+                let stderr = String(data: errorData, encoding: .utf8) ?? ""
+                if restoreProcess.terminationStatus == 0 {
+                    continuation.resume(returning: DumpResult(success: true, message: stderr))
+                } else {
+                    continuation.resume(returning: DumpResult(
+                        success: false,
+                        message: stderr.isEmpty ? "Exit code \(restoreProcess.terminationStatus)" : stderr))
                 }
             }
         }

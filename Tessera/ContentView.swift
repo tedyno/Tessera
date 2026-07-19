@@ -21,6 +21,7 @@ struct ContentView: View {
                     onReconnect: { app.reconnect(profileID: $0) },
                     onIntrospect: { app.introspect(profileID: $0) },
                     onExport: { app.exportConnection(profileID: $0) },
+                    onImport: { app.importConnection(profileID: $0) },
                     connectionDot: { app.connectionDot(profileID: $0) },
                     statusVersion: app.sessionStatusVersion)
                 .frame(minHeight: 80, idealHeight: geo.size.height / 2, maxHeight: .infinity)
@@ -100,6 +101,16 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) { app.cancelDestructiveRun() }
         } message: {
             Text(app.destructiveSummary)
+        }
+        .sheet(item: $app.importTarget) { target in
+            if let context = app.importContext(for: target) {
+                ImportView(context: context, service: app.dumpService) { app.importTarget = nil }
+            } else {
+                VStack(spacing: 12) {
+                    Text("Cannot import into this connection.")
+                    Button("Close") { app.importTarget = nil }
+                }.padding(30)
+            }
         }
         .sheet(item: $app.exportTarget) { target in
             if let context = app.exportContext(for: target) {

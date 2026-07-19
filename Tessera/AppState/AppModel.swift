@@ -376,6 +376,16 @@ final class AppModel {
 
     let dumpService = DumpService()
     var exportTarget: ExportTarget?
+    var importTarget: ImportTarget?
+
+    func importConnection(profileID: UUID) {
+        importTarget = ImportTarget(profileID: profileID)
+    }
+
+    /// Import reuses the same resolved connection details as export.
+    func importContext(for target: ImportTarget) -> ExportContext? {
+        exportContext(for: ExportTarget(profileID: target.profileID))
+    }
 
     /// Whole database — from the connection's Export… or the database node.
     func exportConnection(profileID: UUID) {
