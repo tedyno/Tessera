@@ -603,6 +603,13 @@ final class QueryConsoleModel {
 
     // MARK: History
 
+    /// Empties the query history (and its on-disk store).
+    func clearHistory() {
+        history = []
+        let store = historyStore
+        Task.detached { store.save([]) }
+    }
+
     private func recordHistory(sql: String, connectionName: String, rowCount: Int, elapsedMS: Int?) {
         let entry = QueryHistoryEntry(
             sql: sql, connectionName: connectionName, timestamp: Date(),

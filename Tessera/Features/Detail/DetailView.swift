@@ -12,6 +12,8 @@ struct DetailView: View {
     var isReadOnly: Bool = false
     var onRun: () -> Void
     var onExportResult: (ResultExport.Format) -> Void = { _ in }
+    /// Runs a specific SQL string (used by "Run" in the history sheet).
+    var onRunSQL: (String) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,10 +38,18 @@ struct DetailView: View {
             statusBar
         }
         .sheet(isPresented: $showingHistory) {
-            HistoryView(history: model.history) { sql in
-                model.loadIntoActiveTab(sql)
-                showingHistory = false
-            }
+            HistoryView(
+                history: model.history,
+                onPick: { sql in
+                    model.loadIntoActiveTab(sql)
+                    showingHistory = false
+                },
+                onRun: { sql in
+                    model.loadIntoActiveTab(sql)
+                    showingHistory = false
+                    onRunSQL(sql)
+                },
+                onClear: { model.clearHistory() })
         }
     }
 

@@ -65,7 +65,8 @@ struct ContentView: View {
                        cursor: cursorBinding,
                        isReadOnly: app.currentIsReadOnly,
                        onRun: { app.runActiveQuery() },
-                       onExportResult: { app.exportResult(format: $0) })
+                       onExportResult: { app.exportResult(format: $0) },
+                       onRunSQL: { app.runResolved($0) })
         }
         .task {
             if app.selection == nil { app.selection = app.connections.firstConnectionNodeID }
