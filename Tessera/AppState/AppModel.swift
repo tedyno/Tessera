@@ -228,7 +228,9 @@ final class AppModel {
     func focusEditor() { editorFocusRequests += 1 }
 
     func toggleSidebar() {
-        withAnimation { columnVisibility = columnVisibility == .all ? .doubleColumn : .all }
+        withAnimation(.easeOut(duration: 0.16)) {
+            columnVisibility = columnVisibility == .all ? .doubleColumn : .all
+        }
     }
 
     var currentHiddenSchemas: Set<String> {
