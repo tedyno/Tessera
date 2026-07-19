@@ -106,6 +106,15 @@ struct DetailView: View {
             .controlSize(.small)
             .disabled(!(model.activeTab?.isRunning ?? false))
 
+            if model.activeTab?.isEditable == true {
+                Button {
+                    if let tab = model.activeTab { model.addInsertRow(tab) }
+                } label: {
+                    Label("Add Row", systemImage: "plus.rectangle")
+                }
+                .controlSize(.small)
+            }
+
             if let ms = model.activeTab?.elapsedMS, model.activeTab?.isRunning == false {
                 Text("\(ms) ms").font(.caption).foregroundStyle(.secondary)
             }
@@ -163,18 +172,40 @@ struct DetailView: View {
 
     @ViewBuilder
     private var resultsArea: some View {
-        if let message = model.activeTab?.errorMessage {
+        if let tab = model.activeTab, tab.result != nil {
+            // A failed re-run keeps the previous result (and its selection) visible;
+            // the error shows as a banner above the grid.
+            VStack(spacing: 0) {
+                if let message = tab.errorMessage {
+                    errorBanner(message)
+                    Divider()
+                }
+                ResultsTableView(tab: tab)
+            }
+        } else if let message = model.activeTab?.errorMessage {
             ContentUnavailableView {
                 Label("Query failed", systemImage: "exclamationmark.triangle")
             } description: {
-                Text(message).font(.callout.monospaced())
+                Text(message).font(.callout.monospaced()).textSelection(.enabled)
             }
-        } else if let tab = model.activeTab, tab.result != nil {
-            ResultsTableView(tab: tab)
         } else {
             ContentUnavailableView("No results", systemImage: "tablecells",
                                    description: Text("Press Run to execute the query."))
         }
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(message).font(.callout.monospaced()).textSelection(.enabled)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.red.opacity(0.12))
     }
 
     private var statusBar: some View {

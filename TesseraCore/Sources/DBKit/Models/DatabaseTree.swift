@@ -7,16 +7,21 @@ public struct SchemaColumn: Sendable, Hashable, Identifiable {
     public var isPrimaryKey: Bool
     public var isForeignKey: Bool
     public var isNullable: Bool
+    /// True for serial/identity (Postgres) or AUTO_INCREMENT (MySQL) columns —
+    /// the database supplies the value, so inserts should omit it.
+    public var isAutoIncrement: Bool
 
     public var id: String { name }
 
     public init(name: String, dataType: String, isPrimaryKey: Bool = false,
-                isForeignKey: Bool = false, isNullable: Bool = true) {
+                isForeignKey: Bool = false, isNullable: Bool = true,
+                isAutoIncrement: Bool = false) {
         self.name = name
         self.dataType = dataType
         self.isPrimaryKey = isPrimaryKey
         self.isForeignKey = isForeignKey
         self.isNullable = isNullable
+        self.isAutoIncrement = isAutoIncrement
     }
 }
 

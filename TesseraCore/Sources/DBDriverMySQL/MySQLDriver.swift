@@ -98,7 +98,7 @@ public actor MySQLDriver: DatabaseDriver {
             WHERE table_schema = DATABASE() ORDER BY table_name
             """)
         let columns = try await execute("""
-            SELECT table_name, column_name, data_type, is_nullable, column_key
+            SELECT table_name, column_name, data_type, is_nullable, column_key, extra
             FROM information_schema.columns
             WHERE table_schema = DATABASE()
             ORDER BY table_name, ordinal_position
@@ -120,7 +120,7 @@ public actor MySQLDriver: DatabaseDriver {
         }
 
         var columnsByTable: [String: [SchemaColumn]] = [:]
-        for row in columns.rows where row.count >= 5 {
+        for row in columns.rows where row.count >= 6 {
             let table = row[0].text ?? ""
             let name = row[1].text ?? ""
             columnsByTable[table, default: []].append(
@@ -129,7 +129,8 @@ public actor MySQLDriver: DatabaseDriver {
                     dataType: row[2].text ?? "",
                     isPrimaryKey: (row[4].text ?? "") == "PRI",
                     isForeignKey: foreignKeys.contains("\(table).\(name)"),
-                    isNullable: (row[3].text ?? "YES") == "YES"))
+                    isNullable: (row[3].text ?? "YES") == "YES",
+                    isAutoIncrement: (row[5].text ?? "").lowercased().contains("auto_increment")))
         }
 
         // Aggregate index columns (ordered by seq_in_index) per (table, index).

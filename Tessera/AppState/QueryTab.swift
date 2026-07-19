@@ -6,6 +6,16 @@ struct EditSource: Equatable {
     var schema: String
     var table: String
     var primaryKeys: [String]
+    /// Columns the database fills itself (serial/identity/AUTO_INCREMENT); inserts
+    /// omit them and the grid shows a "(generated)" placeholder.
+    var autoIncrementColumns: [String]
+}
+
+/// A new row queued for insertion. `values` holds only the columns the user set;
+/// unset (and auto-increment) columns are left to the database.
+struct PendingInsert: Identifiable, Equatable {
+    let id = UUID()
+    var values: [String: String] = [:]
 }
 
 /// One query tab: its own editor text and result, sharing the connection's driver.
@@ -26,8 +36,10 @@ final class QueryTab: Identifiable {
     var edits: [Int: [String: String]] = [:]
     /// Row indices marked for deletion (Backspace on a selected row).
     var pendingDeletes: Set<Int> = []
+    /// New rows queued for insertion, rendered below the fetched rows.
+    var pendingInserts: [PendingInsert] = []
 
-    var hasEdits: Bool { !edits.isEmpty || !pendingDeletes.isEmpty }
+    var hasEdits: Bool { !edits.isEmpty || !pendingDeletes.isEmpty || !pendingInserts.isEmpty }
     var isEditable: Bool { editSource != nil }
 
     /// Caret offset in the editor, used to run the statement under the cursor.

@@ -144,6 +144,7 @@ final class QueryConsoleModel {
             tab.result = result
             tab.edits = [:]
             tab.pendingDeletes = []
+            tab.pendingInserts = []
             tab.editSource = detectEditSource(sql: sql, columns: result.columns)
             let ms = result.elapsed.map(Self.milliseconds)
             tab.elapsedMS = ms
@@ -168,6 +169,7 @@ final class QueryConsoleModel {
             }
             tab.edits = [:]
             tab.pendingDeletes = []
+            tab.pendingInserts = []
             await run(tab, sqlToRun: tab.sql)
         } catch {
             tab.errorMessage = Self.message(for: error)
@@ -179,9 +181,20 @@ final class QueryConsoleModel {
 
     private func detectEditSource(sql: String, columns: [ColumnDescriptor]) -> EditSource? {
         let upper = sql.uppercased()
-        // Any JOIN (even on a new line) means the result spans multiple tables — not editable.
+        // Only a plain full-table view is editable. A JOIN, aggregation, DISTINCT,
+        // or UNION makes a custom result whose rows don't map 1:1 to table rows.
         guard upper.contains("SELECT"),
-              sql.range(of: #"(?i)\bjoin\b"#, options: .regularExpression) == nil else { return nil }
+              sql.range(of: #"(?i)\b(join|group\s+by|having|distinct|union)\b"#,
+                        options: .regularExpression) == nil else { return nil }
+        // The projection must be a star ("SELECT *" or "SELECT alias.*") — a custom
+        // column list or expressions (e.g. count(*), a+b) can't be written back.
+        guard let selectRange = sql.range(of: #"(?i)\bselect\b"#, options: .regularExpression),
+              let fromKeyword = sql.range(of: #"(?i)\bfrom\b"#, options: .regularExpression),
+              selectRange.upperBound <= fromKeyword.lowerBound else { return nil }
+        let projection = sql[selectRange.upperBound..<fromKeyword.lowerBound]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard projection == "*" || projection.range(of: #"^[`"\w]+\.\*$"#, options: .regularExpression) != nil
+        else { return nil }
         guard let range = sql.range(of: #"(?i)\bfrom\s+([`"\w\.]+)"#, options: .regularExpression) else { return nil }
         let raw = sql[range].split(whereSeparator: { " \n\t".contains($0) }).last.map(String.init) ?? ""
         let cleaned = raw.replacingOccurrences(of: "`", with: "").replacingOccurrences(of: "\"", with: "")
@@ -200,15 +213,24 @@ final class QueryConsoleModel {
         }
         guard let found else { return nil }
         let primaryKeys = found.columns.filter(\.isPrimaryKey).map(\.name)
+        let autoIncrement = found.columns.filter(\.isAutoIncrement).map(\.name)
         let resultColumns = Set(columns.map(\.name))
         if !primaryKeys.isEmpty {
             // A PK exists but isn't in the result → can't target rows reliably.
             guard primaryKeys.allSatisfy(resultColumns.contains) else { return nil }
-            return EditSource(schema: found.namespace, table: found.table, primaryKeys: primaryKeys)
+            return EditSource(schema: found.namespace, table: found.table,
+                              primaryKeys: primaryKeys, autoIncrementColumns: autoIncrement)
         }
         // No primary key → fall back to matching all selected columns (may affect
         // duplicate rows).
-        return EditSource(schema: found.namespace, table: found.table, primaryKeys: [])
+        return EditSource(schema: found.namespace, table: found.table,
+                          primaryKeys: [], autoIncrementColumns: autoIncrement)
+    }
+
+    /// Appends a blank row queued for insertion (from the grid's "Add Row").
+    func addInsertRow(_ tab: QueryTab) {
+        guard tab.isEditable else { return }
+        tab.pendingInserts.append(PendingInsert())
     }
 
     /// The UPDATE/DELETE statements that ⌘↩ would run for the tab's pending changes.
@@ -236,9 +258,27 @@ final class QueryConsoleModel {
         }
         for group in groups.values.sorted(by: { ($0.rows.min() ?? 0) < ($1.rows.min() ?? 0) }) {
             let setClause = group.changes.sorted { $0.key < $1.key }
-                .map { "\(quote($0.key)) = \(Self.literal($0.value))" }.joined(separator: ", ")
+                .map { "\(quote($0.key)) = \(literal($0.value, columnName: $0.key, result: result))" }
+                .joined(separator: ", ")
             for clause in whereClauses(rows: group.rows.sorted(), keyColumns: keyColumns, result: result) {
                 statements.append("UPDATE \(table) SET \(setClause) WHERE \(clause);")
+            }
+        }
+
+        // INSERTs — auto-increment columns are always omitted (the DB fills them),
+        // as are columns the user never set (their defaults apply).
+        let autoInc = Set(source.autoIncrementColumns)
+        for insert in tab.pendingInserts {
+            let cols = result.columns.map(\.name).filter { !autoInc.contains($0) && insert.values[$0] != nil }
+            if cols.isEmpty {
+                statements.append(engine == .mysql
+                    ? "INSERT INTO \(table) () VALUES ();"
+                    : "INSERT INTO \(table) DEFAULT VALUES;")
+            } else {
+                let colList = cols.map { quote($0) }.joined(separator: ", ")
+                let valList = cols.map { literal(insert.values[$0]!, columnName: $0, result: result) }
+                    .joined(separator: ", ")
+                statements.append("INSERT INTO \(table) (\(colList)) VALUES (\(valList));")
             }
         }
         return statements
@@ -252,7 +292,7 @@ final class QueryConsoleModel {
             let values = rows.compactMap { row -> String? in
                 guard row < result.rows.count, index < result.rows[row].count,
                       let text = result.rows[row][index].text else { return nil }
-                return Self.literal(text)
+                return literal(text, columnName: name, result: result)
             }
             if values.count == rows.count, !values.isEmpty {
                 return ["\(quote(name)) IN (\(values.joined(separator: ", ")))"]
@@ -266,12 +306,39 @@ final class QueryConsoleModel {
             guard let index = result.columns.firstIndex(where: { $0.name == name }),
                   row < result.rows.count, index < result.rows[row].count else { return nil }
             let text = result.rows[row][index].text
-            return text == nil ? "\(quote(name)) IS NULL" : "\(quote(name)) = \(Self.literal(text!))"
+            return text == nil ? "\(quote(name)) IS NULL"
+                               : "\(quote(name)) = \(literal(text!, columnName: name, result: result))"
         }.joined(separator: " AND ")
+    }
+
+    /// A SQL literal for `value`, unquoted for numeric columns (so `id = 3`, not
+    /// `id = '3'`) when the text is actually a number, quoted and escaped otherwise.
+    private func literal(_ value: String, columnName: String, result: QueryResult) -> String {
+        if let column = result.columns.first(where: { $0.name == columnName }),
+           Self.isNumericType(column.typeName), Self.looksNumeric(value) {
+            return value
+        }
+        return Self.literal(value)
     }
 
     private static func literal(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
+    }
+
+    private static func isNumericType(_ typeName: String) -> Bool {
+        let names: Set<String> = [
+            // Postgres (PostgresDataType descriptions)
+            "SMALLINT", "INTEGER", "BIGINT", "REAL", "DOUBLE PRECISION", "NUMERIC", "DECIMAL", "OID",
+            // MySQL (MySQLProtocol.DataType descriptions)
+            "MYSQL_TYPE_TINY", "MYSQL_TYPE_SHORT", "MYSQL_TYPE_LONG", "MYSQL_TYPE_INT24",
+            "MYSQL_TYPE_LONGLONG", "MYSQL_TYPE_FLOAT", "MYSQL_TYPE_DOUBLE",
+            "MYSQL_TYPE_DECIMAL", "MYSQL_TYPE_NEWDECIMAL", "MYSQL_TYPE_YEAR",
+        ]
+        return names.contains(typeName.uppercased())
+    }
+
+    private static func looksNumeric(_ text: String) -> Bool {
+        text.range(of: #"^-?\d+(\.\d+)?([eE][+-]?\d+)?$"#, options: .regularExpression) != nil
     }
 
     /// Puts `SELECT *` into the active tab and runs it (from a schema double-click).

@@ -69,8 +69,23 @@ public actor PostgresDriver: DatabaseDriver {
         } catch is CancellationError {
             throw DatabaseError.cancelled
         } catch {
-            throw DatabaseError.queryFailed(String(describing: error))
+            throw DatabaseError.queryFailed(Self.queryErrorMessage(error))
         }
+    }
+
+    /// PostgresNIO's `PSQLError.description` is deliberately generic (to avoid
+    /// leaking data in logs). Pull the real server message/detail/hint out of it.
+    private static func queryErrorMessage(_ error: Error) -> String {
+        guard let psql = error as? PSQLError, let info = psql.serverInfo else {
+            return String(describing: error)
+        }
+        var line = ""
+        if let severity = info[.localizedSeverity] { line += "\(severity): " }
+        line += info[.message] ?? "query failed"
+        if let detail = info[.detail] { line += "\nDETAIL: \(detail)" }
+        if let hint = info[.hint] { line += "\nHINT: \(hint)" }
+        if let state = info[.sqlState] { line += "\n(SQLSTATE \(state))" }
+        return line
     }
 
     public func serverVersion() async throws -> String {
@@ -89,7 +104,8 @@ public actor PostgresDriver: DatabaseDriver {
             ORDER BY table_schema, table_name
             """)
         let columnsResult = try await execute("""
-            SELECT table_schema, table_name, column_name, data_type, is_nullable
+            SELECT table_schema, table_name, column_name, data_type, is_nullable,
+                   column_default, is_identity
             FROM information_schema.columns
             WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
             ORDER BY table_schema, table_name, ordinal_position
@@ -119,18 +135,21 @@ public actor PostgresDriver: DatabaseDriver {
 
         struct TableKey: Hashable { let schema: String; let table: String }
         var columnsByTable: [TableKey: [SchemaColumn]] = [:]
-        for row in columnsResult.rows where row.count >= 5 {
+        for row in columnsResult.rows where row.count >= 7 {
             let schema = row[0].text ?? ""
             let table = row[1].text ?? ""
             let name = row[2].text ?? ""
             let key = TableKey(schema: schema, table: table)
+            let hasSerialDefault = (row[5].text ?? "").hasPrefix("nextval(")
+            let isIdentity = (row[6].text ?? "NO") == "YES"
             columnsByTable[key, default: []].append(
                 SchemaColumn(
                     name: name,
                     dataType: row[3].text ?? "",
                     isPrimaryKey: primaryKeys.contains("\(schema).\(table).\(name)"),
                     isForeignKey: foreignKeys.contains("\(schema).\(table).\(name)"),
-                    isNullable: (row[4].text ?? "YES") == "YES"))
+                    isNullable: (row[4].text ?? "YES") == "YES",
+                    isAutoIncrement: hasSerialDefault || isIdentity))
         }
 
         var indexesByTable: [TableKey: [SchemaIndex]] = [:]
