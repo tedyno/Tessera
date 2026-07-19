@@ -320,16 +320,17 @@ final class AppModel {
     let dumpService = DumpService()
     var exportTarget: ExportTarget?
 
+    /// Whole database — from the connection's Export… or the database node.
     func exportConnection(profileID: UUID) {
-        exportTarget = ExportTarget(profileID: profileID, scope: .database)
+        exportTarget = ExportTarget(profileID: profileID)
     }
 
     func exportSchema(profileID: UUID, schema: String) {
-        exportTarget = ExportTarget(profileID: profileID, scope: .schema(schema))
+        exportTarget = ExportTarget(profileID: profileID, schemas: [schema])
     }
 
     func exportTable(profileID: UUID, schema: String, table: String) {
-        exportTarget = ExportTarget(profileID: profileID, scope: .tables(schema: schema, tables: [table]))
+        exportTarget = ExportTarget(profileID: profileID, schemas: [schema], tables: [table])
     }
 
     /// Everything the export sheet needs, resolved from the live session when possible
@@ -346,7 +347,8 @@ final class AppModel {
             database: session?.database ?? profile.database,
             password: (try? connections.loadSecrets(for: profile))?.databasePassword,
             serverVersion: session?.serverVersion,
-            scope: target.scope)
+            schemas: target.schemas,
+            tables: target.tables)
     }
 
     func newConnection() {

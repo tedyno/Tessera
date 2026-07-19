@@ -82,19 +82,80 @@ final class DumpService {
 
     struct DumpResult: Sendable { let success: Bool; let message: String }
 
-    /// Streams a dump to `outputURL`; returns success plus any stderr on failure.
+    /// Streams a dump to `outputURL`, optionally piped through gzip. Returns success
+    /// plus any stderr on failure.
     func dump(kind: DatabaseKind, binaryPath: String, host: String, port: Int, user: String,
               database: String, password: String?, options: DumpOptions, outputURL: URL) async -> DumpResult {
         let arguments = DumpTool.arguments(kind: kind, host: host, port: port, user: user,
                                            database: database, options: options)
-        let environment = DumpTool.environment(kind: kind, password: password)
-        let result = await run(binaryPath: binaryPath, arguments: arguments,
-                               environment: environment, output: outputURL)
-        if result.exitCode == 0 {
-            return DumpResult(success: true, message: result.stderr ?? "")
+        let extraEnvironment = DumpTool.environment(kind: kind, password: password)
+        let useGzip = options.gzip
+
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let dumpProcess = Process()
+                dumpProcess.executableURL = URL(fileURLWithPath: binaryPath)
+                dumpProcess.arguments = arguments
+                var environment = ProcessInfo.processInfo.environment
+                for (key, value) in extraEnvironment { environment[key] = value }
+                dumpProcess.environment = environment
+
+                let errorPipe = Pipe()
+                dumpProcess.standardError = errorPipe
+
+                FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+                guard let outputHandle = try? FileHandle(forWritingTo: outputURL) else {
+                    continuation.resume(returning: DumpResult(
+                        success: false, message: "Cannot write to \(outputURL.path)"))
+                    return
+                }
+
+                // Optionally: dump | gzip -c > file.gz
+                var gzipProcess: Process?
+                var gzipPipe: Pipe?
+                if useGzip {
+                    let pipe = Pipe()
+                    gzipPipe = pipe
+                    dumpProcess.standardOutput = pipe
+                    let gzip = Process()
+                    gzip.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+                    gzip.arguments = ["-c"]
+                    gzip.standardInput = pipe
+                    gzip.standardOutput = outputHandle
+                    gzipProcess = gzip
+                } else {
+                    dumpProcess.standardOutput = outputHandle
+                }
+
+                do {
+                    try gzipProcess?.run()
+                    try dumpProcess.run()
+                } catch {
+                    try? outputHandle.close()
+                    continuation.resume(returning: DumpResult(
+                        success: false, message: String(describing: error)))
+                    return
+                }
+                // Drop our copy of the write end so gzip sees EOF when the dump ends.
+                try? gzipPipe?.fileHandleForWriting.close()
+
+                let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                dumpProcess.waitUntilExit()
+                gzipProcess?.waitUntilExit()
+                try? outputHandle.close()
+
+                let stderr = String(data: errorData, encoding: .utf8) ?? ""
+                let gzipStatus = gzipProcess?.terminationStatus ?? 0
+                if dumpProcess.terminationStatus == 0, gzipStatus == 0 {
+                    continuation.resume(returning: DumpResult(success: true, message: stderr))
+                } else {
+                    let message = stderr.isEmpty
+                        ? "Exit code \(dumpProcess.terminationStatus == 0 ? gzipStatus : dumpProcess.terminationStatus)"
+                        : stderr
+                    continuation.resume(returning: DumpResult(success: false, message: message))
+                }
+            }
         }
-        let message = (result.stderr?.isEmpty == false) ? result.stderr! : "Exit code \(result.exitCode)"
-        return DumpResult(success: false, message: message)
     }
 
     // MARK: - Process runner

@@ -28,36 +28,54 @@ final class DumpToolTests: XCTestCase {
         let args = DumpTool.arguments(kind: .postgres, host: "localhost", port: 5432, user: "me",
                                       database: "shop", options: DumpOptions())
         XCTAssertEqual(args, ["--host=localhost", "--port=5432", "--username=me",
-                              "--no-password", "--no-owner", "shop"])
+                              "--no-password", "--no-owner", "--format=plain", "shop"])
     }
 
-    func testPostgresSchemaOnlyAndScope() {
-        let structure = DumpTool.arguments(kind: .postgres, host: "h", port: 5432, user: "u",
-                                           database: "db",
-                                           options: DumpOptions(scope: .schema("public"),
-                                                                includeStructure: true, includeData: false))
-        XCTAssertTrue(structure.contains("--schema-only"))
-        XCTAssertTrue(structure.contains("--schema=public"))
-        XCTAssertFalse(structure.contains("--data-only"))
+    func testPostgresOptions() {
+        let options = DumpOptions(schemas: ["public"], includeStructure: true, includeData: false,
+                                  dropBeforeCreate: true, dropIfExists: true, createDatabase: true,
+                                  useInsertStatements: true)
+        let args = DumpTool.arguments(kind: .postgres, host: "h", port: 5432, user: "u",
+                                      database: "db", options: options)
+        XCTAssertTrue(args.contains("--schema-only"))
+        XCTAssertTrue(args.contains("--schema=public"))
+        XCTAssertTrue(args.contains("--clean"))
+        XCTAssertTrue(args.contains("--if-exists"))
+        XCTAssertTrue(args.contains("--create"))
+        XCTAssertTrue(args.contains("--inserts"))
     }
 
-    func testPostgresSelectedTables() {
-        let args = DumpTool.arguments(kind: .postgres, host: "h", port: 5432, user: "u", database: "db",
-                                      options: DumpOptions(scope: .tables(schema: "public",
-                                                                          tables: ["orders", "customers"])))
+    func testPostgresTableQualifiedWithSingleSchema() {
+        let options = DumpOptions(schemas: ["public"], tables: ["orders"])
+        let args = DumpTool.arguments(kind: .postgres, host: "h", port: 5432, user: "u", database: "db", options: options)
         XCTAssertTrue(args.contains("--table=public.orders"))
-        XCTAssertTrue(args.contains("--table=public.customers"))
     }
 
-    func testMySQLDataOnlyAndTables() {
-        let dataOnly = DumpTool.arguments(kind: .mysql, host: "h", port: 3306, user: "u", database: "shop",
-                                          options: DumpOptions(includeStructure: false, includeData: true))
-        XCTAssertTrue(dataOnly.contains("--no-create-info"))
-        XCTAssertTrue(dataOnly.contains("shop"))
+    func testPostgresCustomFormat() {
+        let options = DumpOptions(format: .custom)
+        let args = DumpTool.arguments(kind: .postgres, host: "h", port: 5432, user: "u", database: "db", options: options)
+        XCTAssertTrue(args.contains("--format=custom"))
+    }
 
+    func testMySQLOptions() {
+        let options = DumpOptions(includeStructure: false, includeData: true,
+                                  dropBeforeCreate: true, useInsertStatements: true)
+        let args = DumpTool.arguments(kind: .mysql, host: "h", port: 3306, user: "u", database: "shop", options: options)
+        XCTAssertTrue(args.contains("--no-create-info"))
+        XCTAssertTrue(args.contains("--add-drop-table"))
+        XCTAssertTrue(args.contains("--complete-insert"))
+        XCTAssertTrue(args.contains("--skip-extended-insert"))
+        XCTAssertTrue(args.contains("shop"))
+    }
+
+    func testMySQLTablesAndCreateDatabase() {
         let tables = DumpTool.arguments(kind: .mysql, host: "h", port: 3306, user: "u", database: "shop",
-                                        options: DumpOptions(scope: .tables(schema: "shop", tables: ["orders"])))
+                                        options: DumpOptions(tables: ["orders"]))
         XCTAssertEqual(tables.last, "orders")
-        XCTAssertTrue(tables.contains("shop"))
+
+        let createDb = DumpTool.arguments(kind: .mysql, host: "h", port: 3306, user: "u", database: "shop",
+                                          options: DumpOptions(createDatabase: true))
+        XCTAssertTrue(createDb.contains("--databases"))
+        XCTAssertEqual(createDb.last, "shop")
     }
 }

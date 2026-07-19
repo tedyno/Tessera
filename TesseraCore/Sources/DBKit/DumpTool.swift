@@ -1,21 +1,42 @@
 import Foundation
 
-/// What part of a table/database to dump.
+/// What and how to dump. `schemas`/`tables` empty means the whole database.
 public struct DumpOptions: Sendable, Equatable {
-    public enum Scope: Sendable, Equatable {
-        case database
-        case schema(String)
-        case tables(schema: String, tables: [String])
-    }
+    /// pg_dump output format; MySQL is always plain SQL.
+    public enum Format: String, Sendable, Equatable { case plain, custom }
 
-    public var scope: Scope
+    public var schemas: [String]
+    public var tables: [String]
     public var includeStructure: Bool
     public var includeData: Bool
+    /// Emit DROP before CREATE (pg `--clean` / mysql `--add-drop-table`).
+    public var dropBeforeCreate: Bool
+    /// Make the drops `IF EXISTS` (pg `--if-exists`; implicit on MySQL).
+    public var dropIfExists: Bool
+    /// Include CREATE DATABASE (pg `--create` / mysql `--databases`).
+    public var createDatabase: Bool
+    /// Portable `INSERT` statements instead of COPY / extended inserts.
+    public var useInsertStatements: Bool
+    /// pg_dump format (plain SQL, or custom for pg_restore).
+    public var format: Format
+    /// Pipe the output through gzip (`.gz`). Not used with the custom format.
+    public var gzip: Bool
 
-    public init(scope: Scope = .database, includeStructure: Bool = true, includeData: Bool = true) {
-        self.scope = scope
+    public init(schemas: [String] = [], tables: [String] = [],
+                includeStructure: Bool = true, includeData: Bool = true,
+                dropBeforeCreate: Bool = false, dropIfExists: Bool = false,
+                createDatabase: Bool = false, useInsertStatements: Bool = false,
+                format: Format = .plain, gzip: Bool = false) {
+        self.schemas = schemas
+        self.tables = tables
         self.includeStructure = includeStructure
         self.includeData = includeData
+        self.dropBeforeCreate = dropBeforeCreate
+        self.dropIfExists = dropIfExists
+        self.createDatabase = createDatabase
+        self.useInsertStatements = useInsertStatements
+        self.format = format
+        self.gzip = gzip
     }
 }
 
@@ -95,15 +116,20 @@ public enum DumpTool {
     private static func postgresArguments(host: String, port: Int, user: String,
                                           database: String, options: DumpOptions) -> [String] {
         var args = ["--host=\(host)", "--port=\(port)", "--username=\(user)", "--no-password", "--no-owner"]
+        args.append(options.format == .custom ? "--format=custom" : "--format=plain")
         if options.includeStructure && !options.includeData { args.append("--schema-only") }
         if options.includeData && !options.includeStructure { args.append("--data-only") }
-        switch options.scope {
-        case .database:
-            break
-        case .schema(let schema):
-            args.append("--schema=\(schema)")
-        case .tables(let schema, let tables):
-            for table in tables { args.append("--table=\(schema).\(table)") }
+        if options.dropBeforeCreate {
+            args.append("--clean")
+            if options.dropIfExists { args.append("--if-exists") }
+        }
+        if options.createDatabase { args.append("--create") }
+        if options.useInsertStatements { args.append("--inserts") }
+        for schema in options.schemas where !schema.isEmpty { args.append("--schema=\(schema)") }
+        for table in options.tables where !table.isEmpty {
+            let qualified = table.contains(".") ? table
+                : (options.schemas.count == 1 ? "\(options.schemas[0]).\(table)" : table)
+            args.append("--table=\(qualified)")
         }
         args.append(database)
         return args
@@ -114,9 +140,22 @@ public enum DumpTool {
         var args = ["--host=\(host)", "--port=\(port)", "--user=\(user)"]
         if options.includeStructure && !options.includeData { args.append("--no-data") }
         if options.includeData && !options.includeStructure { args.append("--no-create-info") }
-        args.append(database)
-        // For MySQL, schema == database; a schema scope is just the database itself.
-        if case .tables(_, let tables) = options.scope { args.append(contentsOf: tables) }
+        if options.dropBeforeCreate { args.append("--add-drop-table") }
+        if options.useInsertStatements { args.append("--complete-insert"); args.append("--skip-extended-insert") }
+
+        // For MySQL a schema is a database; the schemas field is ignored (the database
+        // is the scope). Tables restrict within it.
+        let tables = options.tables.filter { !$0.isEmpty }
+        if !tables.isEmpty {
+            args.append(database)
+            args.append(contentsOf: tables)
+        } else if options.createDatabase {
+            if options.dropBeforeCreate { args.append("--add-drop-database") }
+            args.append("--databases")
+            args.append(database)
+        } else {
+            args.append(database)
+        }
         return args
     }
 }
