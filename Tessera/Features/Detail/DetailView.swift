@@ -1,6 +1,12 @@
 import SwiftUI
 import DBKit
 
+/// A connection a tab can be pointed at, for the tab's connection picker.
+struct ConnectionOption: Identifiable, Hashable {
+    let id: UUID
+    let name: String
+}
+
 /// Column 3 — detail with query tabs, a live SQL editor, Run, the results table,
 /// and query history. Each tab has its own editor and result but shares the
 /// connection.
@@ -14,6 +20,9 @@ struct DetailView: View {
     var onExportResult: (ResultExport.Format) -> Void = { _ in }
     /// Runs a specific SQL string (used by "Run" in the history sheet).
     var onRunSQL: (String) -> Void = { _ in }
+    /// Connections a tab can target, and the action to point the active tab at one.
+    var connectionOptions: [ConnectionOption] = []
+    var onSelectConnection: (UUID) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -143,8 +152,31 @@ struct DetailView: View {
 
     // MARK: Editor
 
+    /// Which connection the active tab runs against — pick one even before anything
+    /// is connected.
+    @ViewBuilder private var connectionPicker: some View {
+        Menu {
+            if connectionOptions.isEmpty {
+                Text("No connections")
+            } else {
+                ForEach(connectionOptions) { option in
+                    Button(option.name) { onSelectConnection(option.id) }
+                }
+            }
+        } label: {
+            Label(model.activeTab?.session?.name ?? "No connection",
+                  systemImage: "cylinder.split.1x2")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .controlSize(.small)
+        .help("Connection this tab runs against")
+    }
+
     private var editorToolbar: some View {
         HStack(spacing: 10) {
+            connectionPicker
+
             Button {
                 onRun()
             } label: {

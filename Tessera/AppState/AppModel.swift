@@ -242,6 +242,22 @@ final class AppModel {
         Task { await openSession(session, profile: profile) }
     }
 
+    /// Connections offered in a tab's connection picker.
+    var connectionOptions: [ConnectionOption] {
+        connections.profiles.map { ConnectionOption(id: $0.id, name: $0.name) }
+    }
+
+    /// Points the active tab at a connection (creating a tab if none), connecting it.
+    func selectConnection(_ profileID: UUID) {
+        guard let profile = connections.profile(id: profileID) else { return }
+        let session = ensureSession(profile: profile)
+        if console.activeTab == nil { console.addTab() }
+        console.activeTab?.session = session
+        if !session.isReady, !session.isConnecting {
+            Task { await openSession(session, profile: profile) }
+        }
+    }
+
     /// The session for a profile, with its name/folder location kept in sync so tabs
     /// can disambiguate same-named connections.
     private func ensureSession(profile: ConnectionProfile) -> ConnectionSession {
