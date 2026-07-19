@@ -71,6 +71,18 @@ final class PostgresDriverTests: XCTestCase {
         XCTAssertEqual(probe?.columns.first { $0.name == "label" }?.isNullable, false)
     }
 
+    func testLargeResultSet() async throws {
+        let (profile, secrets, endpoint) = try makeProfileOrSkip()
+        let driver = PostgresDriver()
+        try await driver.connect(profile: profile, secrets: secrets, endpoint: endpoint)
+        defer { Task { await driver.close() } }
+
+        let result = try await driver.execute("SELECT g FROM generate_series(1, 100000) AS g")
+        XCTAssertEqual(result.rows.count, 100_000)
+        XCTAssertEqual(result.rows.first?.first?.text, "1")
+        XCTAssertEqual(result.rows.last?.first?.text, "100000")
+    }
+
     func testMultipleRows() async throws {
         let (profile, secrets, endpoint) = try makeProfileOrSkip()
         let driver = PostgresDriver()

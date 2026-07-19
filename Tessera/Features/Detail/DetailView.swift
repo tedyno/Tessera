@@ -131,7 +131,7 @@ struct DetailView: View {
                 Text(message).font(.callout.monospaced())
             }
         } else if let result = model.activeTab?.result {
-            ResultsTable(result: result)
+            ResultsTableView(result: result)
         } else {
             ContentUnavailableView("No results", systemImage: "tablecells",
                                    description: Text("Press Run to execute the query."))
@@ -162,34 +162,5 @@ struct DetailView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
         .background(.bar)
-    }
-}
-
-/// Renders a `QueryResult` in a native `Table` with runtime-defined columns.
-private struct ResultsTable: View {
-    let result: QueryResult
-
-    private struct Row: Identifiable {
-        let id: Int
-        let cells: [Cell]
-    }
-
-    private var rows: [Row] {
-        result.rows.enumerated().map { Row(id: $0.offset, cells: $0.element) }
-    }
-
-    var body: some View {
-        Table(rows) {
-            TableColumnForEach(Array(result.columns.indices), id: \.self) { index in
-                TableColumn(result.columns[index].name) { (row: Row) in
-                    let cell = index < row.cells.count ? row.cells[index] : Cell.null
-                    if let text = cell.text {
-                        Text(text).monospaced()
-                    } else {
-                        Text("NULL").foregroundStyle(.tertiary).italic()
-                    }
-                }
-            }
-        }
     }
 }
