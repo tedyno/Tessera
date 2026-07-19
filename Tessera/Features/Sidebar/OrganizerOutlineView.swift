@@ -253,8 +253,24 @@ struct OrganizerOutlineView: NSViewRepresentable {
             let cell = (outlineView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView)
                 ?? Self.makeCellView(identifier: identifier)
             cell.textField?.stringValue = title(for: orgItem)
-            let (symbol, color) = Self.symbol(for: orgItem, kind: profileKind(for: orgItem),
-                                              custom: currentColorName(for: orgItem))
+            let custom = currentColorName(for: orgItem)
+
+            // Connections show the database mascot (elephant / dolphin). A custom
+            // color renders it as a tinted template; otherwise the branded colors show.
+            if orgItem.category == .connection, let kind = profileKind(for: orgItem),
+               let mascot = NSImage(named: kind == .postgres ? "postgres" : "mysql")?.copy() as? NSImage {
+                if let tint = Self.nsColor(custom) {
+                    mascot.isTemplate = true
+                    cell.imageView?.contentTintColor = tint
+                } else {
+                    mascot.isTemplate = false
+                    cell.imageView?.contentTintColor = nil
+                }
+                cell.imageView?.image = mascot
+                return cell
+            }
+
+            let (symbol, color) = Self.symbol(for: orgItem, kind: profileKind(for: orgItem), custom: custom)
             cell.imageView?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
             cell.imageView?.contentTintColor = color
             return cell
