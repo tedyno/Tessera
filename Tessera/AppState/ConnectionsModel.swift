@@ -99,6 +99,16 @@ final class ConnectionsModel {
         organizer.refs(toProfile: profileID).first?.id
     }
 
+    /// Changes whenever the organizer or any profile changes; lets the outline
+    /// view refresh when a connection is renamed/recolored (profiles aren't part
+    /// of the organizer's own hash).
+    var stateVersion: Int {
+        var hasher = Hasher()
+        hasher.combine(organizer)
+        hasher.combine(profiles)
+        return hasher.finalize()
+    }
+
     /// The node id of the first connection in the tree (for initial selection).
     var firstConnectionNodeID: UUID? {
         func scan(_ nodes: [OrganizerNode]) -> UUID? {

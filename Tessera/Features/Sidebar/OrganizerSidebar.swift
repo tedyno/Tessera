@@ -33,7 +33,8 @@ struct OrganizerSidebar: View {
             onRename: { id, current in editText = current; pending = .rename(id: id) },
             onSetColor: { id, color in model.setFolderColor(color, folderID: id) },
             onSetConnectionColor: { profileID, color in model.setProfileColor(color, profileID: profileID) },
-            onEditConnection: onEditConnection)
+            onEditConnection: onEditConnection,
+            version: model.stateVersion)
         .safeAreaInset(edge: .bottom) { bottomBar }
         .alert(alertTitle, isPresented: pendingBinding) {
             TextField("Name", text: $editText)

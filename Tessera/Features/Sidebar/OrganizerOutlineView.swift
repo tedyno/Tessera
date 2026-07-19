@@ -52,6 +52,9 @@ struct OrganizerOutlineView: NSViewRepresentable {
     var onSetColor: (UUID, String?) -> Void
     var onSetConnectionColor: (UUID, String?) -> Void
     var onEditConnection: (UUID) -> Void
+    /// A value that changes with the organizer/profiles so SwiftUI re-invokes
+    /// updateNSView (which refreshes the tree) on renames/recolors.
+    var version: Int = 0
 
     private static let nodeType = NSPasteboard.PasteboardType("io.github.tedyno.tessera.node")
 
@@ -139,9 +142,16 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         // MARK: Building
 
+        private var currentHash: Int {
+            var hasher = Hasher()
+            hasher.combine(model.organizer)
+            hasher.combine(model.profiles)
+            return hasher.finalize()
+        }
+
         func rebuild(expandingAll: Bool) {
             roots = model.organizer.workspaces.map(Self.item(forWorkspace:))
-            lastHash = model.organizer.hashValue
+            lastHash = currentHash
             outlineView?.reloadData()
             if expandingAll { outlineView?.expandItem(nil, expandChildren: true) }
             applySelection()
@@ -149,7 +159,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         /// Rebuilds only when the organizer changed; always re-syncs selection.
         func sync() {
-            if model.organizer.hashValue != lastHash {
+            if currentHash != lastHash {
                 rebuild(expandingAll: false)
             } else {
                 applySelection()
