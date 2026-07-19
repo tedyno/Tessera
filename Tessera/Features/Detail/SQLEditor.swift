@@ -36,6 +36,7 @@ struct SQLEditor: NSViewRepresentable {
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
+        textView.isAutomaticTextCompletionEnabled = false
         textView.allowsUndo = true
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(width: 4, height: 6)
@@ -94,6 +95,16 @@ struct SQLEditor: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView else { return }
             cursor?.wrappedValue = textView.selectedRange().location
+        }
+
+        /// Blocks automatic capitalization/autocorrect that only changes the case of
+        /// already-typed text (e.g. "li" → "Li"), while allowing real edits.
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange,
+                      replacementString: String?) -> Bool {
+            guard let replacement = replacementString, affectedCharRange.length > 0,
+                  affectedCharRange.length == (replacement as NSString).length else { return true }
+            let existing = (textView.string as NSString).substring(with: affectedCharRange)
+            return !(existing != replacement && existing.lowercased() == replacement.lowercased())
         }
 
         // MARK: Highlighting
