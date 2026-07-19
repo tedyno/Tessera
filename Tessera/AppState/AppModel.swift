@@ -562,7 +562,8 @@ final class AppModel {
             password: (try? connections.loadSecrets(for: profile))?.databasePassword,
             serverVersion: session?.serverVersion,
             schemas: target.schemas,
-            tables: target.tables)
+            tables: target.tables,
+            tree: session?.schema)
     }
 
     func newConnection() {

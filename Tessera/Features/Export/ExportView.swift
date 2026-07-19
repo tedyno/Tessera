@@ -24,6 +24,8 @@ struct ExportContext {
     let serverVersion: String?
     var schemas: [String]
     var tables: [String]
+    /// The live schema tree, so the sheet can offer schema/table checklists.
+    var tree: DatabaseTree? = nil
 }
 
 /// Sheet that configures and runs pg_dump / mysqldump.
@@ -43,6 +45,9 @@ struct ExportView: View {
     @State private var useInsertStatements = false
     @State private var format: DumpOptions.Format = .plain
     @State private var gzip = false
+
+    @State private var showingSchemaPicker = false
+    @State private var showingTablePicker = false
 
     @State private var binaryPath = ""
     @State private var detectedVersion: String?
@@ -67,14 +72,22 @@ struct ExportView: View {
                 if isPostgres {
                     GridRow {
                         Text("Schemas").gridColumnAlignment(.trailing).foregroundStyle(.secondary)
-                        TextField("all schemas (comma-separated)", text: $schemasText)
-                            .textFieldStyle(.roundedBorder)
+                        HStack {
+                            TextField("all schemas (comma-separated)", text: $schemasText)
+                                .textFieldStyle(.roundedBorder)
+                            multiSelectButton(options: availableSchemas, text: $schemasText,
+                                              isPresented: $showingSchemaPicker)
+                        }
                     }
                 }
                 GridRow {
                     Text("Tables").gridColumnAlignment(.trailing).foregroundStyle(.secondary)
-                    TextField("all tables (comma-separated)", text: $tablesText)
-                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        TextField("all tables (comma-separated)", text: $tablesText)
+                            .textFieldStyle(.roundedBorder)
+                        multiSelectButton(options: availableTables, text: $tablesText,
+                                          isPresented: $showingTablePicker)
+                    }
                 }
                 GridRow {
                     Text("Include").gridColumnAlignment(.trailing).foregroundStyle(.secondary)
@@ -170,6 +183,53 @@ struct ExportView: View {
         .padding(20)
         .frame(width: 560)
         .onAppear(perform: initialSetup)
+    }
+
+    // MARK: Schema / table selection
+
+    private var availableSchemas: [String] { context.tree?.schemas.map(\.name) ?? [] }
+
+    /// Every table, schema-qualified on Postgres (`schema.table`) so pg_dump's `-t`
+    /// targets the right one; plain names on MySQL (a single database).
+    private var availableTables: [String] {
+        guard let tree = context.tree else { return [] }
+        return tree.schemas.flatMap { namespace in
+            namespace.tables.map { isPostgres ? "\(namespace.name).\($0.name)" : $0.name }
+        }
+    }
+
+    private func selectedSet(_ text: String) -> Set<String> {
+        Set(text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+    }
+
+    private func multiSelectButton(options: [String], text: Binding<String>,
+                                   isPresented: Binding<Bool>) -> some View {
+        Button("Choose…") { isPresented.wrappedValue = true }
+            .disabled(options.isEmpty)
+            .popover(isPresented: isPresented, arrowEdge: .trailing) {
+                checklist(options: options, text: text)
+            }
+    }
+
+    private func checklist(options: [String], text: Binding<String>) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(options, id: \.self) { option in
+                    Toggle(isOn: Binding(
+                        get: { selectedSet(text.wrappedValue).contains(option) },
+                        set: { on in
+                            var set = selectedSet(text.wrappedValue)
+                            if on { set.insert(option) } else { set.remove(option) }
+                            text.wrappedValue = set.sorted().joined(separator: ", ")
+                        })) {
+                        Text(option)
+                    }
+                    .toggleStyle(.checkbox)
+                }
+            }
+            .padding(12)
+        }
+        .frame(minWidth: 240, maxHeight: 340)
     }
 
     // MARK: Pieces
