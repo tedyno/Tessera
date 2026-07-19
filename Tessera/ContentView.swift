@@ -5,6 +5,7 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $app.columnVisibility) {
+            GeometryReader { geo in
             VSplitView {
                 OrganizerSidebar(
                     model: app.connections,
@@ -14,7 +15,7 @@ struct ContentView: View {
                         app.showingNewConnection = true
                     },
                     onEditConnection: { app.editConnection(nodeID: $0) })
-                .frame(minHeight: 100, maxHeight: .infinity)
+                .frame(minHeight: 80, idealHeight: geo.size.height / 2, maxHeight: .infinity)
 
                 SchemaSidebar(
                     tree: app.console.schema,
@@ -30,7 +31,8 @@ struct ContentView: View {
                             app.console.activeTab?.scrollToColumn = column
                         }
                     })
-                .frame(minHeight: 100, maxHeight: .infinity)
+                .frame(minHeight: 80, idealHeight: geo.size.height / 2, maxHeight: .infinity)
+            }
             }
             .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
         } detail: {
