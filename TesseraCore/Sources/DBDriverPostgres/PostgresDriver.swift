@@ -11,8 +11,13 @@ public actor PostgresDriver: DatabaseDriver {
     private var client: PostgresClient?
     private var runTask: Task<Void, Never>?
     private var databaseName: String?
-    /// Backend PID of the connection currently running a query, for cancellation.
-    private var runningBackendPID: Int?
+    /// Backend PIDs of queries running right now. A set, because the actor is
+    /// re-entrant: two tabs on one session can be mid-query at the same time, and
+    /// Stop should cancel whatever this session is running.
+    private var runningBackendPIDs: Set<Int> = []
+    /// PID per pooled connection, so only the first query on a connection pays for
+    /// the extra `pg_backend_pid()` round-trip.
+    private var backendPIDCache: [PostgresConnection.ID: Int] = [:]
     private static let logger = Logger(label: "io.github.tedyno.tessera.postgres")
 
     public init() {}
@@ -54,12 +59,17 @@ public actor PostgresDriver: DatabaseDriver {
         let logger = Self.logger
         do {
             return try await client.withConnection { connection in
-                // Remember which backend runs this query so it can be cancelled.
-                if let pidRow = try await connection.query("SELECT pg_backend_pid()", logger: logger)
-                    .collect().first, let pid = try? pidRow.decode(Int32.self) {
-                    self.runningBackendPID = Int(pid)
+                // Remember which backend runs this query so it can be cancelled. The
+                // PID is fixed per connection, so look it up once and reuse it.
+                var pid = self.backendPIDCache[connection.id]
+                if pid == nil,
+                   let row = try await connection.query("SELECT pg_backend_pid()", logger: logger)
+                    .collect().first, let value = try? row.decode(Int32.self) {
+                    pid = Int(value)
+                    self.backendPIDCache[connection.id] = pid
                 }
-                defer { self.runningBackendPID = nil }
+                if let pid { self.runningBackendPIDs.insert(pid) }
+                defer { if let pid { self.runningBackendPIDs.remove(pid) } }
 
                 let rows = try await connection.query(PostgresQuery(unsafeSQL: sql), logger: logger)
                 var columns: [ColumnDescriptor] = []
@@ -91,12 +101,15 @@ public actor PostgresDriver: DatabaseDriver {
         }
     }
 
-    /// Cancels the running query from a second connection via `pg_cancel_backend`.
+    /// Cancels whatever this session is running, from a second connection.
     public func cancelRunningQuery() async {
-        guard let client, let pid = runningBackendPID else { return }
+        guard let client, !runningBackendPIDs.isEmpty else { return }
+        let pids = runningBackendPIDs
         let logger = Self.logger
         _ = try? await client.withConnection { connection in
-            _ = try await connection.query("SELECT pg_cancel_backend(\(pid))", logger: logger)
+            for pid in pids {
+                _ = try await connection.query("SELECT pg_cancel_backend(\(pid))", logger: logger)
+            }
         }
     }
 

@@ -130,6 +130,12 @@ public struct MCPService: Sendable {
             guard access == .readOnly else {
                 throw MCPToolError("Only read-only statements can be explained over MCP.")
             }
+            // SHOW/DESCRIBE are read-only but cannot be EXPLAINed — building
+            // "EXPLAIN SHOW …" would just produce a syntax error at the server.
+            guard statement.range(of: "^\\s*(SELECT|WITH|TABLE|VALUES)\\b",
+                                  options: [.regularExpression, .caseInsensitive]) != nil else {
+                throw MCPToolError("Only SELECT-style statements can be explained.")
+            }
             return try encodeJSON(await source.runReadQuery(connection: connection,
                                                             sql: "EXPLAIN \(statement)", limit: nil))
 

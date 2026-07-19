@@ -187,11 +187,13 @@ final class DumpService {
 
                 let errorPipe = Pipe()
                 restoreProcess.standardError = errorPipe
-                let outputPipe = Pipe()
-                restoreProcess.standardOutput = outputPipe
+                // Discard stdout: psql prints a line per statement, and draining two
+                // pipes one after the other deadlocks once the unread one fills up.
+                restoreProcess.standardOutput = FileHandle.nullDevice
 
                 var gunzipProcess: Process?
                 var gunzipPipe: Pipe?
+                var inputHandle: FileHandle?
                 if !toolOpensFile {
                     if input == .gzippedSQL {
                         // gzip -dc file | tool
@@ -204,6 +206,7 @@ final class DumpService {
                         restoreProcess.standardInput = pipe
                         gunzipProcess = gunzip
                     } else if let handle = try? FileHandle(forReadingFrom: fileURL) {
+                        inputHandle = handle
                         restoreProcess.standardInput = handle
                     } else {
                         continuation.resume(returning: DumpResult(
@@ -223,9 +226,9 @@ final class DumpService {
                 try? gunzipPipe?.fileHandleForWriting.close()
 
                 let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                _ = outputPipe.fileHandleForReading.readDataToEndOfFile()
                 restoreProcess.waitUntilExit()
                 gunzipProcess?.waitUntilExit()
+                try? inputHandle?.close()
 
                 let stderr = String(data: errorData, encoding: .utf8) ?? ""
                 if restoreProcess.terminationStatus == 0 {

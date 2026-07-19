@@ -44,6 +44,7 @@ final class AppModel {
     var showingDestructiveConfirm = false
     var destructiveWarnings: [SQLSafety.Warning] = []
     @ObservationIgnored private var pendingDestructiveSQL: String?
+    @ObservationIgnored private var pendingScriptTab: QueryTab?
 
     var destructiveSummary: String {
         destructiveWarnings.map(\.risk.explanation).joined(separator: "\n")
@@ -62,14 +63,20 @@ final class AppModel {
     }
 
     func confirmDestructiveRun() {
+        destructiveWarnings = []
+        if let scriptTab = pendingScriptTab {
+            pendingScriptTab = nil
+            scriptTab.task = Task { await console.runScript(scriptTab) }
+            return
+        }
         guard let sql = pendingDestructiveSQL, let tab = console.activeTab else { return }
         pendingDestructiveSQL = nil
-        destructiveWarnings = []
         tab.task = Task { await console.run(tab, sqlToRun: sql) }
     }
 
     func cancelDestructiveRun() {
         pendingDestructiveSQL = nil
+        pendingScriptTab = nil
         destructiveWarnings = []
     }
 
@@ -447,11 +454,19 @@ final class AppModel {
         loadFileIntoTab(url: url, text: text)
     }
 
-    /// Loads a `.sql` file and runs every statement in it sequentially.
+    /// Loads a `.sql` file and runs every statement in it sequentially — asking first
+    /// if the script contains destructive statements, exactly as typing them would.
     func runSQLFile() {
         guard let (url, text) = pickSQLFile() else { return }
-        let tab = loadFileIntoTab(url: url, text: text)
-        tab?.task = Task { await console.runScript(tab!) }
+        guard let tab = loadFileIntoTab(url: url, text: text) else { return }
+        let warnings = SQLSafety.warnings(in: text)
+        guard warnings.isEmpty else {
+            destructiveWarnings = warnings
+            pendingScriptTab = tab
+            showingDestructiveConfirm = true
+            return
+        }
+        tab.task = Task { await console.runScript(tab) }
     }
 
     private func pickSQLFile() -> (URL, String)? {

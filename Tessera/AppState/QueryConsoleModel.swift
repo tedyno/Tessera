@@ -152,8 +152,9 @@ final class QueryConsoleModel {
         var lastResult: QueryResult?
         var executed = 0
         do {
+            let cap = ExportSettings.maxRows
             for statement in statements {
-                lastResult = try await driver.execute(statement)
+                lastResult = try await driver.execute(statement, maxRows: cap > 0 ? cap : nil)
                 executed += 1
                 recordHistory(sql: statement, connectionName: session.name,
                               rowCount: lastResult?.rows.count ?? 0, elapsedMS: nil)
@@ -518,15 +519,29 @@ final class QueryConsoleModel {
     }
 
     /// The generated `SELECT *` for a data view, folding in the filter, sort, and page limit.
-    private func dataSQL(_ tab: QueryTab, limit: Int? = nil, offset: Int? = nil) -> String {
+    private func dataSQL(_ tab: QueryTab, limit: Int? = nil, offset: Int? = nil,
+                         orderOverride: [String]? = nil) -> String {
         guard let session = tab.session, let schema = tab.dataSchema, let table = tab.dataTable else { return tab.sql }
         var sql = "SELECT * FROM \(session.quote(schema)).\(session.quote(table))"
         let filter = tab.filterWhere.trimmingCharacters(in: .whitespacesAndNewlines)
         if !filter.isEmpty { sql += " WHERE \(filter)" }
-        if let column = tab.sortColumn { sql += " ORDER BY \(session.quote(column)) \(tab.sortAscending ? "ASC" : "DESC")" }
+        if let column = tab.sortColumn {
+            sql += " ORDER BY \(session.quote(column)) \(tab.sortAscending ? "ASC" : "DESC")"
+        } else if let orderOverride, !orderOverride.isEmpty {
+            sql += " ORDER BY " + orderOverride.map { session.quote($0) }.joined(separator: ", ")
+        }
         sql += " LIMIT \(limit ?? tab.pageLimit)"
         if let offset, offset > 0 { sql += " OFFSET \(offset)" }
         return sql
+    }
+
+    /// A deterministic ordering for OFFSET paging. Without one the server may return
+    /// rows in a different order per page, duplicating or skipping some; in that case
+    /// we page by re-running with a bigger LIMIT instead.
+    private func stableOrdering(for tab: QueryTab) -> [String]? {
+        if tab.sortColumn != nil { return [] }        // already ordered by the user
+        let keys = tab.editSource?.primaryKeys ?? []
+        return keys.isEmpty ? nil : keys
     }
 
     /// Runs the data view's generated query; optionally refreshes the total count.
@@ -557,6 +572,14 @@ final class QueryConsoleModel {
     func loadMore(_ tab: QueryTab) async {
         guard tab.kind == .data, !tab.hasEdits, !tab.isRunning,
               let session = tab.session, var existing = tab.result else { return }
+        // Decide before claiming `isRunning`: the fallback re-runs the query, and
+        // `run` refuses to start while the tab is already marked running.
+        guard let ordering = stableOrdering(for: tab) else {
+            // No stable order to page by — grow the window and re-run instead.
+            tab.pageLimit += QueryTab.pageSize
+            await reloadData(tab)
+            return
+        }
         tab.isRunning = true
         tab.errorMessage = nil
         defer { tab.isRunning = false }
@@ -565,7 +588,7 @@ final class QueryConsoleModel {
             return
         }
         let offset = existing.rows.count
-        let sql = dataSQL(tab, limit: QueryTab.pageSize, offset: offset)
+        let sql = dataSQL(tab, limit: QueryTab.pageSize, offset: offset, orderOverride: ordering)
         do {
             let page = try await driver.execute(sql, maxRows: QueryTab.pageSize)
             guard !page.rows.isEmpty else { return }
