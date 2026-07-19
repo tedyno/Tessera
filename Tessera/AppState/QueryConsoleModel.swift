@@ -522,6 +522,25 @@ final class QueryConsoleModel {
         await reloadData(tab)
     }
 
+    /// Sets an explicit row limit for a data view (overrides the paging default) and re-runs.
+    func setLimit(_ tab: QueryTab, _ limit: Int) async {
+        guard tab.kind == .data, !tab.hasEdits else { return }
+        tab.pageLimit = max(1, limit)
+        await reloadData(tab)
+    }
+
+    /// Clears the active sort and re-runs.
+    func clearSort(_ tab: QueryTab) async {
+        guard tab.sortColumn != nil, let session = tab.session else { return }
+        tab.sortColumn = nil
+        if tab.kind == .data {
+            await reloadData(tab)
+        } else {
+            tab.sql = rewriteOrderBy(tab.sql, column: nil, ascending: true, session: session)
+            await run(tab, sqlToRun: tab.sql, preserveSort: true)
+        }
+    }
+
     /// Applies a new WHERE filter, resets paging, and refreshes the count.
     /// No-op with pending changes so a reload can't silently discard them.
     func applyFilter(_ tab: QueryTab, where clause: String) async {

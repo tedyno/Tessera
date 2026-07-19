@@ -196,7 +196,10 @@ struct DetailView: View {
                 columns: tab.result?.columns.map(\.name) ?? [],
                 placeholder: String(localized: "WHERE …"),
                 onSubmit: { Task { await model.applyFilter(tab, where: tab.filterWhere) } })
-                .frame(maxWidth: 320, minHeight: 22)
+                .frame(maxWidth: 280, minHeight: 22)
+
+            sortMenu(tab)
+            limitField(tab)
 
             if tab.isRunning { ProgressView().controlSize(.mini) }
             Spacer()
@@ -208,6 +211,49 @@ struct DetailView: View {
             .controlSize(.small)
         }
         .padding(6)
+    }
+
+    /// Column sort picker for a data view (mirrors header-click sorting).
+    private func sortMenu(_ tab: QueryTab) -> some View {
+        let columns = tab.result?.columns.map(\.name) ?? []
+        let label = tab.sortColumn.map { "\($0) \(tab.sortAscending ? "↑" : "↓")" } ?? String(localized: "Sort")
+        return Menu {
+            ForEach(columns, id: \.self) { column in
+                Button {
+                    Task { await model.sortByColumn(tab, column: column) }
+                } label: {
+                    if tab.sortColumn == column {
+                        Label(column, systemImage: tab.sortAscending ? "arrow.up" : "arrow.down")
+                    } else {
+                        Text(column)
+                    }
+                }
+            }
+            if tab.sortColumn != nil {
+                Divider()
+                Button("Clear Sort") { Task { await model.clearSort(tab) } }
+            }
+        } label: {
+            Label(label, systemImage: "arrow.up.arrow.down")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .controlSize(.small)
+        .help("Sort by a column")
+    }
+
+    /// Editable row limit for a data view, overriding the paging default.
+    private func limitField(_ tab: QueryTab) -> some View {
+        HStack(spacing: 3) {
+            Text("Limit").font(.caption).foregroundStyle(.secondary)
+            TextField("", value: Binding(
+                get: { tab.pageLimit },
+                set: { tab.pageLimit = max(1, $0) }
+            ), format: .number)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 64)
+            .onSubmit { Task { await model.setLimit(tab, tab.pageLimit) } }
+        }
     }
 
     /// The data view's generated query, shown read-only (highlighted, selectable)

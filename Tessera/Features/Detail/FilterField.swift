@@ -35,6 +35,8 @@ struct FilterField: NSViewRepresentable {
         var columns: [String]
         var onSubmit: () -> Void
         private var previousLength = 0
+        /// Set by Esc/Backspace so the completion list isn't reopened right after.
+        private var suppressCompletion = false
 
         /// Operators handy inside a WHERE clause, offered alongside column names.
         private static let keywords = [
@@ -50,12 +52,16 @@ struct FilterField: NSViewRepresentable {
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
             text.wrappedValue = field.stringValue
-            // Only pop the completion list while inserting, so Backspace can delete.
+            let editor = field.currentEditor() as? NSTextView
             let isInsertion = field.stringValue.count > previousLength
             previousLength = field.stringValue.count
-            if isInsertion, let editor = field.currentEditor() as? NSTextView {
+            // Skip when the change came from completion inserting a tentative match (it
+            // leaves the appended text selected) or from Esc/Backspace — otherwise the
+            // list reopens on itself and can't be dismissed.
+            if isInsertion, !suppressCompletion, let editor, editor.selectedRange().length == 0 {
                 DispatchQueue.main.async { [weak editor] in editor?.complete(nil) }
             }
+            suppressCompletion = false
         }
 
         func control(_ control: NSControl, textView: NSTextView, completions words: [String],
@@ -67,11 +73,17 @@ struct FilterField: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            switch commandSelector {
+            case #selector(NSResponder.insertNewline(_:)):
                 onSubmit()
                 return true
+            case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.deleteBackward(_:)):
+                // Let the default dismiss/delete happen, but don't reopen the list.
+                suppressCompletion = true
+                return false
+            default:
+                return false
             }
-            return false
         }
     }
 }
