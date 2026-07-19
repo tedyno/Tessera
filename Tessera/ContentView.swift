@@ -37,6 +37,11 @@ struct ContentView: View {
                             await app.console.openTable(schema: schema, table: table)
                             app.console.activeTab?.scrollToColumn = column
                         }
+                    },
+                    onDumpTable: { schema, table in
+                        if let profileID = app.console.currentProfileID {
+                            app.exportTable(profileID: profileID, schema: schema, table: table)
+                        }
                     })
                 .frame(minHeight: 80, idealHeight: geo.size.height / 2, maxHeight: .infinity)
             }

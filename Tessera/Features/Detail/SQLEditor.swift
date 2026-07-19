@@ -87,8 +87,8 @@ struct SQLEditor: NSViewRepresentable {
             previousLength = newLength
             text.wrappedValue = textView.string
             highlight()
-            // Only pop the completion list while typing, not while deleting — else
-            // backspace just refreshes the list instead of deleting.
+            // Show the suggestion list while typing — but the text itself never changes
+            // until the user presses Tab (enforced by CompletingTextView).
             if isInsertion { scheduleAutocomplete(in: textView) }
         }
 

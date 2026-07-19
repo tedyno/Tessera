@@ -18,6 +18,7 @@ struct SchemaSidebar: View {
     var onToggleSchema: (String) -> Void = { _ in }
     var onOpenTable: (_ schema: String, _ table: String) -> Void
     var onOpenColumn: (_ schema: String, _ table: String, _ column: String) -> Void
+    var onDumpTable: (_ schema: String, _ table: String) -> Void = { _, _ in }
 
     @State private var expanded: Set<String> = ["db"]
     @State private var highlightedID: String?
@@ -137,6 +138,10 @@ struct SchemaSidebar: View {
             .contentShape(Rectangle())
             .simultaneousGesture(TapGesture(count: 2).onEnded { onOpenTable(namespace, table.name) })
             .help("Double-click to SELECT *")
+            .contextMenu {
+                Button("Open") { onOpenTable(namespace, table.name) }
+                Button("Dump Table…") { onDumpTable(namespace, table.name) }
+            }
     }
 
     private func badge(_ text: String, _ color: Color) -> some View {

@@ -9,10 +9,11 @@ final class CompletingTextView: NSTextView {
 
     override func insertCompletion(_ word: String, forPartialWordRange charRange: NSRange,
                                    movement: Int, isFinal flag: Bool) {
+        // Only an explicit Tab (or a click on the list) commits. Previews, arrow-key
+        // navigation, and Return never change the text.
         let confirmed = flag && (movement == NSTextMovement.tab.rawValue
-                                 || movement == NSTextMovement.return.rawValue
                                  || movement == NSTextMovement.other.rawValue)
-        guard confirmed else { return }   // ignore previews and arrow-key commits
+        guard confirmed else { return }
         super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
     }
 
