@@ -29,16 +29,23 @@ final class AppModel {
     /// can span every connection visited this session.
     private var schemaCache: [UUID: DatabaseTree] = [:]
 
-    @ObservationIgnored private var lastShiftPress: TimeInterval = 0
+    @ObservationIgnored private var lastShiftTap: TimeInterval = 0
     @ObservationIgnored private var shiftWasDown = false
+    @ObservationIgnored private var shiftTapCandidate = false
     @ObservationIgnored private var monitorInstalled = false
 
-    /// Installs the double-Shift local event monitor once.
+    /// Installs the double-Shift local event monitor once. Watches key presses too,
+    /// so shift held while typing capitals doesn't count as a tap.
     func installShiftMonitor() {
         guard !monitorInstalled else { return }
         monitorInstalled = true
-        NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            if let self { MainActor.assumeIsolated { self.flagsChanged(event) } }
+        NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
+            if let self {
+                MainActor.assumeIsolated {
+                    if event.type == .keyDown { self.shiftTapCandidate = false }
+                    else { self.flagsChanged(event) }
+                }
+            }
             return event
         }
     }
@@ -65,13 +72,25 @@ final class AppModel {
     /// Handles the double-Shift shortcut from a local event monitor.
     func flagsChanged(_ event: NSEvent) {
         let flags = event.modifierFlags
-        let onlyShift = flags.contains(.shift)
-            && flags.intersection([.command, .option, .control]).isEmpty
-        if onlyShift, !shiftWasDown {
-            if event.timestamp - lastShiftPress < 0.4 { showingSpotlight = true }
-            lastShiftPress = event.timestamp
+        let rawShift = flags.contains(.shift)
+        let hasOther = !flags.intersection([.command, .option, .control]).isEmpty
+
+        if rawShift, !shiftWasDown {
+            shiftTapCandidate = !hasOther // shift went down alone
         }
-        shiftWasDown = flags.contains(.shift)
+        if hasOther { shiftTapCandidate = false }
+        if !rawShift, shiftWasDown { // shift released
+            if shiftTapCandidate {
+                if event.timestamp - lastShiftTap < 0.4 {
+                    showingSpotlight = true
+                    lastShiftTap = 0
+                } else {
+                    lastShiftTap = event.timestamp
+                }
+            }
+            shiftTapCandidate = false
+        }
+        shiftWasDown = rawShift
     }
 
     func spotlightResults(query: String) -> [SpotlightResult] {
@@ -112,12 +131,14 @@ final class AppModel {
     func open(_ result: SpotlightResult) {
         showingSpotlight = false
         guard let profile = connections.profile(id: result.profileID) else { return }
-        if let nodeID = connections.firstNodeID(forProfile: result.profileID) { selection = nodeID }
         Task {
+            // Open first; only then update `selection` — by then currentProfileID
+            // matches, so the selection `onChange` won't kick off a second open.
             if console.currentProfileID != profile.id {
                 await console.open(profile: profile, secrets: connections.secrets(for: profile))
                 if let schema = console.schema { schemaCache[profile.id] = schema }
             }
+            if let nodeID = connections.firstNodeID(forProfile: result.profileID) { selection = nodeID }
             if let table = result.table, let schema = result.schema {
                 await console.selectAll(schema: schema, table: table)
                 if let column = result.column { console.activeTab?.scrollToColumn = column }
@@ -168,5 +189,15 @@ final class AppModel {
 
     func toggleSidebar() {
         columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+    }
+
+    var currentHiddenSchemas: Set<String> {
+        guard let id = console.currentProfileID else { return [] }
+        return connections.hiddenSchemas(for: id)
+    }
+
+    func toggleSchema(_ name: String) {
+        guard let id = console.currentProfileID else { return }
+        connections.toggleSchema(name, for: id)
     }
 }

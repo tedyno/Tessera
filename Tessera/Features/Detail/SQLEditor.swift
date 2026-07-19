@@ -28,6 +28,7 @@ struct SQLEditor: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.schema = schema
         textView.string = text
+        context.coordinator.previousLength = (text as NSString).length
         context.coordinator.highlight()
         return scrollView
     }
@@ -37,6 +38,7 @@ struct SQLEditor: NSViewRepresentable {
         context.coordinator.schema = schema
         if textView.string != text {
             textView.string = text
+            context.coordinator.previousLength = (text as NSString).length
             context.coordinator.highlight()
         }
         if focusTrigger != context.coordinator.lastFocusTrigger {
@@ -54,6 +56,7 @@ struct SQLEditor: NSViewRepresentable {
         private let cursor: Binding<Int>?
         weak var textView: NSTextView?
         var lastFocusTrigger = 0
+        var previousLength = 0
 
         var schema: DatabaseTree? { didSet { rebuildCompletionData() } }
 
@@ -64,9 +67,14 @@ struct SQLEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
+            let newLength = (textView.string as NSString).length
+            let isInsertion = newLength > previousLength
+            previousLength = newLength
             text.wrappedValue = textView.string
             highlight()
-            scheduleAutocomplete(in: textView)
+            // Only pop the completion list while typing, not while deleting — else
+            // backspace just refreshes the list instead of deleting.
+            if isInsertion { scheduleAutocomplete(in: textView) }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {

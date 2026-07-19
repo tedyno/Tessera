@@ -105,7 +105,11 @@ enum SQLStatements {
     private static func startsWithSelect(_ chars: [Character], from: Int, to: Int) -> Bool {
         var j = from
         while j < to, chars[j].isWhitespace { j += 1 }
-        let slice = String(chars[j..<min(to, j + 6)]).uppercased()
-        return slice == "SELECT"
+        guard j + 6 <= to, String(chars[j..<j + 6]).uppercased() == "SELECT" else { return false }
+        // Require a word boundary so identifiers like `selected_col` don't match.
+        let next = j + 6
+        if next >= to { return true }
+        let c = chars[next]
+        return c.isWhitespace || c == "("
     }
 }

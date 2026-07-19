@@ -181,7 +181,9 @@ final class QueryConsoleModel {
 
     private func detectEditSource(sql: String, columns: [ColumnDescriptor]) -> EditSource? {
         let upper = sql.uppercased()
-        guard upper.contains("SELECT"), !upper.contains(" JOIN ") else { return nil }
+        // Any JOIN (even on a new line) means the result spans multiple tables — not editable.
+        guard upper.contains("SELECT"),
+              sql.range(of: #"(?i)\bjoin\b"#, options: .regularExpression) == nil else { return nil }
         guard let range = sql.range(of: #"(?i)\bfrom\s+([`"\w\.]+)"#, options: .regularExpression) else { return nil }
         let raw = sql[range].split(whereSeparator: { " \n\t".contains($0) }).last.map(String.init) ?? ""
         let cleaned = raw.replacingOccurrences(of: "`", with: "").replacingOccurrences(of: "\"", with: "")

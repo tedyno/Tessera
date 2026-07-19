@@ -13,6 +13,8 @@ struct ContentView: View {
         } content: {
             SchemaSidebar(
                 tree: app.console.schema,
+                hiddenSchemas: app.currentHiddenSchemas,
+                onToggleSchema: { app.toggleSchema($0) },
                 onOpenTable: { schema, table in
                     Task { await app.console.selectAll(schema: schema, table: table) }
                 },

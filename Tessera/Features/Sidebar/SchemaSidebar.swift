@@ -6,6 +6,8 @@ import DBKit
 /// `SELECT *` via `onOpenTable`.
 struct SchemaSidebar: View {
     let tree: DatabaseTree?
+    var hiddenSchemas: Set<String> = []
+    var onToggleSchema: (String) -> Void = { _ in }
     var onOpenTable: (_ schema: String, _ table: String) -> Void
     var onOpenColumn: (_ schema: String, _ table: String, _ column: String) -> Void
 
@@ -15,7 +17,7 @@ struct SchemaSidebar: View {
                 List {
                     Section("Schema") {
                         DisclosureGroup {
-                            ForEach(tree.schemas) { namespace in
+                            ForEach(tree.schemas.filter { !hiddenSchemas.contains($0.name) }) { namespace in
                                 DisclosureGroup {
                                     ForEach(namespace.tables) { table in
                                         tableNode(namespace: namespace.name, table: table)
@@ -31,11 +33,39 @@ struct SchemaSidebar: View {
                     }
                 }
                 .listStyle(.sidebar)
+                .safeAreaInset(edge: .bottom) { filterBar(tree) }
             } else {
                 ContentUnavailableView("No schema", systemImage: "cylinder.split.1x2",
                                        description: Text("Connect to a database to browse its schema."))
             }
         }
+    }
+
+    private func filterBar(_ tree: DatabaseTree) -> some View {
+        HStack {
+            Menu {
+                ForEach(tree.schemas) { namespace in
+                    Button {
+                        onToggleSchema(namespace.name)
+                    } label: {
+                        Label(namespace.name,
+                              systemImage: hiddenSchemas.contains(namespace.name) ? "square" : "checkmark.square")
+                    }
+                }
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Choose visible schemas")
+            let shown = tree.schemas.count - tree.schemas.filter { hiddenSchemas.contains($0.name) }.count
+            Text("\(shown) of \(tree.schemas.count) schemas")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.bar)
     }
 
     @ViewBuilder

@@ -59,7 +59,6 @@ struct ResultsTableView: NSViewRepresentable {
         private var tab: QueryTab
         weak var tableView: NSTableView?
         private var columnsSignature: [String] = []
-        private var lastResultID: ObjectIdentifier?
 
         init(tab: QueryTab) { self.tab = tab }
 

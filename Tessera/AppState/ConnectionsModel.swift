@@ -11,10 +11,13 @@ import DBSecurity
 final class ConnectionsModel {
     private(set) var profiles: [ConnectionProfile] = []
     private(set) var organizer = OrganizerDocument()
+    /// Schema names the user has hidden in the tree, per profile.
+    private(set) var hiddenSchemasByProfile: [UUID: Set<String>] = [:]
 
     private let profileStore: ProfileStore
     private let organizerStore: OrganizerStore
     private let secretsStore: ProfileSecretsStore
+    private let visibilityURL: URL
 
     init() {
         let dir = FileManager.default.temporaryDirectory
@@ -23,7 +26,37 @@ final class ConnectionsModel {
         self.organizerStore = OrganizerStore(
             fileURL: (try? OrganizerStore.defaultURL()) ?? dir.appendingPathComponent("tessera-organizer.json"))
         self.secretsStore = ProfileSecretsStore()
+        self.visibilityURL = (try? OrganizerStore.defaultURL())?
+            .deletingLastPathComponent().appendingPathComponent("schema-visibility.json")
+            ?? dir.appendingPathComponent("tessera-schema-visibility.json")
         loadAll()
+        loadVisibility()
+    }
+
+    // MARK: Schema visibility
+
+    func hiddenSchemas(for profileID: UUID) -> Set<String> {
+        hiddenSchemasByProfile[profileID] ?? []
+    }
+
+    func toggleSchema(_ name: String, for profileID: UUID) {
+        var hidden = hiddenSchemasByProfile[profileID] ?? []
+        if hidden.contains(name) { hidden.remove(name) } else { hidden.insert(name) }
+        hiddenSchemasByProfile[profileID] = hidden
+        saveVisibility()
+    }
+
+    private func loadVisibility() {
+        guard let data = try? Data(contentsOf: visibilityURL),
+              let raw = try? JSONDecoder().decode([String: [String]].self, from: data) else { return }
+        for (key, names) in raw {
+            if let id = UUID(uuidString: key) { hiddenSchemasByProfile[id] = Set(names) }
+        }
+    }
+
+    private func saveVisibility() {
+        let raw = Dictionary(uniqueKeysWithValues: hiddenSchemasByProfile.map { ($0.key.uuidString, Array($0.value)) })
+        try? JSONEncoder().encode(raw).write(to: visibilityURL, options: [.atomic])
     }
 
     // MARK: Loading / seeding
