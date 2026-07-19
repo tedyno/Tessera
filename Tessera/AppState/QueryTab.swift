@@ -13,6 +13,9 @@ final class QueryTab: Identifiable {
     var isRunning = false
     var errorMessage: String?
 
+    /// The in-flight run, so a Stop button can cancel it.
+    @ObservationIgnored var task: Task<Void, Never>?
+
     init(title: String, sql: String = "") {
         self.title = title
         self.sql = sql

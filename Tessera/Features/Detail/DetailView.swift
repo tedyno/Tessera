@@ -80,7 +80,7 @@ struct DetailView: View {
     private var editorToolbar: some View {
         HStack(spacing: 10) {
             Button {
-                if let tab = model.activeTab { Task { await model.run(tab) } }
+                if let tab = model.activeTab { tab.task = Task { await model.run(tab) } }
             } label: {
                 Label("Run", systemImage: "play.fill")
             }
@@ -88,6 +88,14 @@ struct DetailView: View {
             .controlSize(.small)
             .disabled(model.status != .ready || (model.activeTab?.isRunning ?? true))
             .keyboardShortcut(.return, modifiers: .command)
+
+            Button {
+                model.activeTab?.task?.cancel()
+            } label: {
+                Label("Stop", systemImage: "stop.fill")
+            }
+            .controlSize(.small)
+            .disabled(!(model.activeTab?.isRunning ?? false))
 
             if let ms = model.activeTab?.elapsedMS, model.activeTab?.isRunning == false {
                 Text("\(ms) ms").font(.caption).foregroundStyle(.secondary)
@@ -104,10 +112,7 @@ struct DetailView: View {
     }
 
     private var editor: some View {
-        TextEditor(text: sqlBinding)
-            .font(.system(.body, design: .monospaced))
-            .scrollContentBackground(.hidden)
-            .padding(6)
+        SQLEditor(text: sqlBinding)
             .frame(height: 150)
     }
 
