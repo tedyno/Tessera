@@ -21,7 +21,8 @@ struct NewConnectionView: View {
     @State private var password = ""
     @State private var tlsMode: TLSMode = .prefer
     @State private var readOnly = false
-    @State private var mcpAccess = false
+    @State private var mcpRead = false
+    @State private var mcpWrite = false
     @State private var revealPassword = false
 
     @State private var sshEnabled = false
@@ -52,7 +53,8 @@ struct NewConnectionView: View {
         _password = State(initialValue: secrets.databasePassword ?? "")
         _tlsMode = State(initialValue: editing?.tlsMode ?? .prefer)
         _readOnly = State(initialValue: editing?.isReadOnly ?? false)
-        _mcpAccess = State(initialValue: editing?.allowsMCPAccess ?? false)
+        _mcpRead = State(initialValue: editing?.allowsMCPRead ?? false)
+        _mcpWrite = State(initialValue: editing?.mcpWrite ?? false)
         if let ssh = editing?.ssh {
             _sshEnabled = State(initialValue: true)
             _sshHost = State(initialValue: ssh.host)
@@ -97,11 +99,16 @@ struct NewConnectionView: View {
                         ForEach(TLSMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                     Toggle("Read-only (warn before writing)", isOn: $readOnly)
-                    Toggle("Allow MCP access (let Claude query this connection)", isOn: $mcpAccess)
-                    if mcpAccess {
+                    Toggle("MCP: allow reading (let Claude query this connection)", isOn: $mcpRead)
+                    Toggle("MCP: allow writing (always asks you first)", isOn: $mcpWrite)
+                        .disabled(!mcpRead || readOnly)
+                        .padding(.leading, 16)
+                    if mcpRead {
                         Text(readOnly
-                             ? "MCP may read from this connection. Writes are refused because it is read-only."
-                             : "MCP may read from this connection. Writes will ask you to confirm first.")
+                             ? "Read-only connections can never grant MCP write access."
+                             : (mcpWrite
+                                ? "Claude may read, and may write or import after you approve each time."
+                                : "Claude may only read from this connection."))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -197,7 +204,7 @@ struct NewConnectionView: View {
             id: editing?.id ?? UUID(),
             name: name, kind: kind, host: host, port: Int(port),
             database: database, username: username, tlsMode: tlsMode, ssh: ssh, readOnly: readOnly,
-            mcpAccess: mcpAccess)
+            mcpRead: mcpRead, mcpWrite: mcpWrite)
     }
 
     private func makeSecrets() -> Secrets {

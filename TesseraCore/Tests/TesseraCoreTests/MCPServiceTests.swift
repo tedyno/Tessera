@@ -54,9 +54,10 @@ private actor FakeSource: MCPDataSource {
 final class MCPServiceTests: XCTestCase {
 
     private let writable = MCPConnectionInfo(name: "staging", engine: "PostgreSQL",
-                                             database: "shop", isReadOnly: false, isConnected: true)
+                                             database: "shop", canWrite: true, isConnected: true)
+    /// Exposed for reading only — MCP write permission withheld.
     private let readOnly = MCPConnectionInfo(name: "prod", engine: "PostgreSQL",
-                                             database: "shop", isReadOnly: true, isConnected: true)
+                                             database: "shop", canWrite: false, isConnected: true)
 
     private func call(_ service: MCPService, tool: String, _ arguments: [String: Any]) async throws -> (text: String, isError: Bool) {
         let body: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": "tools/call",
@@ -134,7 +135,7 @@ final class MCPServiceTests: XCTestCase {
         let (text, isError) = try await call(service, tool: "run_query",
                                              ["connection": "prod", "sql": "DELETE FROM t"])
         XCTAssertTrue(isError)
-        XCTAssertTrue(text.contains("read-only"))
+        XCTAssertTrue(text.contains("not permitted to write"))
         let writes = await source.writeQueries
         XCTAssertTrue(writes.isEmpty)        // never even offered for approval
     }
@@ -205,7 +206,7 @@ final class MCPServiceTests: XCTestCase {
         let (text, isError) = try await call(service, tool: "import_dump",
                                              ["connection": "prod", "file": "/tmp/a.sql"])
         XCTAssertTrue(isError)
-        XCTAssertTrue(text.contains("read-only"))
+        XCTAssertTrue(text.contains("not permitted to write"))
         let imports = await source.imports
         XCTAssertTrue(imports.isEmpty)   // never even offered for approval
     }

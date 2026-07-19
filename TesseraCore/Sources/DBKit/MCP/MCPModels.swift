@@ -4,15 +4,17 @@ public struct MCPConnectionInfo: Codable, Equatable, Sendable {
     public let name: String
     public let engine: String
     public let database: String
-    public let isReadOnly: Bool
+    /// Whether MCP may run writing statements here (still approved per call).
+    /// Granted per connection and capped by the connection's read-only flag.
+    public let canWrite: Bool
     public let isConnected: Bool
 
     public init(name: String, engine: String, database: String,
-                isReadOnly: Bool, isConnected: Bool) {
+                canWrite: Bool, isConnected: Bool) {
         self.name = name
         self.engine = engine
         self.database = database
-        self.isReadOnly = isReadOnly
+        self.canWrite = canWrite
         self.isConnected = isConnected
     }
 }

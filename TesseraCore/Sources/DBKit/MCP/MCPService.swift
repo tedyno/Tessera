@@ -152,8 +152,8 @@ public struct MCPService: Sendable {
         case "import_dump":
             let connection = try string(arguments, "connection")
             let info = try await requireConnection(connection)
-            guard !info.isReadOnly else {
-                throw MCPToolError("“\(connection)” is marked read-only in Tessera, "
+            guard info.canWrite else {
+                throw MCPToolError("“\(connection)” is not permitted to write over MCP, "
                                    + "so importing is refused.")
             }
             return try encodeJSON(await source.importDump(connection: connection,
@@ -178,9 +178,10 @@ public struct MCPService: Sendable {
             return try encodeJSON(await source.runReadQuery(connection: connection,
                                                             sql: statement, limit: limit))
         case .write:
-            guard !info.isReadOnly else {
-                throw MCPToolError("“\(connection)” is marked read-only in Tessera, "
-                                   + "so writing statements are refused.")
+            guard info.canWrite else {
+                throw MCPToolError("“\(connection)” is not permitted to write over MCP "
+                                   + "(enable it for this connection in Tessera; a read-only "
+                                   + "connection can never be granted write access).")
             }
             return try encodeJSON(await source.runWriteQuery(connection: connection, sql: statement))
         }

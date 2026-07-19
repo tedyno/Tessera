@@ -79,17 +79,6 @@
         }
       }
     },
-    "Allow MCP access (let Claude query this connection)": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Povolit přístup MCP (Claude může toto připojení dotazovat)"
-          }
-        }
-      }
-    },
     "Allow NULL": {
       "extractionState": "manual",
       "localizations": {
@@ -196,6 +185,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vybrat…"
+          }
+        }
+      }
+    },
+    "Claude may only read from this connection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude může z tohoto připojení pouze číst."
+          }
+        }
+      }
+    },
+    "Claude may read, and may write or import after you approve each time.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude může číst a po tvém schválení i zapisovat nebo importovat."
           }
         }
       }
@@ -871,24 +882,24 @@
         }
       }
     },
-    "MCP may read from this connection. Writes are refused because it is read-only.": {
+    "MCP: allow reading (let Claude query this connection)": {
       "extractionState": "manual",
       "localizations": {
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "MCP může z tohoto připojení číst. Zápis je odmítnut, protože je jen pro čtení."
+            "value": "MCP: povolit čtení (Claude může toto připojení dotazovat)"
           }
         }
       }
     },
-    "MCP may read from this connection. Writes will ask you to confirm first.": {
+    "MCP: allow writing (always asks you first)": {
       "extractionState": "manual",
       "localizations": {
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "MCP může z tohoto připojení číst. Zápis si nejdřív vyžádá tvoje potvrzení."
+            "value": "MCP: povolit zápis (vždy se tě nejdřív zeptá)"
           }
         }
       }
@@ -1208,6 +1219,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Jen pro čtení (varovat před zápisem)"
+          }
+        }
+      }
+    },
+    "Read-only connections can never grant MCP write access.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Připojení jen pro čtení nemůže MCP nikdy dát právo zápisu."
           }
         }
       }

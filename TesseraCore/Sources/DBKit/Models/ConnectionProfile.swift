@@ -66,8 +66,12 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
     public var readOnly: Bool?
     /// Optional palette color name for the connection dot.
     public var color: String?
-    /// Opt-in: expose this connection over the built-in MCP server. Optional so
-    /// older profiles decode; use `allowsMCPAccess`. Off unless deliberately enabled.
+    /// Opt-in: let MCP clients read from this connection. Optional so older profiles
+    /// decode; use `allowsMCPRead`. Off unless deliberately enabled.
+    public var mcpRead: Bool?
+    /// Opt-in: let MCP clients write (always with approval). Capped by `readOnly`.
+    public var mcpWrite: Bool?
+    /// Superseded by `mcpRead`; kept so profiles written by earlier builds decode.
     public var mcpAccess: Bool?
 
     /// Stable Keychain key (service = bundle ID, account = this value).
@@ -77,8 +81,13 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
     /// may only read from it.
     public var isReadOnly: Bool { readOnly ?? false }
 
-    /// Whether an MCP client may see and query this connection at all.
-    public var allowsMCPAccess: Bool { mcpAccess ?? false }
+    /// Whether an MCP client may see and read this connection at all.
+    public var allowsMCPRead: Bool { mcpRead ?? mcpAccess ?? false }
+
+    /// Whether MCP may run writing statements (still approved by the user each time).
+    /// A read-only connection is a hard ceiling: MCP can never exceed it, and writing
+    /// without reading makes no sense, so read is required too.
+    public var allowsMCPWrite: Bool { allowsMCPRead && (mcpWrite ?? false) && !isReadOnly }
 
     public init(
         id: UUID = UUID(),
@@ -92,7 +101,8 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
         ssh: SSHConfig? = nil,
         readOnly: Bool = false,
         color: String? = nil,
-        mcpAccess: Bool = false
+        mcpRead: Bool = false,
+        mcpWrite: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -105,7 +115,8 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
         self.ssh = ssh
         self.readOnly = readOnly ? true : nil
         self.color = color
-        self.mcpAccess = mcpAccess ? true : nil
+        self.mcpRead = mcpRead ? true : nil
+        self.mcpWrite = mcpWrite ? true : nil
     }
 }
 
