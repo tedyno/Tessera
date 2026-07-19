@@ -58,28 +58,9 @@ jobs:
           hdiutil create -volname "Tessera" -srcfolder "$STAGING" \
             -ov -format UDZO "Tessera-${GITHUB_REF_NAME}.dmg"
 
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: Tessera-${{ github.ref_name }}.dmg
-          generate_release_notes: true
-          body: |
-            A native macOS database client for PostgreSQL and MySQL.
-
-            **Install:** download the DMG, open it, and drag **Tessera** to Applications.
-
-            This build is **not notarized** (open-source project without a paid Apple
-            Developer account), so macOS refuses it on the first try. To open it: launch
-            once, then **System Settings → Privacy & Security → Open Anyway**. Or run:
-
-            ```sh
-            xattr -dr com.apple.quarantine /Applications/Tessera.app
-            ```
-
-            Once installed, future versions update automatically (Sparkle).
-
-      # --- Auto-update: sign the DMG and refresh the appcast (only if the key is set) ---
-
+      # Auto-update: EdDSA-sign the DMG and build the appcast (only when the key is set).
+      # The appcast ships as a release asset; SUFeedURL points at .../releases/latest/
+      # download/appcast.xml, which always resolves to the newest release.
       - name: Sign update and build appcast
         if: ${{ env.SPARKLE_ED_PRIVATE_KEY != '' }}
         run: |
@@ -88,14 +69,12 @@ jobs:
           SIGN_UPDATE="$(find build/SourcePackages/artifacts -name sign_update -type f | head -1)"
           test -n "$SIGN_UPDATE"
           printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > sparkle_private_key
-          # e.g. sparkle:edSignature="…" length="12345"
-          SIGNATURE="$("$SIGN_UPDATE" "$DMG" -f sparkle_private_key)"
+          SIGNATURE="$("$SIGN_UPDATE" "$DMG" -f sparkle_private_key)"   # sparkle:edSignature="…" length="…"
           rm -f sparkle_private_key
 
           URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${DMG}"
           PUBDATE="$(date -u +'%a, %d %b %Y %H:%M:%S +0000')"
-          mkdir -p public
-          cat > public/appcast.xml <<XML
+          cat > appcast.xml <<XML
           <?xml version="1.0" encoding="utf-8"?>
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
             <channel>
@@ -112,10 +91,25 @@ jobs:
           </rss>
           XML
 
-      - name: Publish appcast to GitHub Pages
-        if: ${{ env.SPARKLE_ED_PRIVATE_KEY != '' }}
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./public
-          keep_files: true
+          files: |
+            Tessera-${{ github.ref_name }}.dmg
+            appcast.xml
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+          body: |
+            A native macOS database client for PostgreSQL and MySQL.
+
+            **Install:** download the DMG, open it, and drag **Tessera** to Applications.
+
+            This build is **not notarized** (open-source project without a paid Apple
+            Developer account), so macOS refuses it on the first try. To open it: launch
+            once, then **System Settings → Privacy & Security → Open Anyway**. Or run:
+
+            ```sh
+            xattr -dr com.apple.quarantine /Applications/Tessera.app
+            ```
+
+            Once installed, future versions update automatically (Sparkle).
