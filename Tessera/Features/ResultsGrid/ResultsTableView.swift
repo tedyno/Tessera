@@ -70,6 +70,9 @@ private func isNumericColumnType(_ typeName: String) -> Bool {
     numericColumnTypes.contains(typeName.lowercased())
 }
 
+/// Clipboard formats offered by the grid's "Copy as" menu.
+enum GridCopyFormat { case tsv, csv, json, insert }
+
 /// NSTableView with spreadsheet-style cell selection: click/drag selects a
 /// rectangular block of cells, double-click edits, ⌘C/⌘V copy/paste the block.
 final class GridTableView: NSTableView {
@@ -82,6 +85,8 @@ final class GridTableView: NSTableView {
     var onRevertRow: ((Int) -> Void)?
     var onPaste: (() -> Void)?
     var onCopy: (() -> Void)?
+    var onCopyAs: ((GridCopyFormat) -> Void)?
+    var hasSelection: (() -> Bool)?
     /// Only full-table results (`tab.editSource`) expose the row-editing menu.
     var canEditRows = false
     /// Number of fetched rows; rows at/after this index are pending inserts.
@@ -111,10 +116,35 @@ final class GridTableView: NSTableView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard canEditRows else { return nil }
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
         let menu = NSMenu()
+
+        // Copy is available on any result, editable or not.
+        if hasSelection?() == true {
+            let copy = NSMenuItem(title: String(localized: "Copy"), action: #selector(copy(_:)), keyEquivalent: "c")
+            copy.keyEquivalentModifierMask = .command
+            copy.target = self
+            menu.addItem(copy)
+            let copyAs = NSMenuItem(title: String(localized: "Copy as"), action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            let formats: [(String, GridCopyFormat)] = [
+                (String(localized: "CSV"), .csv),
+                (String(localized: "JSON"), .json),
+                (String(localized: "SQL INSERT"), .insert),
+            ]
+            for (title, format) in formats {
+                let item = NSMenuItem(title: title, action: #selector(copyAsAction(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = format
+                submenu.addItem(item)
+            }
+            copyAs.submenu = submenu
+            menu.addItem(copyAs)
+        }
+
+        guard canEditRows else { return menu.items.isEmpty ? nil : menu }
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
         let add = NSMenuItem(title: String(localized: "Add Row"), action: #selector(addRowAction), keyEquivalent: "n")
         add.keyEquivalentModifierMask = .command
         add.target = self
@@ -146,6 +176,9 @@ final class GridTableView: NSTableView {
     }
     @objc private func revertRowAction(_ sender: NSMenuItem) {
         onRevertRow?(sender.representedObject as? Int ?? -1)
+    }
+    @objc private func copyAsAction(_ sender: NSMenuItem) {
+        if let format = sender.representedObject as? GridCopyFormat { onCopyAs?(format) }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -204,6 +237,8 @@ struct ResultsTableView: NSViewRepresentable {
         tableView.isRowPending = { [c = context.coordinator] row in c.rowState(row) != .none }
         tableView.onPaste = { [c = context.coordinator] in c.pasteIntoSelection() }
         tableView.onCopy = { [c = context.coordinator] in c.copySelection() }
+        tableView.onCopyAs = { [c = context.coordinator] format in c.copySelection(as: format) }
+        tableView.hasSelection = { [c = context.coordinator] in c.hasSelection }
 
         let scrollView = NSScrollView()
         scrollView.documentView = tableView
@@ -452,25 +487,86 @@ struct ResultsTableView: NSViewRepresentable {
             reload(rows: selectionRows)
         }
 
-        /// ⌘C — copies the selected cells (rows by newline, columns by tab).
-        func copySelection() {
-            guard let result = tab.result, !selected.isEmpty else { return }
+        var hasSelection: Bool { !selected.isEmpty }
+
+        /// The raw value of a cell (nil = SQL NULL), preferring a pending edit/insert.
+        private func cellString(row: Int, col: Int) -> String? {
+            guard let result = tab.result, col < result.columns.count else { return nil }
+            let columnName = result.columns[col].name
+            if isInsertRow(row) {
+                let index = row - fetchedRowCount
+                return index < tab.pendingInserts.count ? tab.pendingInserts[index].values[columnName] : nil
+            }
+            if let edited = tab.edits[row]?[columnName] { return edited }
+            guard row < result.rows.count else { return nil }
+            let cells = result.rows[row]
+            return col < cells.count ? cells[col].text : nil
+        }
+
+        /// The selected block as a rectangle: sorted unique rows × sorted unique cols
+        /// (the bounding box of the selection), with each cell's value (nil = NULL).
+        private func selectionBlock() -> (cols: [Int], rows: [Int])? {
+            guard tab.result != nil, !selected.isEmpty else { return nil }
+            let cols = Set(selected.map(\.col)).sorted()
             let rows = Set(selected.map(\.row)).sorted()
-            let lines = rows.map { row -> String in
-                let cols = selected.filter { $0.row == row }.map(\.col).sorted()
-                return cols.map { col -> String in
-                    let columnName = result.columns[col].name
-                    if isInsertRow(row) {
-                        let index = row - fetchedRowCount
-                        return index < tab.pendingInserts.count ? (tab.pendingInserts[index].values[columnName] ?? "") : ""
+            return (cols, rows)
+        }
+
+        /// ⌘C copies as TSV; the context menu offers CSV / JSON / SQL INSERT.
+        func copySelection(as format: GridCopyFormat = .tsv) {
+            guard let result = tab.result, let block = selectionBlock() else { return }
+            let text: String
+            switch format {
+            case .tsv:
+                text = block.rows.map { row in
+                    block.cols.map { cellString(row: row, col: $0) ?? "" }.joined(separator: "\t")
+                }.joined(separator: "\n")
+            case .csv:
+                let header = block.cols.map { csvField(result.columns[$0].name) }.joined(separator: ",")
+                let body = block.rows.map { row in
+                    block.cols.map { csvField(cellString(row: row, col: $0)) }.joined(separator: ",")
+                }
+                text = ([header] + body).joined(separator: "\n")
+            case .json:
+                let objects = block.rows.map { row -> [String: Any] in
+                    var object: [String: Any] = [:]
+                    for col in block.cols {
+                        object[result.columns[col].name] = cellString(row: row, col: col) ?? NSNull()
                     }
-                    if let edited = tab.edits[row]?[columnName] { return edited }
-                    let cells = result.rows[row]
-                    return (col < cells.count ? cells[col].text : nil) ?? ""
-                }.joined(separator: "\t")
+                    return object
+                }
+                guard let data = try? JSONSerialization.data(withJSONObject: objects,
+                                                             options: [.prettyPrinted, .sortedKeys]),
+                      let string = String(data: data, encoding: .utf8) else { return }
+                text = string
+            case .insert:
+                let table = tab.editSource.map { "\($0.schema).\($0.table)" }
+                    ?? tab.dataTable ?? "table"
+                let columnList = block.cols.map { result.columns[$0].name }.joined(separator: ", ")
+                text = block.rows.map { row in
+                    let values = block.cols.map { sqlLiteral(cellString(row: row, col: $0), col: $0) }
+                        .joined(separator: ", ")
+                    return "INSERT INTO \(table) (\(columnList)) VALUES (\(values));"
+                }.joined(separator: "\n")
             }
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+            NSPasteboard.general.setString(text, forType: .string)
+        }
+
+        private func csvField(_ value: String?) -> String {
+            guard let value else { return "" }
+            guard value.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" })
+            else { return value }
+            return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
+
+        /// A SQL literal for a value: `NULL`, an unquoted number for numeric columns,
+        /// or a single-quoted, quote-escaped string otherwise.
+        private func sqlLiteral(_ value: String?, col: Int) -> String {
+            guard let value else { return "NULL" }
+            if let result = tab.result, col < result.columns.count,
+               isNumericColumnType(result.columns[col].typeName) { return value }
+            return "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
         }
 
         private var result: QueryResult? { tab.result }
