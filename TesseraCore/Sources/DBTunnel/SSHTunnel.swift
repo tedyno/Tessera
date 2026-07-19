@@ -12,11 +12,11 @@ import NIOSSH
 public actor SSHTunnel {
     private var client: SSHClient?
     private var serverChannel: Channel?
-    private let group: MultiThreadedEventLoopGroup
 
-    public init() {
-        self.group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-    }
+    // Shared singleton group so the tunnel never leaks its own event-loop threads.
+    private var group: MultiThreadedEventLoopGroup { .singleton }
+
+    public init() {}
 
     /// Establishes the tunnel and returns the local endpoint to connect to.
     public func start(

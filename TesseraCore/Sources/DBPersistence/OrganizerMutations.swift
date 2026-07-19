@@ -51,6 +51,27 @@ extension OrganizerDocument {
         return out
     }
 
+    /// The parent container id and index of `id`, or `nil` if not found.
+    public func location(of id: UUID) -> (parent: UUID, index: Int)? {
+        for workspace in workspaces {
+            if let index = workspace.children.firstIndex(where: { $0.id == id }) {
+                return (workspace.id, index)
+            }
+            if let location = Self.location(of: id, in: workspace.children) { return location }
+        }
+        return nil
+    }
+
+    private static func location(of id: UUID, in nodes: [OrganizerNode]) -> (UUID, Int)? {
+        for node in nodes {
+            if let children = node.children {
+                if let index = children.firstIndex(where: { $0.id == id }) { return (node.id, index) }
+                if let found = location(of: id, in: children) { return found }
+            }
+        }
+        return nil
+    }
+
     /// All node ids nested under `id` (excluding `id` itself). Used to prevent
     /// dropping a container into its own subtree.
     public func descendants(of id: UUID) -> Set<UUID> {

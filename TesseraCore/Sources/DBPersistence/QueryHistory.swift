@@ -55,15 +55,21 @@ public struct QueryHistoryStore: Sendable {
         return (try? decoder.decode([QueryHistoryEntry].self, from: data)) ?? []
     }
 
+    /// Persists the given entries (newest-first, capped to `limit`).
+    public func save(_ entries: [QueryHistoryEntry]) {
+        let capped = entries.count > limit ? Array(entries.prefix(limit)) : entries
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try? encoder.encode(capped).write(to: fileURL, options: [.atomic])
+    }
+
     /// Prepends an entry (newest first), caps to `limit`, and persists.
     @discardableResult
     public func append(_ entry: QueryHistoryEntry) -> [QueryHistoryEntry] {
         var entries = load()
         entries.insert(entry, at: 0)
         if entries.count > limit { entries = Array(entries.prefix(limit)) }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        try? encoder.encode(entries).write(to: fileURL, options: [.atomic])
+        save(entries)
         return entries
     }
 }

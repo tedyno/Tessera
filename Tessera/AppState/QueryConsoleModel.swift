@@ -20,6 +20,7 @@ final class QueryConsoleModel {
 
     private(set) var status: ConnectionStatus = .idle
     private(set) var connectionName: String?
+    private(set) var engine: DatabaseKind?
     private(set) var schema: DatabaseTree?
 
     var tabs: [QueryTab] = []
@@ -75,10 +76,12 @@ final class QueryConsoleModel {
     }
 
     func open(profile: ConnectionProfile, secrets: Secrets) async {
+        tabs.forEach { $0.task?.cancel() }
         await driver?.close()
         await tunnel?.stop()
         tunnel = nil
         connectionName = profile.name
+        engine = profile.kind
         schema = nil
         status = .connecting
 
@@ -134,8 +137,18 @@ final class QueryConsoleModel {
     /// Puts `SELECT *` into the active tab and runs it (from a schema double-click).
     func selectAll(schema: String, table: String) async {
         let tab = activeTab ?? { addTab(); return activeTab! }()
-        tab.sql = "SELECT * FROM \(schema).\(table) LIMIT 200;"
+        tab.sql = "SELECT * FROM \(quote(schema)).\(quote(table)) LIMIT 200;"
         await run(tab)
+    }
+
+    /// Quotes an identifier for the active engine so mixed-case / reserved names work.
+    private func quote(_ identifier: String) -> String {
+        switch engine {
+        case .mysql:
+            return "`" + identifier.replacingOccurrences(of: "`", with: "``") + "`"
+        default:
+            return "\"" + identifier.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
     }
 
     func loadIntoActiveTab(_ sql: String) {
@@ -152,7 +165,12 @@ final class QueryConsoleModel {
         let entry = QueryHistoryEntry(
             sql: sql, connectionName: connectionName, timestamp: Date(),
             rowCount: rowCount, elapsedMS: elapsedMS)
-        history = historyStore.append(entry)
+        history.insert(entry, at: 0)
+        if history.count > 500 { history = Array(history.prefix(500)) }
+        // Persist off the main actor so a query never blocks the UI on disk I/O.
+        let snapshot = history
+        let store = historyStore
+        Task.detached { store.save(snapshot) }
     }
 
     // MARK: Helpers

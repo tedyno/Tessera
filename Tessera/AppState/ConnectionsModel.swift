@@ -135,8 +135,17 @@ final class ConnectionsModel {
     func move(nodeID: UUID, toParent parentID: UUID, at index: Int? = nil) -> Bool {
         guard nodeID != parentID else { return false }
         guard !organizer.descendants(of: nodeID).contains(parentID) else { return false }
+
+        // When reordering within the same parent, the drop index was computed before
+        // removal; moving a node further down needs the index decremented by one.
+        var targetIndex = index
+        if let index, let location = organizer.location(of: nodeID),
+           location.parent == parentID, location.index < index {
+            targetIndex = index - 1
+        }
+
         guard let removed = organizer.remove(nodeID) else { return false }
-        if !organizer.insert(removed, toParent: parentID, at: index) {
+        if !organizer.insert(removed, toParent: parentID, at: targetIndex) {
             organizer.append(removed, toParent: defaultParentID ?? UUID())
             saveOrganizer()
             return false

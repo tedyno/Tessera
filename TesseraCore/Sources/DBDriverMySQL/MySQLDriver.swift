@@ -11,24 +11,38 @@ import Logging
 /// `EventLoopFuture` API to async/await. One instance per session.
 public actor MySQLDriver: DatabaseDriver {
     private var connection: MySQLConnection?
-    private let group: EventLoopGroup
     private var databaseName: String?
 
-    public init() {
-        self.group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+    // Serializes access to the single connection: actor reentrancy would otherwise
+    // let a second execute() interleave with a first at its `await`, and MySQLNIO's
+    // connection cannot run concurrent queries.
+    private var busy = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    public init() {}
+
+    private func lock() async {
+        while busy { await withCheckedContinuation { waiters.append($0) } }
+        busy = true
+    }
+
+    private func unlock() {
+        busy = false
+        if !waiters.isEmpty { waiters.removeFirst().resume() }
     }
 
     public func connect(profile: ConnectionProfile, secrets: Secrets, endpoint: NetworkEndpoint) async throws {
         await close()
         do {
             let address = try SocketAddress.makeAddressResolvingHost(endpoint.host, port: endpoint.port)
+            // Use the shared singleton group so no per-connection threads leak.
             let connection = try await MySQLConnection.connect(
                 to: address,
                 username: profile.username,
                 database: profile.database,
                 password: secrets.databasePassword ?? "",
                 tlsConfiguration: Self.makeTLS(profile.tlsMode),
-                on: group.next()
+                on: MultiThreadedEventLoopGroup.singleton.next()
             ).get()
             self.connection = connection
             self.databaseName = profile.database
@@ -40,6 +54,8 @@ public actor MySQLDriver: DatabaseDriver {
 
     public func execute(_ sql: String) async throws -> QueryResult {
         guard let connection else { throw DatabaseError.notConnected }
+        await lock()
+        defer { unlock() }
         let clock = ContinuousClock()
         let start = clock.now
         do {
