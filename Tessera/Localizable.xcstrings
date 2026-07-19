@@ -585,6 +585,17 @@
         }
       }
     },
+    "Enable the MCP server": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapnout MCP server"
+          }
+        }
+      }
+    },
     "Executed queries will appear here.": {
       "extractionState": "manual",
       "localizations": {
@@ -882,6 +893,17 @@
         }
       }
     },
+    "MCP server": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP server"
+          }
+        }
+      }
+    },
     "MCP: allow reading (let Claude query this connection)": {
       "extractionState": "manual",
       "localizations": {
@@ -1054,6 +1076,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK"
+          }
+        }
+      }
+    },
+    "Off by default. When on, Tessera listens on 127.0.0.1 so an MCP client such as Claude can query it — but only connections that individually allow MCP access are exposed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ve výchozím stavu vypnuto. Když je zapnutý, Tessera naslouchá na 127.0.0.1, aby se mohl MCP klient jako Claude ptát — vystavená jsou ale jen připojení, která mají přístup MCP povolený jednotlivě."
           }
         }
       }

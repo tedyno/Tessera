@@ -53,6 +53,8 @@ struct ExportSettingsView: View {
     @State private var maxRows = ExportSettings.maxRows
     @State private var language = AppLanguage.current
     @State private var languageChanged = false
+    @State private var mcpEnabled = MCPSettings.isEnabled
+    @State private var mcpPort = MCPSettings.port
 
     var body: some View {
         Form {
@@ -88,6 +90,21 @@ struct ExportSettingsView: View {
                 }
                 Toggle("Reveal the file in Finder after export", isOn: $reveal)
                     .onChange(of: reveal) { _, newValue in ExportSettings.revealAfterExport = newValue }
+            }
+            Section("MCP server") {
+                Toggle("Enable the MCP server", isOn: $mcpEnabled)
+                    .onChange(of: mcpEnabled) { _, newValue in MCPSettings.isEnabled = newValue }
+                if mcpEnabled {
+                    LabeledContent("Port") {
+                        TextField("", value: $mcpPort, format: .number.grouping(.never))
+                            .frame(width: 90)
+                            .onSubmit { MCPSettings.port = mcpPort }
+                    }
+                }
+                Text("Off by default. When on, Tessera listens on 127.0.0.1 so an MCP client "
+                     + "such as Claude can query it — but only connections that individually "
+                     + "allow MCP access are exposed.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Results") {
                 LabeledContent("Max rows per query") {
