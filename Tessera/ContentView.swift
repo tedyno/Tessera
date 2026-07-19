@@ -14,7 +14,7 @@ struct ContentView: View {
                         app.showingNewConnection = true
                     },
                     onEditConnection: { app.editConnection(nodeID: $0) })
-                .frame(minHeight: 120)
+                .frame(minHeight: 100, maxHeight: .infinity)
 
                 SchemaSidebar(
                     tree: app.console.schema,
@@ -30,7 +30,7 @@ struct ContentView: View {
                             app.console.activeTab?.scrollToColumn = column
                         }
                     })
-                .frame(minHeight: 160)
+                .frame(minHeight: 100, maxHeight: .infinity)
             }
             .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
         } detail: {
