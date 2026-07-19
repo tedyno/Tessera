@@ -24,6 +24,11 @@ struct TesseraCommands: Commands {
     let app: AppModel
 
     var body: some Commands {
+        // The GPL asks a program with a user interface to show its legal notices.
+        CommandGroup(replacing: .appInfo) {
+            Button("About Tessera") { Self.showAbout() }
+        }
+
         // Replace the default "New Window" (⌘N) — a single-window DB client doesn't
         // need it. ⌘N goes to "Add Row" (Query menu); New Connection moves to ⇧⌘N.
         CommandGroup(replacing: .newItem) {
@@ -91,5 +96,26 @@ struct TesseraCommands: Commands {
                     .keyboardShortcut(KeyEquivalent(Character("\(index)")), modifiers: .command)
             }
         }
+    }
+
+    /// The standard About panel, with the copyright and licence terms in the credits.
+    private static func showAbout() {
+        let notice = String(localized: """
+            A native database client for PostgreSQL and MySQL.
+
+            Copyright © 2026 David Vaníček
+
+            Tessera is free software under the GNU General Public License, version 3. \
+            You may redistribute and modify it under those terms. It comes with \
+            absolutely no warranty.
+
+            Includes third-party open-source components (MIT and Apache-2.0 licensed); \
+            their notices are in THIRD-PARTY-LICENSES.md alongside the source.
+            """)
+        let credits = NSAttributedString(
+            string: notice,
+            attributes: [.font: NSFont.preferredFont(forTextStyle: .callout),
+                         .foregroundColor: NSColor.labelColor])
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 }

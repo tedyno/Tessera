@@ -1,79 +1,137 @@
 # Tessera
 
 A fast, native database client for macOS. No Electron, no webview, no JavaScript —
-pure SwiftUI. Built for PostgreSQL and MySQL, with secure credential storage and SSH
-tunneling.
+pure Swift and SwiftUI. Built for PostgreSQL and MySQL, with secure credential storage
+and SSH tunnelling.
 
-> ⚠️ **Early stage.** Currently the UI skeleton and domain core (Phase 0). Database
-> connectivity is still being implemented.
+The name is the Latin word for a single tile of a mosaic: one cell of a data grid, from
+which the whole picture is assembled.
 
-## Goals
+> **Status:** under active development and usable day to day, but expect rough edges.
 
-- **Native and fast** — SwiftUI, no webview. Looks and behaves like a macOS app.
-- **PostgreSQL and MySQL** — a unified core, easy to extend to more engines.
-- **Secure** — passwords and SSH keys live in the system Keychain, never in plain text on disk.
-- **SSH tunneling** — reach databases behind a bastion (local port forwarding).
-- **Connection organization** — a Workspace → Project → Folder → Connection tree.
-- **Localized** — English base language, structured for additional languages via a String Catalog.
+## Features
 
-## MVP status
+- **PostgreSQL and MySQL** through one interface, with several connections live at once —
+  staging and production side by side, each tab bound to its own session.
+- **Connection organizer** — nest connections in folders, colour-code them, and mark the
+  dangerous ones read-only.
+- **Schema browser** with search across schemas, tables and columns.
+- **SQL editor** with syntax highlighting, completion, run-statement-at-cursor, and
+  server-side cancellation (`pg_cancel_backend` / `KILL QUERY`).
+- **Editable results grid** — edit, insert, duplicate and delete rows; changes are staged,
+  reviewable, discardable, and committed in a single transaction.
+- **Table view** separate from the console, with filtering, sorting, paging and row counts.
+- **Schema editing** — add, rename, retype and drop columns, indexes and tables, with the
+  generated DDL shown before it runs.
+- **Import and export** through `pg_dump`/`mysqldump`/`psql`/`pg_restore`/`mysql`, including
+  gzip, with the binary matched to the server's major version.
+- **SSH tunnelling** with password or key authentication (OpenSSH ed25519 and RSA keys).
+- **Secrets stay in the Keychain** — never in a config file, never in the organizer JSON.
+- **MCP server** — optionally let an AI assistant query your databases. See below.
+- **Localized** — English and Czech.
 
-- [x] Domain core (models, protocols, organizer/profile persistence)
-- [x] Three-column window (organizer · schema · editor + results)
-- [x] PostgreSQL connections and query execution
-- [x] Secure credential storage in the Keychain
-- [x] Schema browser (Database → Schema → Table → Column), double-click a table to `SELECT *`
-- [x] MySQL connections
-- [x] SSH tunnel — password auth (private-key auth is not implemented yet)
-- [x] Connection organizer tree (Workspace → Project → Folder → Connection) with drag & drop
-- [x] Query tabs and searchable history
-- [x] SQL syntax highlighting and query cancellation
-- [x] Virtualized results grid for large result sets
+## Requirements
 
-## Tech stack
+macOS 26 or later, on Apple silicon or Intel. Building requires Xcode 26 or later.
 
-- **Language / UI:** Swift 6, SwiftUI (macOS 26+)
-- **Postgres / MySQL:** PostgresNIO / MySQLNIO
-- **SSH:** Citadel (swift-nio-ssh)
-- **Credentials:** macOS Keychain (Security.framework)
+## Installing
 
-## Layout
+Tessera is distributed as an **unsigned, un-notarized** build, because it is an open-source
+project without a paid Apple Developer account. macOS will therefore refuse to open it on
+the first try. To get past Gatekeeper, either:
+
+- right-click the app → **Open** → **Open** in the dialog, or
+- strip the quarantine flag:
+
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/Tessera.app
+  ```
+
+If that makes you uncomfortable — reasonably so — build it from source instead, and
+Gatekeeper is a non-issue.
+
+## Building from source
+
+```sh
+git clone https://github.com/tedyno/Tessera.git
+cd Tessera
+open Tessera.xcodeproj   # then ⌘R
+```
+
+Or from the command line:
+
+```sh
+xcodebuild -project Tessera.xcodeproj -scheme Tessera -destination 'platform=macOS' build
+```
+
+The portable core is a local Swift package and builds and tests on its own:
+
+```sh
+cd TesseraCore && swift build && swift test
+```
+
+## MCP server
+
+Tessera can act as a [Model Context Protocol](https://modelcontextprotocol.io) server, so an
+assistant like Claude can inspect your schema and run queries for you.
+
+It is **off by default**, and access is layered so that nothing happens by accident:
+
+1. A master switch in **Settings ▸ MCP**, off until you turn it on.
+2. Per connection, separate **read** and **write** permissions — a connection is invisible to
+   MCP until you grant read.
+3. Every write, export and import asks for confirmation, showing the exact SQL or file.
+4. A connection marked read-only can never be granted write access.
+
+The server binds to `127.0.0.1` only, requires a bearer token, and refuses any request
+carrying an `Origin` header, so a web page cannot drive it. Passwords are never exposed over
+MCP, and MCP cannot choose where an export is written. **Query ▸ MCP Activity** shows a live
+log of everything a client has done.
+
+Settings ▸ MCP generates the client configuration snippet for you.
+
+## Architecture
+
+Two layers, strictly separated:
 
 ```
 Tessera.xcodeproj      # macOS app target (SwiftUI)
 Tessera/               # app sources (UI layer)
-TesseraCore/           # local Swift Package — portable core (no SwiftUI)
-  Sources/DBKit/         # models + protocols (no networking dependencies)
-  Sources/DBPersistence/ # organizer and profile persistence (JSON)
+TesseraCore/           # local Swift Package — portable core, no SwiftUI
+  Sources/DBKit/           # models + protocols (no networking dependencies)
+  Sources/DBPersistence/   # organizer and profile persistence (JSON)
+  Sources/DBDriverPostgres/
+  Sources/DBDriverMySQL/
+  Sources/DBTunnel/        # SSH local port forwarding
+  Sources/DBSecurity/      # Keychain wrapper
+  Sources/DBMCPServer/     # MCP HTTP transport
 ```
 
-The core (`TesseraCore`) deliberately knows nothing about SwiftUI or specific database
-drivers — it communicates through protocols. The UI layer builds on top of it.
+`TesseraCore` deliberately knows nothing about SwiftUI; the drivers depend on `DBKit`, never
+the other way round. The UI talks to the core purely through `DBKit` protocols, injected as
+dependencies.
 
-## Build and run
+**Tech stack:** Swift 6 (strict concurrency), SwiftUI, PostgresNIO, MySQLNIO, Citadel
+(swift-nio-ssh), Security.framework.
 
-Requires **Xcode 26+** and **macOS 26+**.
+## Contributing
 
-```sh
-# App
-open Tessera.xcodeproj      # then ⌘R in Xcode
+Issues and pull requests are welcome. Two things to know before you open one:
 
-# Core only (tests)
-cd TesseraCore && swift test
-```
-
-### Running a downloaded build
-
-The app is not signed or notarized (open source, outside the App Store). On first launch
-of a downloaded build, macOS Gatekeeper will block it — open it via **right-click → Open**,
-or strip the quarantine attribute:
-
-```sh
-xattr -dr com.apple.quarantine Tessera.app
-```
-
-The cleanest path is to build from source (see above) — then Gatekeeper is a non-issue.
+- All repository content is in **English** — code, comments, commit messages, docs. The app
+  UI is localized separately through `Tessera/Localizable.xcstrings`.
+- Every user-facing string must be localizable; never hand a bare `String` to the UI.
 
 ## License
 
-To be added.
+Copyright (C) 2026 David Vaníček
+
+Tessera is free software: you can redistribute it and modify it under the terms of the
+**GNU General Public License, version 3**, as published by the Free Software Foundation.
+See [`LICENSE`](LICENSE) for the full text.
+
+It is distributed in the hope that it will be useful, but **without any warranty** — without
+even the implied warranty of merchantability or fitness for a particular purpose.
+
+Third-party components and their notices are listed in
+[`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md).
