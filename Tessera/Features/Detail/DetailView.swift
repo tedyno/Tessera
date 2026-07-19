@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import DBKit
+import DBPersistence
 
 /// A connection a tab can be pointed at, for the tab's connection picker.
 struct ConnectionOption: Identifiable, Hashable {
@@ -19,8 +20,9 @@ struct DetailView: View {
     var isReadOnly: Bool = false
     var onRun: () -> Void
     var onExportResult: (ResultExport.Format) -> Void = { _ in }
-    /// Runs a specific SQL string (used by "Run" in the history sheet).
-    var onRunSQL: (String) -> Void = { _ in }
+    /// History actions route to the connection each entry came from.
+    var onPickHistory: (QueryHistoryEntry) -> Void = { _ in }
+    var onRunHistory: (QueryHistoryEntry) -> Void = { _ in }
     /// Connections a tab can target, and the action to point the active tab at one.
     var connectionOptions: [ConnectionOption] = []
     var onSelectConnection: (UUID) -> Void = { _ in }
@@ -64,14 +66,13 @@ struct DetailView: View {
         .sheet(isPresented: $showingHistory) {
             HistoryView(
                 history: model.history,
-                onPick: { sql in
-                    model.loadIntoActiveTab(sql)
+                onPick: { entry in
+                    onPickHistory(entry)
                     showingHistory = false
                 },
-                onRun: { sql in
-                    model.loadIntoActiveTab(sql)
+                onRun: { entry in
+                    onRunHistory(entry)
                     showingHistory = false
-                    onRunSQL(sql)
                 },
                 onClear: { model.clearHistory() })
         }

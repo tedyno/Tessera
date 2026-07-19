@@ -6,10 +6,10 @@ import DBPersistence
 /// active tab.
 struct HistoryView: View {
     let history: [QueryHistoryEntry]
-    /// Loads the SQL into the active tab without running it.
-    var onPick: (String) -> Void
-    /// Loads and immediately runs the SQL.
-    var onRun: (String) -> Void = { _ in }
+    /// Loads the entry into a tab bound to its original connection (no run).
+    var onPick: (QueryHistoryEntry) -> Void
+    /// Loads and runs the entry against its original connection.
+    var onRun: (QueryHistoryEntry) -> Void = { _ in }
     var onClear: () -> Void = { }
 
     @Environment(\.dismiss) private var dismiss
@@ -68,16 +68,16 @@ struct HistoryView: View {
                             .foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 4)
-                        Button("Run") { onRun(entry.sql) }
+                        Button("Run") { onRun(entry) }
                             .controlSize(.small)
-                            .help("Load into the active tab and run it")
+                            .help("Run against the connection it came from")
                     }
                     .padding(.vertical, 2)
                     .contentShape(Rectangle())
-                    .onTapGesture { onPick(entry.sql) }
+                    .onTapGesture { onPick(entry) }
                     .contextMenu {
-                        Button("Load into Editor") { onPick(entry.sql) }
-                        Button("Run") { onRun(entry.sql) }
+                        Button("Load into Editor") { onPick(entry) }
+                        Button("Run") { onRun(entry) }
                         Divider()
                         Button("Copy SQL") {
                             NSPasteboard.general.clearContents()

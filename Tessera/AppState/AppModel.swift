@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import DBKit
 import DBMCPServer
+import DBPersistence
 import UniformTypeIdentifiers
 
 /// Scene-level state so menu-bar commands (keyboard shortcuts) can act on the
@@ -478,6 +479,41 @@ final class AppModel {
 
     func refreshSchema() { Task { await console.refreshSchema() } }
     func showHistory() { showingHistory = true }
+
+    /// A tab bound to the connection a history entry came from: reuses the active
+    /// console tab if it already targets that connection, otherwise opens a new one
+    /// (connecting the session first). Falls back to the active tab when the origin
+    /// is unknown (older entry) or the connection was deleted.
+    private func historyTab(for entry: QueryHistoryEntry) async -> QueryTab? {
+        guard let profileID = entry.profileID, let profile = connections.profile(id: profileID) else {
+            if console.activeTab == nil || console.activeTab?.kind != .console { console.addTab() }
+            return console.activeTab
+        }
+        let session = ensureSession(profile: profile)
+        if !session.isReady, !session.isConnecting { await openSession(session, profile: profile) }
+        if console.activeTab?.session?.id != session.id || console.activeTab?.kind != .console {
+            console.addTab()
+            console.activeTab?.session = session
+        }
+        return console.activeTab
+    }
+
+    /// Loads a history entry into a tab bound to its original connection (no run).
+    func loadHistoryEntry(_ entry: QueryHistoryEntry) {
+        Task {
+            guard let tab = await historyTab(for: entry) else { return }
+            tab.sql = entry.sql
+        }
+    }
+
+    /// Re-runs a history entry against the connection it originally ran on.
+    func runHistoryEntry(_ entry: QueryHistoryEntry) {
+        Task {
+            guard let tab = await historyTab(for: entry) else { return }
+            tab.sql = entry.sql
+            runChecked(entry.sql, on: tab)
+        }
+    }
 
     func addRowToActiveTab() {
         guard let tab = console.activeTab else { return }

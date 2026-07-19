@@ -5,6 +5,9 @@ public struct QueryHistoryEntry: Codable, Sendable, Identifiable, Hashable {
     public let id: UUID
     public var sql: String
     public var connectionName: String
+    /// The connection this query ran against, so re-running from history targets the
+    /// original database. Optional/`nil` for entries recorded before this was tracked.
+    public var profileID: UUID?
     public var timestamp: Date
     public var rowCount: Int?
     public var elapsedMS: Int?
@@ -13,6 +16,7 @@ public struct QueryHistoryEntry: Codable, Sendable, Identifiable, Hashable {
         id: UUID = UUID(),
         sql: String,
         connectionName: String,
+        profileID: UUID? = nil,
         timestamp: Date,
         rowCount: Int? = nil,
         elapsedMS: Int? = nil
@@ -20,6 +24,7 @@ public struct QueryHistoryEntry: Codable, Sendable, Identifiable, Hashable {
         self.id = id
         self.sql = sql
         self.connectionName = connectionName
+        self.profileID = profileID
         self.timestamp = timestamp
         self.rowCount = rowCount
         self.elapsedMS = elapsedMS

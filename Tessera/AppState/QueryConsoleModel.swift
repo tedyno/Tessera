@@ -137,7 +137,7 @@ final class QueryConsoleModel {
             tab.editSource = detectEditSource(sql: sql, columns: result.columns, schema: session.schema)
             let ms = result.elapsed.map(Self.milliseconds)
             tab.elapsedMS = ms
-            recordHistory(sql: sql, connectionName: session.name, rowCount: result.rows.count, elapsedMS: ms)
+            recordHistory(sql: sql, session: session, rowCount: result.rows.count, elapsedMS: ms)
         } catch {
             tab.errorMessage = ConnectionSession.message(for: error)
         }
@@ -165,7 +165,7 @@ final class QueryConsoleModel {
             for statement in statements {
                 lastResult = try await driver.execute(statement, maxRows: cap > 0 ? cap : nil)
                 executed += 1
-                recordHistory(sql: statement, connectionName: session.name,
+                recordHistory(sql: statement, session: session,
                               rowCount: lastResult?.rows.count ?? 0, elapsedMS: nil)
             }
             tab.result = lastResult ?? QueryResult()
@@ -666,7 +666,7 @@ final class QueryConsoleModel {
         }
         do {
             _ = try await driver.execute(sql)
-            recordHistory(sql: sql, connectionName: session.name, rowCount: 0, elapsedMS: nil)
+            recordHistory(sql: sql, session: session, rowCount: 0, elapsedMS: nil)
             await session.refreshSchema()
             return nil
         } catch {
@@ -712,9 +712,9 @@ final class QueryConsoleModel {
         Task.detached { store.save(snapshot) }
     }
 
-    private func recordHistory(sql: String, connectionName: String, rowCount: Int, elapsedMS: Int?) {
+    private func recordHistory(sql: String, session: ConnectionSession, rowCount: Int, elapsedMS: Int?) {
         let entry = QueryHistoryEntry(
-            sql: sql, connectionName: connectionName, timestamp: Date(),
+            sql: sql, connectionName: session.name, profileID: session.id, timestamp: Date(),
             rowCount: rowCount, elapsedMS: elapsedMS)
         history.insert(entry, at: 0)
         if history.count > 500 { history = Array(history.prefix(500)) }
