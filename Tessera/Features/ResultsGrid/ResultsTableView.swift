@@ -20,10 +20,36 @@ final class GridTextField: NSTextField {
     var columnIndex = -1
 }
 
-/// NSTableView that routes ⌘C/⌘V to the coordinator for multi-cell copy/paste.
+struct CellPos: Hashable { let row: Int; let col: Int }
+
+/// NSTableView with spreadsheet-style cell selection: click/drag selects a
+/// rectangular block of cells, double-click edits, ⌘C/⌘V copy/paste the block.
 final class GridTableView: NSTableView {
+    var onSelect: ((Int, Int, Bool) -> Void)?   // row, col, extend
+    var onBeginEdit: ((Int, Int) -> Void)?
     var onPaste: (() -> Void)?
     var onCopy: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let row = self.row(at: point)
+        let col = self.column(at: point)
+        guard row >= 0, col >= 0 else { super.mouseDown(with: event); return }
+        window?.makeFirstResponder(self)
+        if event.clickCount >= 2 {
+            onBeginEdit?(row, col)
+            return
+        }
+        onSelect?(row, col, event.modifierFlags.contains(.shift))
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let row = self.row(at: point)
+        let col = self.column(at: point)
+        if row >= 0, col >= 0 { onSelect?(row, col, true) }
+    }
+
     @objc func paste(_ sender: Any?) { onPaste?() }
     @objc func copy(_ sender: Any?) { onCopy?() }
 }
@@ -41,14 +67,14 @@ struct ResultsTableView: NSViewRepresentable {
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.allowsColumnResizing = true
         tableView.allowsColumnReordering = false
-        tableView.allowsMultipleSelection = true
         tableView.rowHeight = 18
+        tableView.selectionHighlightStyle = .none
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
-        tableView.target = context.coordinator
-        tableView.action = #selector(Coordinator.tableClicked)
-        tableView.onPaste = { [coordinator = context.coordinator] in coordinator.pasteIntoSelection() }
-        tableView.onCopy = { [coordinator = context.coordinator] in coordinator.copySelection() }
+        tableView.onSelect = { [c = context.coordinator] row, col, extend in c.selectCell(row: row, col: col, extend: extend) }
+        tableView.onBeginEdit = { [c = context.coordinator] row, col in c.beginEdit(row: row, col: col) }
+        tableView.onPaste = { [c = context.coordinator] in c.pasteIntoSelection() }
+        tableView.onCopy = { [c = context.coordinator] in c.copySelection() }
 
         let scrollView = NSScrollView()
         scrollView.documentView = tableView
@@ -72,46 +98,83 @@ struct ResultsTableView: NSViewRepresentable {
         private var tab: QueryTab
         weak var tableView: NSTableView?
         private var columnsSignature: [String] = []
-        /// The column last clicked; multi-paste targets this column.
-        private var focusedColumn = 0
+        private var anchor: CellPos?
+        private var focus: CellPos?
 
         init(tab: QueryTab) { self.tab = tab }
 
-        @objc func tableClicked() {
-            if let column = tableView?.clickedColumn, column >= 0 { focusedColumn = column }
+        // MARK: Cell selection
+
+        private var selectionRows: IndexSet {
+            guard let anchor, let focus else { return [] }
+            return IndexSet(integersIn: min(anchor.row, focus.row)...max(anchor.row, focus.row))
+        }
+        private var selectionCols: ClosedRange<Int>? {
+            guard let anchor, let focus else { return nil }
+            return min(anchor.col, focus.col)...max(anchor.col, focus.col)
+        }
+        func isSelected(row: Int, col: Int) -> Bool {
+            guard let cols = selectionCols else { return false }
+            return selectionRows.contains(row) && cols.contains(col)
         }
 
-        /// ⌘V — writes the clipboard string into `focusedColumn` for every selected row.
+        func selectCell(row: Int, col: Int, extend: Bool) {
+            let old = selectionRows
+            if extend, anchor != nil {
+                focus = CellPos(row: row, col: col)
+            } else {
+                anchor = CellPos(row: row, col: col)
+                focus = anchor
+            }
+            reload(rows: old.union(selectionRows))
+        }
+
+        func beginEdit(row: Int, col: Int) {
+            guard tab.isEditable, let tableView else { return }
+            anchor = CellPos(row: row, col: col); focus = anchor
+            if let field = tableView.view(atColumn: col, row: row, makeIfNecessary: true) as? GridTextField {
+                field.isEditable = true
+                tableView.editColumn(col, row: row, with: nil, select: true)
+            }
+        }
+
+        private func reload(rows: IndexSet) {
+            guard let tableView, let result = tab.result else { return }
+            tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integersIn: 0..<result.columns.count))
+        }
+
+        /// ⌘V — writes the clipboard string into every selected cell.
         func pasteIntoSelection() {
-            guard tab.isEditable, let result = tab.result, let tableView,
-                  focusedColumn < result.columns.count,
+            guard tab.isEditable, let result = tab.result, let cols = selectionCols,
                   let value = NSPasteboard.general.string(forType: .string) else { return }
-            let rows = tableView.selectedRowIndexes
+            let rows = selectionRows
             guard !rows.isEmpty else { return }
-            let columnName = result.columns[focusedColumn].name
             for row in rows where row < result.rows.count {
-                let original = focusedColumn < result.rows[row].count ? result.rows[row][focusedColumn].text : nil
-                if value == (original ?? "") {
-                    tab.edits[row]?[columnName] = nil
-                    if tab.edits[row]?.isEmpty == true { tab.edits[row] = nil }
-                } else {
-                    tab.edits[row, default: [:]][columnName] = value
+                for col in cols where col < result.columns.count {
+                    let columnName = result.columns[col].name
+                    let original = col < result.rows[row].count ? result.rows[row][col].text : nil
+                    if value == (original ?? "") {
+                        tab.edits[row]?[columnName] = nil
+                        if tab.edits[row]?.isEmpty == true { tab.edits[row] = nil }
+                    } else {
+                        tab.edits[row, default: [:]][columnName] = value
+                    }
                 }
             }
-            tableView.reloadData(forRowIndexes: rows,
-                                 columnIndexes: IndexSet(integersIn: 0..<result.columns.count))
+            reload(rows: rows)
         }
 
-        /// ⌘C — copies `focusedColumn` values of the selected rows (newline-separated).
+        /// ⌘C — copies the selected block (tab/newline separated).
         func copySelection() {
-            guard let result = tab.result, let tableView, focusedColumn < result.columns.count else { return }
-            let rows = tableView.selectedRowIndexes
+            guard let result = tab.result, let cols = selectionCols else { return }
+            let rows = selectionRows
             guard !rows.isEmpty else { return }
-            let columnName = result.columns[focusedColumn].name
             let lines = rows.map { row -> String in
-                if let edited = tab.edits[row]?[columnName] { return edited }
-                let cells = result.rows[row]
-                return (focusedColumn < cells.count ? cells[focusedColumn].text : nil) ?? ""
+                cols.map { col -> String in
+                    if let edited = tab.edits[row]?[result.columns[col].name] { return edited }
+                    let cells = result.rows[row]
+                    return (col < cells.count ? cells[col].text : nil) ?? ""
+                }.joined(separator: "\t")
             }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
@@ -125,6 +188,8 @@ struct ResultsTableView: NSViewRepresentable {
             let signature = result.columns.map(\.name)
             if signature != columnsSignature {
                 columnsSignature = signature
+                anchor = nil
+                focus = nil
                 for column in tableView.tableColumns { tableView.removeTableColumn(column) }
                 for (index, descriptor) in result.columns.enumerated() {
                     let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("\(index)"))
@@ -162,7 +227,13 @@ struct ResultsTableView: NSViewRepresentable {
                 ?? makeField(identifier: identifier)
             field.rowIndex = row
             field.columnIndex = columnIndex
-            field.isEditable = tab.isEditable
+            // Cells select on click (edit on double-click), so keep them non-editable here.
+            field.isEditable = false
+            field.isSelectable = false
+
+            let selected = isSelected(row: row, col: columnIndex)
+            field.drawsBackground = selected
+            field.backgroundColor = selected ? NSColor.controlAccentColor.withAlphaComponent(0.30) : .clear
 
             let columnName = result.columns[columnIndex].name
             let cells = result.rows[row]

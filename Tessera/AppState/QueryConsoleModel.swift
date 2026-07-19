@@ -210,6 +210,16 @@ final class QueryConsoleModel {
         return EditSource(schema: found.namespace, table: found.table, primaryKeys: primaryKeys)
     }
 
+    /// The UPDATE statements that ⌘↩ would run for the tab's pending edits.
+    func pendingUpdates(_ tab: QueryTab) -> [String] {
+        guard let source = tab.editSource, let result = tab.result else { return [] }
+        return tab.edits.sorted { $0.key < $1.key }.compactMap { rowIndex, changes in
+            guard rowIndex < result.rows.count else { return nil }
+            return buildUpdate(source: source, columns: result.columns,
+                               originalRow: result.rows[rowIndex], changes: changes)
+        }
+    }
+
     private func buildUpdate(source: EditSource, columns: [ColumnDescriptor],
                              originalRow: [Cell], changes: [String: String]) -> String? {
         guard !changes.isEmpty else { return nil }

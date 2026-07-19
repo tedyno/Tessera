@@ -11,6 +11,7 @@ struct DetailView: View {
     var cursor: Binding<Int>
     var isReadOnly: Bool = false
     var onRun: () -> Void
+    @State private var showingPendingSQL = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -121,6 +122,22 @@ struct DetailView: View {
             .frame(height: 150)
     }
 
+    private func pendingSQLView(_ tab: QueryTab) -> some View {
+        let statements = model.pendingUpdates(tab)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Pending changes — ⌘↩ to run").font(.headline)
+            Divider()
+            ScrollView {
+                Text(statements.isEmpty ? "— nothing to write —" : statements.joined(separator: "\n"))
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(12)
+        .frame(width: 520, height: 280)
+    }
+
     private var sqlBinding: Binding<String> {
         Binding(get: { model.activeTab?.sql ?? "" }, set: { model.activeTab?.sql = $0 })
     }
@@ -157,8 +174,17 @@ struct DetailView: View {
                     Text("Ready")
                 }
                 if let tab = model.activeTab, tab.hasEdits {
-                    Text("\(tab.edits.count) unsaved — ⌘↩ to commit")
-                        .foregroundStyle(.orange)
+                    Button {
+                        showingPendingSQL.toggle()
+                    } label: {
+                        Text("\(tab.edits.count) unsaved — ⌘↩ to commit")
+                            .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Show the UPDATE statements")
+                    .popover(isPresented: $showingPendingSQL, arrowEdge: .bottom) {
+                        pendingSQLView(tab)
+                    }
                 }
             }
             Spacer()
