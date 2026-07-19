@@ -117,7 +117,8 @@ final class QueryConsoleModel {
             return
         }
         do {
-            let result = try await driver.execute(sql)
+            let cap = ExportSettings.maxRows
+            let result = try await driver.execute(sql, maxRows: cap > 0 ? cap : nil)
             tab.result = result
             tab.resultVersion &+= 1
             tab.scriptSummary = nil
@@ -517,13 +518,14 @@ final class QueryConsoleModel {
     }
 
     /// The generated `SELECT *` for a data view, folding in the filter, sort, and page limit.
-    private func dataSQL(_ tab: QueryTab) -> String {
+    private func dataSQL(_ tab: QueryTab, limit: Int? = nil, offset: Int? = nil) -> String {
         guard let session = tab.session, let schema = tab.dataSchema, let table = tab.dataTable else { return tab.sql }
         var sql = "SELECT * FROM \(session.quote(schema)).\(session.quote(table))"
         let filter = tab.filterWhere.trimmingCharacters(in: .whitespacesAndNewlines)
         if !filter.isEmpty { sql += " WHERE \(filter)" }
         if let column = tab.sortColumn { sql += " ORDER BY \(session.quote(column)) \(tab.sortAscending ? "ASC" : "DESC")" }
-        sql += " LIMIT \(tab.pageLimit)"
+        sql += " LIMIT \(limit ?? tab.pageLimit)"
+        if let offset, offset > 0 { sql += " OFFSET \(offset)" }
         return sql
     }
 
@@ -549,12 +551,33 @@ final class QueryConsoleModel {
         }
     }
 
-    /// "Load more" — grows the page limit by one page and re-runs from the top.
+    /// "Load more" — fetches only the next page (via OFFSET) and appends it, so
+    /// growing a large view doesn't refetch everything already on screen.
     /// No-op with pending changes so a reload can't silently discard them.
     func loadMore(_ tab: QueryTab) async {
-        guard tab.kind == .data, !tab.hasEdits else { return }
-        tab.pageLimit += QueryTab.pageSize
-        await reloadData(tab)
+        guard tab.kind == .data, !tab.hasEdits, !tab.isRunning,
+              let session = tab.session, var existing = tab.result else { return }
+        tab.isRunning = true
+        tab.errorMessage = nil
+        defer { tab.isRunning = false }
+        guard await ensureReady(session), let driver = session.driver else {
+            tab.errorMessage = session.errorMessage ?? "Not connected"
+            return
+        }
+        let offset = existing.rows.count
+        let sql = dataSQL(tab, limit: QueryTab.pageSize, offset: offset)
+        do {
+            let page = try await driver.execute(sql, maxRows: QueryTab.pageSize)
+            guard !page.rows.isEmpty else { return }
+            existing.rows.append(contentsOf: page.rows)
+            existing.isTruncated = page.isTruncated
+            tab.result = existing
+            tab.resultVersion &+= 1
+            tab.pageLimit = existing.rows.count
+            tab.sql = dataSQL(tab)
+        } catch {
+            tab.errorMessage = ConnectionSession.message(for: error)
+        }
     }
 
     /// Sets an explicit row limit for a data view (overrides the paging default) and re-runs.

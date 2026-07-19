@@ -35,16 +35,21 @@ public struct QueryResult: Sendable {
     public var rowsAffected: Int?
     /// Client-side query execution time.
     public var elapsed: Duration?
+    /// True when the driver stopped at the row limit and more rows exist on the
+    /// server — the grid shows only what was fetched.
+    public var isTruncated: Bool
 
     public init(
         columns: [ColumnDescriptor] = [],
         rows: [[Cell]] = [],
         rowsAffected: Int? = nil,
-        elapsed: Duration? = nil
+        elapsed: Duration? = nil,
+        isTruncated: Bool = false
     ) {
         self.columns = columns
         self.rows = rows
         self.rowsAffected = rowsAffected
         self.elapsed = elapsed
+        self.isTruncated = isTruncated
     }
 }

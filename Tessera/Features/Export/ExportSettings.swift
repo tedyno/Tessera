@@ -22,6 +22,13 @@ enum ExportSettings {
         UserDefaults.standard.removeObject(forKey: directoryKey)
     }
 
+    /// Hard cap on rows pulled into memory for one query. 0 = unlimited.
+    static let maxRowsKey = "tessera.maxRows"
+    static var maxRows: Int {
+        get { UserDefaults.standard.object(forKey: maxRowsKey) as? Int ?? 10_000 }
+        set { UserDefaults.standard.set(newValue, forKey: maxRowsKey) }
+    }
+
     /// Show the finished export in Finder. On by default.
     static let revealKey = "tessera.revealAfterExport"
     static var revealAfterExport: Bool {
@@ -43,6 +50,7 @@ enum ExportSettings {
 struct ExportSettingsView: View {
     @State private var directory = ExportSettings.directory
     @State private var reveal = ExportSettings.revealAfterExport
+    @State private var maxRows = ExportSettings.maxRows
 
     var body: some View {
         Form {
@@ -59,6 +67,16 @@ struct ExportSettingsView: View {
                 }
                 Toggle("Reveal the file in Finder after export", isOn: $reveal)
                     .onChange(of: reveal) { _, newValue in ExportSettings.revealAfterExport = newValue }
+            }
+            Section("Results") {
+                LabeledContent("Max rows per query") {
+                    HStack {
+                        TextField("", value: $maxRows, format: .number)
+                            .frame(width: 90)
+                            .onSubmit { ExportSettings.maxRows = max(0, maxRows) }
+                        Text("0 = unlimited").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
         }
         .formStyle(.grouped)

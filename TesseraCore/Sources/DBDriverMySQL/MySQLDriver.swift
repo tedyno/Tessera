@@ -61,7 +61,7 @@ public actor MySQLDriver: DatabaseDriver {
         }
     }
 
-    public func execute(_ sql: String) async throws -> QueryResult {
+    public func execute(_ sql: String, maxRows: Int?) async throws -> QueryResult {
         guard let connection else { throw DatabaseError.notConnected }
         await lock()
         defer { unlock() }
@@ -78,14 +78,19 @@ public actor MySQLDriver: DatabaseDriver {
                 }
             }
             var resultRows: [[Cell]] = []
+            var truncated = false
             for row in rows {
+                // COM_QUERY buffers the whole result, so the cap trims what we keep
+                // and decode rather than what the server sends.
+                if let maxRows, resultRows.count >= maxRows { truncated = true; break }
                 var cells: [Cell] = []
                 for definition in row.columnDefinitions {
                     cells.append(Cell(Self.text(row.column(definition.name))))
                 }
                 resultRows.append(cells)
             }
-            return QueryResult(columns: columns, rows: resultRows, elapsed: clock.now - start)
+            return QueryResult(columns: columns, rows: resultRows,
+                               elapsed: clock.now - start, isTruncated: truncated)
         } catch is CancellationError {
             throw DatabaseError.cancelled
         } catch {
@@ -137,7 +142,7 @@ public actor MySQLDriver: DatabaseDriver {
     }
 
     public func serverVersion() async throws -> String {
-        let result = try await execute("SELECT VERSION()")
+        let result = try await execute("SELECT VERSION()", maxRows: nil)
         return result.rows.first?.first?.text ?? "unknown"
     }
 
@@ -148,23 +153,23 @@ public actor MySQLDriver: DatabaseDriver {
         let tables = try await execute("""
             SELECT table_name, table_type FROM information_schema.tables
             WHERE table_schema = DATABASE() ORDER BY table_name
-            """)
+            """, maxRows: nil)
         let columns = try await execute("""
             SELECT table_name, column_name, data_type, is_nullable, column_key, extra
             FROM information_schema.columns
             WHERE table_schema = DATABASE()
             ORDER BY table_name, ordinal_position
-            """)
+            """, maxRows: nil)
         let foreignKeysResult = try await execute("""
             SELECT table_name, column_name FROM information_schema.key_column_usage
             WHERE table_schema = DATABASE() AND referenced_table_name IS NOT NULL
-            """)
+            """, maxRows: nil)
         let statistics = try await execute("""
             SELECT table_name, index_name, non_unique, column_name, seq_in_index
             FROM information_schema.statistics
             WHERE table_schema = DATABASE()
             ORDER BY table_name, index_name, seq_in_index
-            """)
+            """, maxRows: nil)
 
         var foreignKeys: Set<String> = []
         for row in foreignKeysResult.rows where row.count >= 2 {

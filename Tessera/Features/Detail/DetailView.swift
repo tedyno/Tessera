@@ -424,6 +424,11 @@ struct DetailView: View {
                 } else if let result = model.activeTab?.result {
                     Text("\(result.rows.count) rows")
                     Text("\(result.columns.count) columns")
+                    if result.isTruncated {
+                        Label("truncated at the row limit", systemImage: "scissors")
+                            .foregroundStyle(.orange)
+                            .help("Raise “Max rows per query” in Settings to fetch more.")
+                    }
                 } else {
                     Text("Ready")
                 }

@@ -46,7 +46,7 @@ public actor PostgresDriver: DatabaseDriver {
         }
     }
 
-    public func execute(_ sql: String) async throws -> QueryResult {
+    public func execute(_ sql: String, maxRows: Int?) async throws -> QueryResult {
         guard let client else { throw DatabaseError.notConnected }
 
         let clock = ContinuousClock()
@@ -64,8 +64,11 @@ public actor PostgresDriver: DatabaseDriver {
                 let rows = try await connection.query(PostgresQuery(unsafeSQL: sql), logger: logger)
                 var columns: [ColumnDescriptor] = []
                 var resultRows: [[Cell]] = []
+                var truncated = false
 
                 for try await row in rows {
+                    // Stop pulling once the cap is reached — the rest is never decoded.
+                    if let maxRows, resultRows.count >= maxRows { truncated = true; break }
                     var cells: [Cell] = []
                     var index = 0
                     for cell in row {
@@ -78,7 +81,8 @@ public actor PostgresDriver: DatabaseDriver {
                     }
                     resultRows.append(cells)
                 }
-                return QueryResult(columns: columns, rows: resultRows, elapsed: clock.now - start)
+                return QueryResult(columns: columns, rows: resultRows,
+                                   elapsed: clock.now - start, isTruncated: truncated)
             }
         } catch is CancellationError {
             throw DatabaseError.cancelled
@@ -138,7 +142,7 @@ public actor PostgresDriver: DatabaseDriver {
     }
 
     public func serverVersion() async throws -> String {
-        let result = try await execute("SHOW server_version")
+        let result = try await execute("SHOW server_version", maxRows: nil)
         let raw = result.rows.first?.first?.text ?? ""
         return raw.split(separator: " ").first.map(String.init) ?? raw
     }
@@ -151,14 +155,14 @@ public actor PostgresDriver: DatabaseDriver {
             FROM information_schema.tables
             WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
             ORDER BY table_schema, table_name
-            """)
+            """, maxRows: nil)
         let columnsResult = try await execute("""
             SELECT table_schema, table_name, column_name, data_type, is_nullable,
                    column_default, is_identity
             FROM information_schema.columns
             WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
             ORDER BY table_schema, table_name, ordinal_position
-            """)
+            """, maxRows: nil)
         let keyResult = try await execute("""
             SELECT tc.table_schema, tc.table_name, kcu.column_name, tc.constraint_type
             FROM information_schema.table_constraints tc
@@ -166,13 +170,13 @@ public actor PostgresDriver: DatabaseDriver {
               ON tc.constraint_name = kcu.constraint_name
              AND tc.table_schema = kcu.table_schema
             WHERE tc.constraint_type IN ('PRIMARY KEY', 'FOREIGN KEY')
-            """)
+            """, maxRows: nil)
         let indexResult = try await execute("""
             SELECT schemaname, tablename, indexname, indexdef
             FROM pg_indexes
             WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
             ORDER BY schemaname, tablename, indexname
-            """)
+            """, maxRows: nil)
 
         var primaryKeys: Set<String> = []
         var foreignKeys: Set<String> = []

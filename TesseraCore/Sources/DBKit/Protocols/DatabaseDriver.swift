@@ -19,7 +19,10 @@ public enum DatabaseError: Error, Sendable, Equatable {
 public protocol DatabaseDriver: Sendable {
     func connect(profile: ConnectionProfile, secrets: Secrets, endpoint: NetworkEndpoint) async throws
     func fetchSchema() async throws -> DatabaseTree
-    func execute(_ sql: String) async throws -> QueryResult
+    /// Runs `sql`, reading at most `maxRows` rows (nil = no cap). Stopping early
+    /// keeps a huge result from being pulled entirely into memory; the result is
+    /// then marked `isTruncated`.
+    func execute(_ sql: String, maxRows: Int?) async throws -> QueryResult
     /// Runs `statements` atomically on a single connection (BEGIN … COMMIT, with
     /// ROLLBACK on the first failure), so a partial write can't be left behind.
     func executeTransaction(_ statements: [String]) async throws
@@ -29,4 +32,11 @@ public protocol DatabaseDriver: Sendable {
     /// The database server version string (e.g. "16.3").
     func serverVersion() async throws -> String
     func close() async
+}
+
+public extension DatabaseDriver {
+    /// Convenience for callers that don't need a row cap.
+    func execute(_ sql: String) async throws -> QueryResult {
+        try await execute(sql, maxRows: nil)
+    }
 }
