@@ -13,6 +13,20 @@ open-source build (no App Store → no App Sandbox).
   never a bare `String` shown to the user. Strings are collected in
   `Tessera/Localizable.xcstrings` (String Catalog). English is the source language;
   additional languages (incl. Czech) are added in the catalog.
+- **Adding a user-facing string means adding its translations in the same change.**
+  `xcodebuild` does *not* write to `Localizable.xcstrings` — only Xcode.app does — so a
+  new string silently stays English-only unless the catalog is edited too. Add the key
+  and a Czech value to `Tessera/Localizable.xcstrings` by hand (it is plain JSON), with
+  `"extractionState": "manual"`. Czech needs three integer plural forms (1 / 2–4 / 5+),
+  so a counted string uses `localizations.cs.variations.plural` with `one`/`few`/`other`
+  rather than a single `stringUnit`. Purely structural keys (`%@ %@`, `%lld`, `CSV`)
+  get `"shouldTranslate": false` instead of a translation.
+- **Check coverage before shipping.** The authoritative list of strings in the code is
+  the `.stringsdata` emitted by the build (`SWIFT_EMIT_LOC_STRINGS = YES`), under
+  `~/Library/Developer/Xcode/DerivedData/Tessera-*/Build/Intermediates.noindex/Tessera.build/**/Objects-normal/*/`.
+  Read them with `plutil -convert json` and compare against the catalog; every key must
+  either have a `cs` localization or `shouldTranslate: false`. Prune keys the code no
+  longer uses.
 
 ## Architecture
 
