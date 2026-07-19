@@ -71,6 +71,14 @@ public actor PostgresDriver: DatabaseDriver {
                 if let pid { self.runningBackendPIDs.insert(pid) }
                 defer { if let pid { self.runningBackendPIDs.remove(pid) } }
 
+                // A plain INSERT/UPDATE/DELETE returns no rows — report the affected
+                // count from the command tag instead.
+                if SQLText.isDML(sql) {
+                    let result = try await connection.query(sql).get()
+                    return QueryResult(columns: [], rows: [], rowsAffected: result.metadata.rows,
+                                       elapsed: clock.now - start)
+                }
+
                 let rows = try await connection.query(PostgresQuery(unsafeSQL: sql), logger: logger)
                 var columns: [ColumnDescriptor] = []
                 var resultRows: [[Cell]] = []

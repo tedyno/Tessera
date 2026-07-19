@@ -48,6 +48,22 @@ final class SQLTextTests: XCTestCase {
         XCTAssertEqual(SQLText.identifierRange(in: "a ", caret: 2).length, 0)
     }
 
+    func testIsDML() {
+        XCTAssertTrue(SQLText.isDML("UPDATE t SET a = 1 WHERE id = 2"))
+        XCTAssertTrue(SQLText.isDML("  insert into t values (1)"))
+        XCTAssertTrue(SQLText.isDML("DELETE FROM t"))
+        XCTAssertTrue(SQLText.isDML("-- a comment\nUPDATE t SET a = 1"))
+        // RETURNING makes it row-returning, so not a plain command.
+        XCTAssertFalse(SQLText.isDML("INSERT INTO t VALUES (1) RETURNING id"))
+        XCTAssertFalse(SQLText.isDML("SELECT * FROM t"))
+        XCTAssertFalse(SQLText.isDML("CREATE TABLE t (id int)"))
+    }
+
+    func testLeadingKeyword() {
+        XCTAssertEqual(SQLText.leadingKeyword("  select 1"), "SELECT")
+        XCTAssertEqual(SQLText.leadingKeyword("/* c */ update t set a=1"), "UPDATE")
+    }
+
     func testCompletions() {
         let pool = ["id", "name", "created_at", "LIKE", "IN"]
         XCTAssertEqual(SQLText.completions(for: "na", in: pool), ["name"])

@@ -68,6 +68,15 @@ public actor MySQLDriver: DatabaseDriver {
         let clock = ContinuousClock()
         let start = clock.now
         do {
+            // A plain INSERT/UPDATE/DELETE returns no rows — report the affected
+            // count from the OK packet instead.
+            if SQLText.isDML(sql) {
+                nonisolated(unsafe) var affected: UInt64 = 0
+                _ = try await connection.query(sql, onMetadata: { affected = $0.affectedRows }).get()
+                return QueryResult(columns: [], rows: [], rowsAffected: Int(affected),
+                                   elapsed: clock.now - start)
+            }
+
             // simpleQuery uses the text protocol (COM_QUERY): every value arrives
             // as UTF-8 text, which is what we want for generic display.
             let rows = try await connection.simpleQuery(sql).get()

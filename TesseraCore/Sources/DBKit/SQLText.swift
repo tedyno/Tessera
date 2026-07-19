@@ -64,6 +64,33 @@ public enum SQLText {
         return output
     }
 
+    /// A plain `INSERT`/`UPDATE`/`DELETE` (no `RETURNING`): a data-modifying command
+    /// whose only result is an affected-row count, not a row set. Lets a driver take
+    /// the metadata path to report "N rows affected".
+    public static func isDML(_ sql: String) -> Bool {
+        if sql.range(of: #"(?i)\breturning\b"#, options: .regularExpression) != nil { return false }
+        switch leadingKeyword(sql) {
+        case "INSERT", "UPDATE", "DELETE": return true
+        default: return false
+        }
+    }
+
+    /// The first SQL keyword, skipping leading whitespace and `--` / `/* */` comments.
+    public static func leadingKeyword(_ sql: String) -> String {
+        var s = Substring(sql)
+        while true {
+            s = s.drop(while: \.isWhitespace)
+            if s.hasPrefix("--") { s = s.drop(while: { $0 != "\n" }); continue }
+            if s.hasPrefix("/*") {
+                guard let range = s.range(of: "*/") else { break }
+                s = s[range.upperBound...]
+                continue
+            }
+            break
+        }
+        return String(s.prefix(while: { $0.isLetter })).uppercased()
+    }
+
     /// The range (UTF-16) of the identifier word ending at `caret` — the run of
     /// letters/digits/underscore immediately before it. Length 0 when the caret isn't
     /// after such a character.
