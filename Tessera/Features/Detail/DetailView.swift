@@ -327,17 +327,14 @@ struct DetailView: View {
         .background(.quaternary.opacity(0.4))
     }
 
-    /// The tab's connection dot: its assigned color, else green when live / grey when not.
+    /// The tab's connection dot reflects live status: green connected, yellow
+    /// connecting, red failed, grey disconnected.
     private func connectionColor(_ session: ConnectionSession) -> Color {
-        switch session.colorName {
-        case "red": .red
-        case "orange": .orange
-        case "yellow": .yellow
-        case "green": .green
-        case "blue": .blue
-        case "purple": .purple
-        case "gray": .gray
-        default: session.isReady ? .green : .secondary
+        switch session.status {
+        case .ready: .green
+        case .connecting: .yellow
+        case .failed: .red
+        case .idle: .secondary
         }
     }
 
