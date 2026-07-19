@@ -163,12 +163,12 @@ final class MCPBridge: MCPDataSource {
         guard profile.allowsMCPWrite else {
             throw MCPToolError("“\(connection)” is not permitted to write over MCP.")
         }
-        let approved = await app.mcpApprovals.request(
+        let outcome = await app.mcpApprovals.request(
             title: "Claude wants to modify “\(connection)”", connection: connection, detail: sql)
-        guard approved else {
+        guard outcome.isApproved else {
             app.mcpAudit.record(tool: "run_query (write)", connection: connection,
-                                detail: sql, outcome: "declined")
-            throw MCPToolError("The user declined the write.")
+                                detail: sql, outcome: outcome.auditLabel)
+            throw MCPToolError(outcome.message("write"))
         }
         let session = try await readySession(connection)
         guard let driver = session.driver else { throw MCPToolError("Not connected.") }
@@ -193,19 +193,26 @@ final class MCPBridge: MCPDataSource {
         let profile = try profile(connection)
         let scope = tables.isEmpty ? (schemas.isEmpty ? "the whole database" : schemas.joined(separator: ", "))
                                    : tables.joined(separator: ", ")
-        let approved = await app.mcpApprovals.request(
+        let outcome = await app.mcpApprovals.request(
             title: "Claude wants to export “\(connection)”", connection: connection,
             detail: "Dump \(scope)\(gzip ? " (gzipped)" : "") into your export folder.")
-        guard approved else {
+        guard outcome.isApproved else {
             app.mcpAudit.record(tool: "export_dump", connection: connection,
-                                detail: scope, outcome: "declined")
-            throw MCPToolError("The user declined the export.")
+                                detail: scope, outcome: outcome.auditLabel)
+            throw MCPToolError(outcome.message("export"))
         }
-        let result = try await app.runMCPExport(profile: profile, schemas: schemas, tables: tables,
-                                                structure: structure, data: data, gzip: gzip)
-        app.mcpAudit.record(tool: "export_dump", connection: connection,
-                            detail: scope, outcome: "wrote \(result.path)")
-        return result
+        do {
+            let result = try await app.runMCPExport(profile: profile, schemas: schemas, tables: tables,
+                                                    structure: structure, data: data, gzip: gzip)
+            app.mcpAudit.record(tool: "export_dump", connection: connection,
+                                detail: scope, outcome: "wrote \(result.path)")
+            return result
+        } catch {
+            // The user approved it and pg_dump really ran — a failure belongs in the log.
+            app.mcpAudit.record(tool: "export_dump", connection: connection,
+                                detail: scope, outcome: "failed: \(Self.message(for: error))")
+            throw error
+        }
     }
 
     func importDump(connection: String, filePath: String) async throws -> MCPImportResult {
@@ -216,17 +223,28 @@ final class MCPBridge: MCPDataSource {
         guard FileManager.default.fileExists(atPath: filePath) else {
             throw MCPToolError("No file at \(filePath).")
         }
-        let approved = await app.mcpApprovals.request(
+        let outcome = await app.mcpApprovals.request(
             title: "Claude wants to import into “\(connection)”", connection: connection,
             detail: "Restore \(filePath). This writes to the database and can overwrite data.")
-        guard approved else {
+        guard outcome.isApproved else {
             app.mcpAudit.record(tool: "import_dump", connection: connection,
-                                detail: filePath, outcome: "declined")
-            throw MCPToolError("The user declined the import.")
+                                detail: filePath, outcome: outcome.auditLabel)
+            throw MCPToolError(outcome.message("import"))
         }
-        let result = try await app.runMCPImport(profile: profile, filePath: filePath)
-        app.mcpAudit.record(tool: "import_dump", connection: connection,
-                            detail: filePath, outcome: result.message)
-        return result
+        do {
+            let result = try await app.runMCPImport(profile: profile, filePath: filePath)
+            app.mcpAudit.record(tool: "import_dump", connection: connection,
+                                detail: filePath, outcome: result.message)
+            return result
+        } catch {
+            // A half-applied restore is exactly what the log exists for.
+            app.mcpAudit.record(tool: "import_dump", connection: connection,
+                                detail: filePath, outcome: "failed: \(Self.message(for: error))")
+            throw error
+        }
+    }
+
+    private static func message(for error: Error) -> String {
+        (error as? MCPToolError)?.message ?? ConnectionSession.message(for: error)
     }
 }

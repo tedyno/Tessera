@@ -13,16 +13,48 @@ final class MCPApprovals {
         let detail: String
     }
 
+    /// Why a request finished the way it did — a prompt the user never saw must not
+    /// be reported to the client as a refusal.
+    enum Outcome {
+        case approved
+        case declined
+        /// Another approval was already on screen; this one was never shown.
+        case busy
+        case timedOut
+
+        var isApproved: Bool { self == .approved }
+
+        /// Short label for the audit log.
+        var auditLabel: String {
+            switch self {
+            case .approved: "approved"
+            case .declined: "declined"
+            case .busy: "not shown — another approval was open"
+            case .timedOut: "timed out"
+            }
+        }
+
+        /// Explanation for the MCP client, which should retry on `.busy`.
+        func message(_ action: String) -> String {
+            switch self {
+            case .approved: "Approved."
+            case .declined: "The user declined the \(action)."
+            case .busy: "Another approval is already on screen — retry the \(action) shortly."
+            case .timedOut: "The \(action) prompt timed out without an answer."
+            }
+        }
+    }
+
     private(set) var pending: Request?
-    @ObservationIgnored private var continuation: CheckedContinuation<Bool, Never>?
+    @ObservationIgnored private var continuation: CheckedContinuation<Outcome, Never>?
 
     /// Seconds before an unanswered prompt is treated as a refusal.
     static let timeout: Duration = .seconds(60)
 
-    /// Shows the prompt and waits. Returns false if the user declines, the prompt
-    /// times out, or another approval is already on screen.
-    func request(title: String, connection: String, detail: String) async -> Bool {
-        guard pending == nil else { return false }   // never queue dialogs
+    /// Shows the prompt and waits for the user, a timeout, or nothing at all if a
+    /// prompt is already up — the caller needs to tell those apart.
+    func request(title: String, connection: String, detail: String) async -> Outcome {
+        guard pending == nil else { return .busy }   // never queue dialogs
         let request = Request(title: title, connection: connection, detail: detail)
         return await withCheckedContinuation { continuation in
             self.continuation = continuation
@@ -30,19 +62,19 @@ final class MCPApprovals {
             Task { [weak self] in
                 try? await Task.sleep(for: Self.timeout)
                 guard let self, self.pending?.id == request.id else { return }
-                self.resolve(false)
+                self.resolve(.timedOut)
             }
         }
     }
 
-    func approve() { resolve(true) }
-    func decline() { resolve(false) }
+    func approve() { resolve(.approved) }
+    func decline() { resolve(.declined) }
 
-    private func resolve(_ approved: Bool) {
+    private func resolve(_ outcome: Outcome) {
         guard let continuation else { return }   // already answered
         self.continuation = nil
         pending = nil
-        continuation.resume(returning: approved)
+        continuation.resume(returning: outcome)
     }
 }
 

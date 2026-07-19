@@ -67,6 +67,10 @@ let package = Package(
             dependencies: ["DBKit", "DBPersistence", "DBSecurity"]
         ),
         .testTarget(
+            name: "DBMCPServerTests",
+            dependencies: ["DBMCPServer"]
+        ),
+        .testTarget(
             name: "DBTunnelTests",
             dependencies: ["DBTunnel", "DBKit", "DBDriverPostgres"]
         ),

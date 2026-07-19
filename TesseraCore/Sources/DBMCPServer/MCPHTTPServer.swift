@@ -31,8 +31,10 @@ public actor MCPHTTPServer {
             .childChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
 
         // Loopback only — never 0.0.0.0.
-        channel = try await bootstrap.bind(host: "127.0.0.1", port: port).get()
-        self.port = port
+        let bound = try await bootstrap.bind(host: "127.0.0.1", port: port).get()
+        channel = bound
+        // Port 0 means "pick one" — report what we actually got.
+        self.port = bound.localAddress?.port ?? port
         isRunning = true
     }
 
@@ -44,15 +46,26 @@ public actor MCPHTTPServer {
 }
 
 /// Parses one request, checks the token, and writes the JSON-RPC reply.
+///
+/// State is only ever touched on the channel's event loop, which is why the
+/// `@unchecked Sendable` conformance is safe.
 private final class MCPRequestHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
 
+    /// A JSON-RPC call is small; anything larger is a mistake or an attack. The cap
+    /// matters because an unauthenticated caller reaches this buffer.
+    private static let maxBodyBytes = 8 * 1024 * 1024
+
     private let token: String
     private let handler: MCPHTTPServer.Handler
 
-    private var head: HTTPRequestHead?
     private var body: ByteBuffer?
+    private var keepAlive = true
+    /// Set as soon as the request is known to be refusable. The body is then
+    /// discarded rather than buffered, so a caller without a token can never make
+    /// this process hold their payload in memory.
+    private var rejection: (status: HTTPResponseStatus, message: String)?
 
     init(token: String, handler: @escaping MCPHTTPServer.Handler) {
         self.token = token
@@ -62,66 +75,74 @@ private final class MCPRequestHandler: ChannelInboundHandler, @unchecked Sendabl
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         switch unwrapInboundIn(data) {
         case .head(let head):
-            self.head = head
             body = nil
+            keepAlive = head.isKeepAlive
+            rejection = refusal(for: head)
         case .body(var chunk):
-            if body == nil { body = chunk }
-            else { body!.writeBuffer(&chunk) }
+            // Refused requests are drained, never accumulated.
+            guard rejection == nil else { return }
+            if body == nil { body = chunk } else { body!.writeBuffer(&chunk) }
+            if body!.readableBytes > Self.maxBodyBytes {
+                body = nil
+                rejection = (.payloadTooLarge, "Request body is too large.")
+            }
         case .end:
-            guard let head else { return }
             let payload = body.map { Data($0.readableBytesView) } ?? Data()
-            respond(context: context, head: head, payload: payload)
-            self.head = nil
             body = nil
-        }
-    }
-
-    private func respond(context: ChannelHandlerContext, head: HTTPRequestHead, payload: Data) {
-        // A browser always sends Origin on cross-origin fetches; a real MCP client
-        // never does. Refusing it stops a malicious page from driving this server.
-        if head.headers.contains(name: "Origin") {
-            return write(context: context, status: .forbidden,
-                         json: #"{"error":"Browser requests are not accepted."}"#)
-        }
-        let authorization = head.headers.first(name: "Authorization") ?? ""
-        guard authorization == "Bearer \(token)" else {
-            return write(context: context, status: .unauthorized,
-                         json: #"{"error":"Missing or invalid bearer token."}"#)
-        }
-        guard head.method == .POST else {
-            return write(context: context, status: .methodNotAllowed,
-                         json: #"{"error":"Use POST with a JSON-RPC body."}"#)
-        }
-
-        let loop = context.eventLoop
-        let box = NIOLoopBound(context, eventLoop: loop)
-        let handler = self.handler
-        Task {
-            let reply = await handler(payload)
-            loop.execute {
-                // A notification has no reply; acknowledge it with 202.
-                guard let reply else {
-                    self.write(context: box.value, status: .accepted, body: Data())
-                    return
-                }
-                self.write(context: box.value, status: .ok, body: reply)
+            if let rejection {
+                self.rejection = nil
+                // Never keep a refused connection alive.
+                write(channel: context.channel, status: rejection.status,
+                      body: Data(#"{"error":"\#(rejection.message)"}"#.utf8), close: true)
+            } else {
+                dispatch(channel: context.channel, payload: payload)
             }
         }
     }
 
-    private func write(context: ChannelHandlerContext, status: HTTPResponseStatus, json: String) {
-        write(context: context, status: status, body: Data(json.utf8))
+    /// Everything that can be judged from the request head alone.
+    private func refusal(for head: HTTPRequestHead) -> (HTTPResponseStatus, String)? {
+        // A browser always sends Origin on cross-origin fetches; a real MCP client
+        // never does. Refusing it stops a malicious page from driving this server.
+        if head.headers.contains(name: "Origin") {
+            return (.forbidden, "Browser requests are not accepted.")
+        }
+        guard head.headers.first(name: "Authorization") == "Bearer \(token)" else {
+            return (.unauthorized, "Missing or invalid bearer token.")
+        }
+        guard head.method == .POST else {
+            return (.methodNotAllowed, "Use POST with a JSON-RPC body.")
+        }
+        return nil
     }
 
-    private func write(context: ChannelHandlerContext, status: HTTPResponseStatus, body: Data) {
+    private func dispatch(channel: Channel, payload: Data) {
+        let handler = self.handler
+        let keepAlive = self.keepAlive
+        // A query can run for a while and the client may hang up meanwhile, so the
+        // reply is written to the channel — a context is not valid across the hop.
+        Task {
+            let reply = await handler(payload)
+            channel.eventLoop.execute {
+                // A notification has no reply; acknowledge it with 202.
+                self.write(channel: channel, status: reply == nil ? .accepted : .ok,
+                           body: reply ?? Data(), close: !keepAlive)
+            }
+        }
+    }
+
+    private func write(channel: Channel, status: HTTPResponseStatus, body: Data, close: Bool) {
+        guard channel.isActive else { return }   // client hung up
         var headers = HTTPHeaders()
         headers.add(name: "Content-Type", value: "application/json")
         headers.add(name: "Content-Length", value: String(body.count))
+        if close { headers.add(name: "Connection", value: "close") }
         let head = HTTPResponseHead(version: .http1_1, status: status, headers: headers)
-        context.write(wrapOutboundOut(.head(head)), promise: nil)
-        var buffer = context.channel.allocator.buffer(capacity: body.count)
+        channel.write(HTTPServerResponsePart.head(head), promise: nil)
+        var buffer = channel.allocator.buffer(capacity: body.count)
         buffer.writeBytes(body)
-        context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
-        context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
+        channel.write(HTTPServerResponsePart.body(.byteBuffer(buffer)), promise: nil)
+        let done = channel.writeAndFlush(HTTPServerResponsePart.end(nil))
+        if close { done.whenComplete { _ in channel.close(promise: nil) } }
     }
 }

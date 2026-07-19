@@ -93,7 +93,7 @@ final class AppModel {
                                             options: options, outputURL: url)
         guard result.success else { throw MCPToolError(result.message) }
         let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-        return MCPExportResult(path: url.path, bytes: size ?? 0)
+        return MCPExportResult(path: url.path, bytes: size)
     }
 
     /// Import driven by MCP, after approval.
