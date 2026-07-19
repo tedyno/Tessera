@@ -59,17 +59,10 @@ final class TypedHeaderCell: NSTableHeaderCell {
 
 struct CellPos: Hashable { let row: Int; let col: Int }
 
-/// Column types whose values read as numbers and are right-aligned in the grid.
-/// Exact matches only, so `interval`/`inet`/`text` are never caught by a prefix.
-private let numericColumnTypes: Set<String> = [
-    "int2", "int4", "int8", "smallint", "integer", "bigint",
-    "serial", "bigserial", "smallserial", "serial2", "serial4", "serial8",
-    "numeric", "decimal", "real", "double precision", "float4", "float8", "money", "oid",
-    "tiny", "short", "int24", "long", "longlong", "float", "double", "newdecimal", "year",
-]
-
+/// Numeric columns are right-aligned and copied unquoted; the classification is
+/// shared with the MCP server so both agree on what a number is.
 private func isNumericColumnType(_ typeName: String) -> Bool {
-    numericColumnTypes.contains(typeName.lowercased())
+    SQLTypes.isNumeric(typeName)
 }
 
 /// Clipboard formats offered by the grid's "Copy as" menu.

@@ -35,7 +35,8 @@ enum MCPTools {
 
         tool(name: "search",
              description: "Find schemas, tables, or columns matching a term across all exposed "
-                        + "connections.",
+                        + "connections. Returns the hits plus which connections were searched and "
+                        + "which were skipped because their schema isn't loaded yet.",
              properties: ["term": stringSchema("Text to look for.")],
              required: ["term"]),
 

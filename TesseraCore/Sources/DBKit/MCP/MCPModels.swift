@@ -76,6 +76,22 @@ public struct MCPTableDetail: Codable, Equatable, Sendable {
     }
 }
 
+/// Search results plus which connections actually contributed — a connection whose
+/// schema hasn't been introspected yet is skipped, so results would otherwise look
+/// complete when they aren't.
+public struct MCPSearchResult: Codable, Equatable, Sendable {
+    public let hits: [MCPSearchHit]
+    public let searched: [String]
+    /// Exposed connections skipped because they aren't connected/introspected yet.
+    public let skipped: [String]
+
+    public init(hits: [MCPSearchHit], searched: [String], skipped: [String]) {
+        self.hits = hits
+        self.searched = searched
+        self.skipped = skipped
+    }
+}
+
 public struct MCPSearchHit: Codable, Equatable, Sendable {
     public let connection: String
     public let schema: String?
@@ -91,24 +107,82 @@ public struct MCPSearchHit: Codable, Equatable, Sendable {
 }
 
 /// Rows are plain strings (nil = SQL NULL) so any column type serializes safely.
+/// One cell in an MCP result. Values from numeric columns are emitted as real JSON
+/// numbers; anything that wouldn't survive that exactly stays text, so a big `int8`
+/// or a high-precision `numeric` is never silently rounded.
+public enum MCPValue: Codable, Equatable, Sendable {
+    case null
+    case int(Int)
+    case double(Double)
+    case text(String)
+
+    /// Largest integer a JSON consumer using IEEE-754 doubles can hold exactly.
+    private static let exactIntegerLimit = 1 << 53
+
+    /// Classifies a cell, converting to a number only when it is lossless.
+    public static func make(_ text: String?, isNumericColumn: Bool) -> MCPValue {
+        guard let text else { return .null }
+        guard isNumericColumn else { return .text(text) }
+        if let value = Int(text), abs(value) <= exactIntegerLimit { return .int(value) }
+        // Accept a decimal only when its shortest round-trip is the original text.
+        if let value = Double(text), value.isFinite, String(value) == text { return .double(value) }
+        return .text(text)
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() { self = .null }
+        else if let value = try? container.decode(Int.self) { self = .int(value) }
+        else if let value = try? container.decode(Double.self) { self = .double(value) }
+        else { self = .text(try container.decode(String.self)) }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .null: try container.encodeNil()
+        case .int(let value): try container.encode(value)
+        case .double(let value): try container.encode(value)
+        case .text(let value): try container.encode(value)
+        }
+    }
+}
+
 public struct MCPQueryResult: Codable, Equatable, Sendable {
     public let columns: [String]
-    public let rows: [[String?]]
+    public let rows: [[MCPValue]]
     public let rowCount: Int
+    /// Rows changed by a write (INSERT/UPDATE/DELETE); nil for row-returning queries.
+    public let rowsAffected: Int?
     public let truncated: Bool
 
-    public init(columns: [String], rows: [[String?]], truncated: Bool) {
+    public init(columns: [String], rows: [[MCPValue]], truncated: Bool, rowsAffected: Int? = nil) {
         self.columns = columns
         self.rows = rows
         self.rowCount = rows.count
+        self.rowsAffected = rowsAffected
         self.truncated = truncated
     }
 
-    /// Builds from a driver result.
+    /// Convenience for simple callers: every cell treated as text. Distinct label so
+    /// an empty literal never makes the two initialisers ambiguous.
+    public init(columns: [String], textRows: [[String?]], truncated: Bool, rowsAffected: Int? = nil) {
+        self.init(columns: columns,
+                  rows: textRows.map { $0.map { MCPValue.make($0, isNumericColumn: false) } },
+                  truncated: truncated, rowsAffected: rowsAffected)
+    }
+
+    /// Builds from a driver result, typing numeric columns as JSON numbers.
     public init(_ result: QueryResult) {
+        let numericColumn = result.columns.map { SQLTypes.isNumeric($0.typeName) }
         self.init(columns: result.columns.map(\.name),
-                  rows: result.rows.map { row in row.map(\.text) },
-                  truncated: result.isTruncated)
+                  rows: result.rows.map { row in
+                      row.enumerated().map { index, cell in
+                          MCPValue.make(cell.text, isNumericColumn: index < numericColumn.count && numericColumn[index])
+                      }
+                  },
+                  truncated: result.isTruncated,
+                  rowsAffected: result.rowsAffected)
     }
 }
 
@@ -146,7 +220,7 @@ public protocol MCPDataSource: Sendable {
     func listSchemas(connection: String) async throws -> [String]
     func listTables(connection: String, schema: String?) async throws -> [MCPTableInfo]
     func describeTable(connection: String, schema: String?, table: String) async throws -> MCPTableDetail
-    func search(term: String) async -> [MCPSearchHit]
+    func search(term: String) async -> MCPSearchResult
 
     /// Runs a statement already classified as read-only.
     func runReadQuery(connection: String, sql: String, limit: Int?) async throws -> MCPQueryResult

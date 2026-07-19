@@ -58,6 +58,7 @@ struct MCPAuditView: View {
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(.quaternary, in: Capsule())
                 Text(entry.connection).font(.caption).foregroundStyle(.secondary)
+                Text("· \(entry.client)").font(.caption2).foregroundStyle(.tertiary)
                 Spacer()
                 Text(entry.date, format: .dateTime.hour().minute().second())
                     .font(.caption2).foregroundStyle(.tertiary)

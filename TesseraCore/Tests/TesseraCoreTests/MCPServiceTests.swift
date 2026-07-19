@@ -22,16 +22,18 @@ private actor FakeSource: MCPDataSource {
     func describeTable(connection: String, schema: String?, table: String) async throws -> MCPTableDetail {
         MCPTableDetail(schema: "public", table: table, columns: [], indexes: [])
     }
-    func search(term: String) async -> [MCPSearchHit] { [] }
+    func search(term: String) async -> MCPSearchResult {
+        MCPSearchResult(hits: [], searched: ["shop"], skipped: [])
+    }
 
     func runReadQuery(connection: String, sql: String, limit: Int?) async throws -> MCPQueryResult {
         readQueries.append(sql)
-        return MCPQueryResult(columns: ["id"], rows: [["1"]], truncated: false)
+        return MCPQueryResult(columns: ["id"], textRows: [["1"]], truncated: false)
     }
     func runWriteQuery(connection: String, sql: String) async throws -> MCPQueryResult {
         writeQueries.append(sql)
         guard approveWrites else { throw MCPToolError("The user declined the write.") }
-        return MCPQueryResult(columns: [], rows: [], truncated: false)
+        return MCPQueryResult(columns: [], textRows: [], truncated: false, rowsAffected: 1)
     }
 
     private(set) var exports: [String] = []

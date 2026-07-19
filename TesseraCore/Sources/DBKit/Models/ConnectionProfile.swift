@@ -73,6 +73,9 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
     public var mcpWrite: Bool?
     /// Superseded by `mcpRead`; kept so profiles written by earlier builds decode.
     public var mcpAccess: Bool?
+    /// Opt-in: run MCP writes on this connection without asking each time. Deliberately
+    /// separate from `mcpWrite` so approval is only ever dropped on purpose.
+    public var mcpWriteWithoutApproval: Bool?
 
     /// Stable Keychain key (service = bundle ID, account = this value).
     public var keychainAccount: String { id.uuidString }
@@ -89,6 +92,12 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
     /// without reading makes no sense, so read is required too.
     public var allowsMCPWrite: Bool { allowsMCPRead && (mcpWrite ?? false) && !isReadOnly }
 
+    /// Whether MCP writes skip the approval prompt on this connection. Requires write
+    /// access, so a read-only connection can never reach it.
+    public var allowsMCPWriteWithoutApproval: Bool {
+        allowsMCPWrite && (mcpWriteWithoutApproval ?? false)
+    }
+
     public init(
         id: UUID = UUID(),
         name: String,
@@ -102,7 +111,8 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
         readOnly: Bool = false,
         color: String? = nil,
         mcpRead: Bool = false,
-        mcpWrite: Bool = false
+        mcpWrite: Bool = false,
+        mcpWriteWithoutApproval: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -117,6 +127,7 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
         self.color = color
         self.mcpRead = mcpRead ? true : nil
         self.mcpWrite = mcpWrite ? true : nil
+        self.mcpWriteWithoutApproval = mcpWriteWithoutApproval ? true : nil
     }
 }
 

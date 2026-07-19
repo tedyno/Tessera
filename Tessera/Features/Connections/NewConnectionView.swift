@@ -23,6 +23,7 @@ struct NewConnectionView: View {
     @State private var readOnly = false
     @State private var mcpRead = false
     @State private var mcpWrite = false
+    @State private var mcpWriteNoApproval = false
     @State private var revealPassword = false
 
     @State private var sshEnabled = false
@@ -55,6 +56,7 @@ struct NewConnectionView: View {
         _readOnly = State(initialValue: editing?.isReadOnly ?? false)
         _mcpRead = State(initialValue: editing?.allowsMCPRead ?? false)
         _mcpWrite = State(initialValue: editing?.mcpWrite ?? false)
+        _mcpWriteNoApproval = State(initialValue: editing?.mcpWriteWithoutApproval ?? false)
         if let ssh = editing?.ssh {
             _sshEnabled = State(initialValue: true)
             _sshHost = State(initialValue: ssh.host)
@@ -100,9 +102,21 @@ struct NewConnectionView: View {
                     }
                     Toggle("Read-only (warn before writing)", isOn: $readOnly)
                     Toggle("MCP: allow reading (let a connected AI client query this connection)", isOn: $mcpRead)
-                    Toggle("MCP: allow writing (always asks you first)", isOn: $mcpWrite)
+                    Toggle("MCP: allow writing (asks you first)", isOn: $mcpWrite)
                         .disabled(!mcpRead || readOnly)
                         .padding(.leading, 16)
+                    Toggle("MCP: writes don't need my approval", isOn: $mcpWriteNoApproval)
+                        .disabled(!mcpRead || !mcpWrite || readOnly)
+                        .padding(.leading, 32)
+                    if mcpWriteNoApproval, mcpWrite, mcpRead, !readOnly {
+                        Label("The client can INSERT, UPDATE, DELETE and run DDL on this "
+                              + "connection with no prompt. Only do this on a database you "
+                              + "can afford to lose, such as a local or test one.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .padding(.leading, 32)
+                    }
                     if mcpRead {
                         Text(readOnly
                              ? "Read-only connections can never grant MCP write access."
@@ -204,7 +218,8 @@ struct NewConnectionView: View {
             id: editing?.id ?? UUID(),
             name: name, kind: kind, host: host, port: Int(port),
             database: database, username: username, tlsMode: tlsMode, ssh: ssh, readOnly: readOnly,
-            mcpRead: mcpRead, mcpWrite: mcpWrite)
+            mcpRead: mcpRead, mcpWrite: mcpWrite,
+            mcpWriteWithoutApproval: mcpWriteNoApproval)
     }
 
     private func makeSecrets() -> Secrets {

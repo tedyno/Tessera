@@ -169,9 +169,15 @@ struct ContentView: View {
                 .padding(8)
                 .background(.quaternary.opacity(0.4))
                 HStack {
+                    if app.mcpApprovals.queuedCount > 0 {
+                        Text("^[\(app.mcpApprovals.queuedCount) more request](inflect: true) waiting")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Spacer()
                     Button("Decline") { app.mcpApprovals.decline() }
                         .keyboardShortcut(.cancelAction)
+                    Button("Allow for 5 min") { app.mcpApprovals.approveForAWhile() }
+                        .help("Stop asking for this connection for the next 5 minutes")
                     Button("Allow") { app.mcpApprovals.approve() }
                         .keyboardShortcut(.defaultAction)
                 }

@@ -14,6 +14,7 @@ final class MCPBridge: MCPDataSource {
     /// Tessera's MCP server is open to any client, not just one vendor's.
     func clientIdentified(name: String, version: String?) async {
         app.mcpClientName = version.map { "\(name) \($0)" } ?? name
+        app.mcpAudit.client = app.mcpClientLabel
     }
 
     // MARK: Exposed connections
@@ -67,6 +68,9 @@ final class MCPBridge: MCPDataSource {
             throw MCPToolError("Could not connect to “\(name)”: "
                                + (app.console.session(for: profile.id)?.errorMessage ?? "unavailable"))
         }
+        // A session can be ready before its schema has ever been read (or after a
+        // failed introspection); MCP introspection tools depend on it.
+        if session.schema == nil { await session.refreshSchema() }
         return session
     }
 
@@ -98,7 +102,16 @@ final class MCPBridge: MCPDataSource {
 
     func describeTable(connection: String, schema: String?, table: String) async throws -> MCPTableDetail {
         let session = try await readySession(connection)
-        for namespace in session.schema?.schemas ?? [] {
+        if let detail = Self.detail(in: session.schema, schema: schema, table: table) { return detail }
+        // The cached schema may predate a table created since we introspected —
+        // re-read it once before declaring the table missing.
+        await session.refreshSchema()
+        if let detail = Self.detail(in: session.schema, schema: schema, table: table) { return detail }
+        throw MCPToolError("Table “\(table)” not found on “\(connection)”.")
+    }
+
+    private static func detail(in tree: DatabaseTree?, schema: String?, table: String) -> MCPTableDetail? {
+        for namespace in tree?.schemas ?? [] {
             guard schema == nil || namespace.name == schema else { continue }
             guard let match = namespace.tables.first(where: {
                 $0.name.caseInsensitiveCompare(table) == .orderedSame
@@ -115,15 +128,23 @@ final class MCPBridge: MCPDataSource {
                     MCPIndexInfo(name: $0.name, columns: $0.columns, unique: $0.isUnique)
                 })
         }
-        throw MCPToolError("Table “\(table)” not found on “\(connection)”.")
+        return nil
     }
 
-    func search(term: String) async -> [MCPSearchHit] {
+    func search(term: String) async -> MCPSearchResult {
         let needle = term.lowercased()
-        guard !needle.isEmpty else { return [] }
+        guard !needle.isEmpty else { return MCPSearchResult(hits: [], searched: [], skipped: []) }
         var hits: [MCPSearchHit] = []
+        var searched: [String] = []
+        var skipped: [String] = []
         for (name, profile) in exposed {
-            guard let tree = app.console.session(for: profile.id)?.schema else { continue }
+            // Never connect just to search — that would prompt for Keychain access
+            // behind the user's back. Report the gap instead of hiding it.
+            guard let tree = app.console.session(for: profile.id)?.schema else {
+                skipped.append(name)
+                continue
+            }
+            searched.append(name)
             for namespace in tree.schemas {
                 if namespace.name.lowercased().contains(needle) {
                     hits.append(MCPSearchHit(connection: name, schema: namespace.name,
@@ -141,7 +162,8 @@ final class MCPBridge: MCPDataSource {
                 }
             }
         }
-        return Array(hits.prefix(100))
+        return MCPSearchResult(hits: Array(hits.prefix(100)),
+                               searched: searched.sorted(), skipped: skipped.sorted())
     }
 
     // MARK: Queries
@@ -169,12 +191,20 @@ final class MCPBridge: MCPDataSource {
         guard profile.allowsMCPWrite else {
             throw MCPToolError("“\(connection)” is not permitted to write over MCP.")
         }
-        let outcome = await app.mcpApprovals.request(
-            title: "\(app.mcpClientLabel) wants to modify “\(connection)”", connection: connection, detail: sql)
-        guard outcome.isApproved else {
+        // The connection may be configured to run writes unattended; that is the only
+        // way the prompt is skipped, and it stays visible in the audit log.
+        if profile.allowsMCPWriteWithoutApproval {
             app.mcpAudit.record(tool: "run_query (write)", connection: connection,
-                                detail: sql, outcome: outcome.auditLabel)
-            throw MCPToolError(outcome.message("write"))
+                                detail: sql, outcome: "auto-approved (approval not required)")
+        } else {
+            let outcome = await app.mcpApprovals.request(
+                title: "\(app.mcpClientLabel) wants to modify “\(connection)”",
+                connection: connection, detail: sql)
+            guard outcome.isApproved else {
+                app.mcpAudit.record(tool: "run_query (write)", connection: connection,
+                                    detail: sql, outcome: outcome.auditLabel)
+                throw MCPToolError(outcome.message("write"))
+            }
         }
         let session = try await readySession(connection)
         guard let driver = session.driver else { throw MCPToolError("Not connected.") }
