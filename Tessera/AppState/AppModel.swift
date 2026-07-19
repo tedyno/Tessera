@@ -229,7 +229,7 @@ final class AppModel {
 
     func toggleSidebar() {
         withAnimation(.easeOut(duration: 0.16)) {
-            columnVisibility = columnVisibility == .all ? .doubleColumn : .all
+            columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
         }
     }
 

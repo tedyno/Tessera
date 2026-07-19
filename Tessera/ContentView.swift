@@ -5,31 +5,34 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $app.columnVisibility) {
-            OrganizerSidebar(
-                model: app.connections,
-                selection: $app.selection,
-                onNewConnection: { parent in
-                    app.newConnectionParent = parent
-                    app.showingNewConnection = true
-                },
-                onEditConnection: { app.editConnection(nodeID: $0) })
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 320)
-        } content: {
-            SchemaSidebar(
-                tree: app.console.schema,
-                hiddenSchemas: app.currentHiddenSchemas,
-                reveal: app.schemaReveal,
-                onToggleSchema: { app.toggleSchema($0) },
-                onOpenTable: { schema, table in
-                    Task { await app.console.selectAll(schema: schema, table: table) }
-                },
-                onOpenColumn: { schema, table, column in
-                    Task {
-                        await app.console.selectAll(schema: schema, table: table)
-                        app.console.activeTab?.scrollToColumn = column
-                    }
-                })
-            .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
+            VSplitView {
+                OrganizerSidebar(
+                    model: app.connections,
+                    selection: $app.selection,
+                    onNewConnection: { parent in
+                        app.newConnectionParent = parent
+                        app.showingNewConnection = true
+                    },
+                    onEditConnection: { app.editConnection(nodeID: $0) })
+                .frame(minHeight: 120)
+
+                SchemaSidebar(
+                    tree: app.console.schema,
+                    hiddenSchemas: app.currentHiddenSchemas,
+                    reveal: app.schemaReveal,
+                    onToggleSchema: { app.toggleSchema($0) },
+                    onOpenTable: { schema, table in
+                        Task { await app.console.selectAll(schema: schema, table: table) }
+                    },
+                    onOpenColumn: { schema, table, column in
+                        Task {
+                            await app.console.selectAll(schema: schema, table: table)
+                            app.console.activeTab?.scrollToColumn = column
+                        }
+                    })
+                .frame(minHeight: 160)
+            }
+            .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
         } detail: {
             DetailView(model: app.console,
                        showingHistory: $app.showingHistory,
@@ -37,7 +40,6 @@ struct ContentView: View {
                        cursor: cursorBinding,
                        isReadOnly: app.currentIsReadOnly,
                        onRun: { app.runActiveQuery() })
-                .navigationSplitViewColumnWidth(min: 480, ideal: 760)
         }
         .task {
             if app.selection == nil { app.selection = app.connections.firstConnectionNodeID }

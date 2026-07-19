@@ -29,7 +29,7 @@ struct TesseraCommands: Commands {
 
         CommandGroup(replacing: .sidebar) {
             Button("Toggle Sidebar") { app.toggleSidebar() }
-                .keyboardShortcut("s", modifiers: [.control, .command])
+                .keyboardShortcut("s", modifiers: .command)
         }
 
         CommandMenu("Query") {
