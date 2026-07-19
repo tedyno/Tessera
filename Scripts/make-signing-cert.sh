@@ -26,11 +26,11 @@ if ! "$OPENSSL" version | grep -q '^OpenSSL'; then
 fi
 
 if security find-identity -v -p codesigning | grep -qF "$NAME"; then
-    echo "Certificate “$NAME” already exists — nothing to do."
+    echo "Certificate “${NAME}” already exists — nothing to do."
     exit 0
 fi
 
-echo "Generating “$NAME” (valid 20 years)…"
+echo "Generating “${NAME}” (valid 20 years)…"
 "$OPENSSL" req -x509 -newkey rsa:2048 -keyout "$WORK/key.pem" -out "$WORK/cert.pem" \
     -days 7300 -nodes -subj "/CN=$NAME" \
     -addext "basicConstraints=critical,CA:false" \
@@ -58,4 +58,4 @@ security find-identity -v -p codesigning | grep -F "$NAME" || {
     echo "warning: the certificate is not showing up as valid yet" >&2
     exit 1
 }
-echo "Done. Xcode builds will now be signed with “$NAME”."
+echo "Done. Xcode builds will now be signed with “${NAME}”."
