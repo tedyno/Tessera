@@ -414,27 +414,24 @@ struct DetailView: View {
 
     @ViewBuilder
     private var resultsArea: some View {
-        if let tab = model.activeTab, let result = tab.result, result.columns.isEmpty,
-           tab.errorMessage == nil {
-            // A statement with no result set (UPDATE/INSERT/DELETE/DDL) — confirm it ran.
-            executedNotice(tab, result)
-        } else if let tab = model.activeTab, tab.result != nil {
-            // A failed re-run keeps the previous result (and its selection) visible;
-            // the error shows as a banner above the grid.
+        if let tab = model.activeTab, tab.result != nil || tab.errorMessage != nil {
+            // Error (red) and success (green) share the same banner at the top; a
+            // row-returning result shows its grid below, keeping any prior grid on error.
             VStack(spacing: 0) {
                 if let message = tab.errorMessage {
-                    errorBanner(message)
+                    feedbackBanner(message, isError: true)
+                    Divider()
+                } else if let result = tab.result, result.columns.isEmpty {
+                    feedbackBanner(successText(tab, result), isError: false)
                     Divider()
                 }
-                ResultsTableView(tab: tab) { column in
-                    Task { await model.sortByColumn(tab, column: column) }
+                if let result = tab.result, !result.columns.isEmpty {
+                    ResultsTableView(tab: tab) { column in
+                        Task { await model.sortByColumn(tab, column: column) }
+                    }
+                } else {
+                    Spacer(minLength: 0)
                 }
-            }
-        } else if let message = model.activeTab?.errorMessage {
-            ContentUnavailableView {
-                Label("Query failed", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message).font(.callout.monospaced()).textSelection(.enabled)
             }
         } else {
             ContentUnavailableView("No results", systemImage: "tablecells",
@@ -442,32 +439,32 @@ struct DetailView: View {
         }
     }
 
-    private func executedNotice(_ tab: QueryTab, _ result: QueryResult) -> some View {
-        ContentUnavailableView {
-            Label("Query executed", systemImage: "checkmark.circle")
-                .foregroundStyle(.green)
-        } description: {
-            VStack(spacing: 2) {
-                if let affected = result.rowsAffected {
-                    Text("^[\(affected) row](inflect: true) affected")
-                }
-                if let ms = tab.elapsedMS { Text("\(ms) ms").foregroundStyle(.secondary) }
-            }
+    private func successText(_ tab: QueryTab, _ result: QueryResult) -> String {
+        var parts = [String(localized: "Query executed")]
+        if let affected = result.rowsAffected {
+            parts.append("\(affected) " + (affected == 1 ? String(localized: "row affected")
+                                                         : String(localized: "rows affected")))
         }
+        if let ms = tab.elapsedMS { parts.append("\(ms) ms") }
+        return parts.joined(separator: " · ")
     }
 
-    private func errorBanner(_ message: String) -> some View {
+    /// Result feedback banner: red for an error, green for a successful command.
+    private func feedbackBanner(_ message: String, isError: Bool) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(isError ? .red : .green)
             ScrollView(.horizontal, showsIndicators: false) {
-                Text(message).font(.callout.monospaced()).textSelection(.enabled)
+                Text(message)
+                    .font(isError ? .callout.monospaced() : .callout)
+                    .textSelection(.enabled)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.12))
+        .background((isError ? Color.red : Color.green).opacity(0.12))
     }
 
     private var statusBar: some View {
