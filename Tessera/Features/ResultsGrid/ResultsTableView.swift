@@ -24,38 +24,36 @@ final class GridTextField: NSTextField {
     var columnIndex = -1
 }
 
-/// Two-line column header: the column name (drawn by the system, so the sort
-/// indicator still appears) above its SQL type in small grey text.
+/// Column header showing the name followed by its SQL type in small grey text, on
+/// one line so it always stays within the standard header height.
 final class TypedHeaderCell: NSTableHeaderCell {
     var typeName = ""
-    private static let typeHeight: CGFloat = 11
 
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
-        guard !typeName.isEmpty else {
-            super.draw(withFrame: cellFrame, in: controlView)
-            return
+        // Let AppKit draw the chrome (background, borders, sort indicator) but not its
+        // centered title — we render our own name + type instead.
+        let title = stringValue
+        stringValue = ""
+        super.draw(withFrame: cellFrame, in: controlView)
+        stringValue = title
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        let text = NSMutableAttributedString(string: title, attributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph])
+        if !typeName.isEmpty {
+            text.append(NSAttributedString(string: "  " + typeName, attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .regular),
+                .foregroundColor: NSColor.tertiaryLabelColor,
+                .paragraphStyle: paragraph]))
         }
-        // Let AppKit draw the background, the name, and the sort indicator in the
-        // upper part; append the type below it.
-        var top = cellFrame
-        top.size.height -= Self.typeHeight
-        super.draw(withFrame: top, in: controlView)
-
-        let typeRect = NSRect(x: cellFrame.minX + 6, y: cellFrame.maxY - Self.typeHeight,
-                              width: max(cellFrame.width - 8, 0), height: Self.typeHeight)
-        let typeAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 9, weight: .regular),
-            .foregroundColor: NSColor.tertiaryLabelColor]
-        (typeName as NSString).draw(in: typeRect, withAttributes: typeAttrs)
-    }
-}
-
-/// Forces a taller header so the two-line `TypedHeaderCell` fits; the enclosing
-/// clip view otherwise resets the height on every layout pass.
-final class TallHeaderView: NSTableHeaderView {
-    override var frame: NSRect {
-        get { super.frame }
-        set { var f = newValue; f.size.height = 30; super.frame = f }
+        // Leave room on the right for the sort indicator; vertically centered.
+        let height = text.size().height
+        let rect = NSRect(x: cellFrame.minX + 6, y: cellFrame.midY - height / 2,
+                          width: max(cellFrame.width - 22, 0), height: height)
+        text.draw(in: rect)
     }
 }
 
@@ -220,7 +218,6 @@ struct ResultsTableView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let tableView = GridTableView()
         tableView.style = .inset
-        tableView.headerView = TallHeaderView()
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.allowsColumnResizing = true
