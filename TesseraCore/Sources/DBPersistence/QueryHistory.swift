@@ -8,15 +8,24 @@ public struct QueryHistoryEntry: Codable, Sendable, Identifiable, Hashable {
     /// The connection this query ran against, so re-running from history targets the
     /// original database. Optional/`nil` for entries recorded before this was tracked.
     public var profileID: UUID?
+    /// Set when the entry came from a table (data) view, so it reopens as one rather
+    /// than as a console query. `nil` for a plain query.
+    public var schema: String?
+    public var table: String?
     public var timestamp: Date
     public var rowCount: Int?
     public var elapsedMS: Int?
+
+    /// True when this entry was a table (data) view rather than a typed query.
+    public var isTableView: Bool { table != nil }
 
     public init(
         id: UUID = UUID(),
         sql: String,
         connectionName: String,
         profileID: UUID? = nil,
+        schema: String? = nil,
+        table: String? = nil,
         timestamp: Date,
         rowCount: Int? = nil,
         elapsedMS: Int? = nil
@@ -25,6 +34,8 @@ public struct QueryHistoryEntry: Codable, Sendable, Identifiable, Hashable {
         self.sql = sql
         self.connectionName = connectionName
         self.profileID = profileID
+        self.schema = schema
+        self.table = table
         self.timestamp = timestamp
         self.rowCount = rowCount
         self.elapsedMS = elapsedMS

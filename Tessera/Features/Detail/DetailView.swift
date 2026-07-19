@@ -159,6 +159,7 @@ struct DetailView: View {
         .overlay(alignment: .trailing) { Divider() }
         .contentShape(Rectangle())
         .onTapGesture { model.activeTabID = tab.id }
+        .overlay { MiddleClickCatcher { model.closeTab(tab.id) } }
     }
 
     // MARK: Editor

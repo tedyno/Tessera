@@ -54,10 +54,24 @@ struct HistoryView: View {
             } else {
                 List(filtered) { entry in
                     HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: entry.isTableView ? "tablecells" : "terminal")
+                            .font(.system(size: 12))
+                            .foregroundStyle(entry.isTableView ? Color.teal : Color.secondary)
+                            .frame(width: 16)
+                            .padding(.top, 2)
+                            .help(entry.isTableView ? "Table view" : "Query")
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(entry.sql)
-                                .font(.system(.callout, design: .monospaced))
-                                .lineLimit(2)
+                            if entry.isTableView, let schema = entry.schema, let table = entry.table {
+                                Text("\(schema).\(table)").font(.callout.weight(.medium))
+                                Text(entry.sql)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            } else {
+                                Text(entry.sql)
+                                    .font(.system(.callout, design: .monospaced))
+                                    .lineLimit(2)
+                            }
                             HStack(spacing: 10) {
                                 Text(entry.connectionName)
                                 Text(entry.timestamp, format: .dateTime.day().month().hour().minute())

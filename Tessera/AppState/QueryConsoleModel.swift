@@ -137,7 +137,9 @@ final class QueryConsoleModel {
             tab.editSource = detectEditSource(sql: sql, columns: result.columns, schema: session.schema)
             let ms = result.elapsed.map(Self.milliseconds)
             tab.elapsedMS = ms
-            recordHistory(sql: sql, session: session, rowCount: result.rows.count, elapsedMS: ms)
+            recordHistory(sql: sql, session: session, rowCount: result.rows.count, elapsedMS: ms,
+                          schema: tab.kind == .data ? tab.dataSchema : nil,
+                          table: tab.kind == .data ? tab.dataTable : nil)
         } catch {
             tab.errorMessage = ConnectionSession.message(for: error)
         }
@@ -712,12 +714,22 @@ final class QueryConsoleModel {
         Task.detached { store.save(snapshot) }
     }
 
-    private func recordHistory(sql: String, session: ConnectionSession, rowCount: Int, elapsedMS: Int?) {
-        let entry = QueryHistoryEntry(
-            sql: sql, connectionName: session.name, profileID: session.id, timestamp: Date(),
-            rowCount: rowCount, elapsedMS: elapsedMS)
-        history.insert(entry, at: 0)
-        if history.count > 500 { history = Array(history.prefix(500)) }
+    private func recordHistory(sql: String, session: ConnectionSession, rowCount: Int, elapsedMS: Int?,
+                               schema: String? = nil, table: String? = nil) {
+        // Collapse a re-run of the identical query on the same connection (e.g.
+        // refreshing a table view) into the existing entry instead of duplicating it.
+        if let first = history.first, first.sql == sql, first.profileID == session.id, first.table == table {
+            history[0].timestamp = Date()
+            history[0].rowCount = rowCount
+            history[0].elapsedMS = elapsedMS
+        } else {
+            let entry = QueryHistoryEntry(
+                sql: sql, connectionName: session.name, profileID: session.id,
+                schema: schema, table: table, timestamp: Date(),
+                rowCount: rowCount, elapsedMS: elapsedMS)
+            history.insert(entry, at: 0)
+            if history.count > 500 { history = Array(history.prefix(500)) }
+        }
         // Persist off the main actor so a query never blocks the UI on disk I/O.
         let snapshot = history
         let store = historyStore

@@ -498,20 +498,37 @@ final class AppModel {
         return console.activeTab
     }
 
-    /// Loads a history entry into a tab bound to its original connection (no run).
+    /// Loads a history entry: a table view reopens as a data view, a query loads into
+    /// a tab bound to its original connection (without running).
     func loadHistoryEntry(_ entry: QueryHistoryEntry) {
+        if entry.isTableView { openHistoryTable(entry); return }
         Task {
             guard let tab = await historyTab(for: entry) else { return }
             tab.sql = entry.sql
         }
     }
 
-    /// Re-runs a history entry against the connection it originally ran on.
+    /// Re-runs a history entry against the connection it originally ran on; a table
+    /// view reopens as a data view, a query runs in a console tab.
     func runHistoryEntry(_ entry: QueryHistoryEntry) {
+        if entry.isTableView { openHistoryTable(entry); return }
         Task {
             guard let tab = await historyTab(for: entry) else { return }
             tab.sql = entry.sql
             runChecked(entry.sql, on: tab)
+        }
+    }
+
+    /// Reopens a table-view history entry as a data view on its original connection.
+    private func openHistoryTable(_ entry: QueryHistoryEntry) {
+        guard let schema = entry.schema, let table = entry.table else { return }
+        Task {
+            if let profileID = entry.profileID, let profile = connections.profile(id: profileID) {
+                let session = ensureSession(profile: profile)
+                if !session.isReady, !session.isConnecting { await openSession(session, profile: profile) }
+                console.activateTab(for: session)
+            }
+            await console.openTable(schema: schema, table: table)
         }
     }
 
