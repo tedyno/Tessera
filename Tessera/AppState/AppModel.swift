@@ -378,6 +378,14 @@ final class AppModel {
     var exportTarget: ExportTarget?
     var importTarget: ImportTarget?
 
+    /// Pending structural change from the schema tree.
+    var ddlOperation: DDLOperation?
+    var currentEngine: DatabaseKind { console.engine ?? .postgres }
+
+    func startDDL(_ operation: DDLOperation) { ddlOperation = operation }
+
+    func runDDL(_ sql: String) async -> String? { await console.runDDL(sql) }
+
     func importConnection(profileID: UUID) {
         importTarget = ImportTarget(profileID: profileID)
     }

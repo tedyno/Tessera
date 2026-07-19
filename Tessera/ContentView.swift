@@ -54,7 +54,8 @@ struct ContentView: View {
                         if let profileID = app.console.currentProfileID {
                             app.exportConnection(profileID: profileID)
                         }
-                    })
+                    },
+                    onDDL: { app.startDDL($0) })
                 .frame(minHeight: 80, idealHeight: geo.size.height / 2, maxHeight: .infinity)
             }
             }
@@ -101,6 +102,12 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) { app.cancelDestructiveRun() }
         } message: {
             Text(app.destructiveSummary)
+        }
+        .sheet(item: $app.ddlOperation) { operation in
+            DDLEditorView(operation: operation,
+                          engine: app.currentEngine,
+                          onRun: { await app.runDDL($0) },
+                          onClose: { app.ddlOperation = nil })
         }
         .sheet(item: $app.importTarget) { target in
             if let context = app.importContext(for: target) {

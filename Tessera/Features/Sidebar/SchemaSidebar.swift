@@ -21,6 +21,7 @@ struct SchemaSidebar: View {
     var onDumpTable: (_ schema: String, _ table: String) -> Void = { _, _ in }
     var onDumpSchema: (_ schema: String) -> Void = { _ in }
     var onDumpDatabase: () -> Void = { }
+    var onDDL: (DDLOperation) -> Void = { _ in }
 
     @State private var expanded: Set<String> = ["db"]
     @State private var highlightedID: String?
@@ -74,6 +75,8 @@ struct SchemaSidebar: View {
                 .contentShape(Rectangle())
                 .simultaneousGesture(TapGesture(count: 2).onEnded { toggle("s:\(namespace.name)") })
                 .contextMenu {
+                    Button("Create Table…") { onDDL(.createTable(schema: namespace.name)) }
+                    Divider()
                     Button("Dump Schema…") { onDumpSchema(namespace.name) }
                 }
         }
@@ -94,10 +97,35 @@ struct SchemaSidebar: View {
                         .simultaneousGesture(TapGesture(count: 2).onEnded {
                             onOpenColumn(namespace, table.name, column.name)
                         })
+                        .contextMenu {
+                            Button("Rename Column…") {
+                                onDDL(.renameColumn(schema: namespace, table: table.name, column: column.name))
+                            }
+                            Button("Change Type…") {
+                                onDDL(.changeColumnType(schema: namespace, table: table.name,
+                                                        column: column.name, currentType: column.dataType))
+                            }
+                            Button(column.isNullable ? "Require NOT NULL" : "Allow NULL") {
+                                onDDL(.setNullability(schema: namespace, table: table.name,
+                                                      column: column.name, type: column.dataType,
+                                                      makeNullable: !column.isNullable))
+                            }
+                            Divider()
+                            Button("Drop Column…", role: .destructive) {
+                                onDDL(.dropColumn(schema: namespace, table: table.name, column: column.name))
+                            }
+                        }
                 }
                 if !table.indexes.isEmpty {
                     DisclosureGroup {
-                        ForEach(table.indexes) { index in indexRow(index) }
+                        ForEach(table.indexes) { index in
+                            indexRow(index)
+                                .contextMenu {
+                                    Button("Drop Index…", role: .destructive) {
+                                        onDDL(.dropIndex(schema: namespace, table: table.name, index: index.name))
+                                    }
+                                }
+                        }
                     } label: {
                         Label("Indexes", systemImage: "number").font(.caption).foregroundStyle(.secondary)
                     }
@@ -148,6 +176,20 @@ struct SchemaSidebar: View {
             .help("Double-click to SELECT *")
             .contextMenu {
                 Button("Open") { onOpenTable(namespace, table.name) }
+                Divider()
+                Button("Add Column…") { onDDL(.addColumn(schema: namespace, table: table.name)) }
+                Button("Create Index…") {
+                    onDDL(.createIndex(schema: namespace, table: table.name, columns: []))
+                }
+                Button("Rename Table…") { onDDL(.renameTable(schema: namespace, table: table.name)) }
+                Divider()
+                Button("Truncate Table…", role: .destructive) {
+                    onDDL(.truncateTable(schema: namespace, table: table.name))
+                }
+                Button("Drop Table…", role: .destructive) {
+                    onDDL(.dropTable(schema: namespace, table: table.name))
+                }
+                Divider()
                 Button("Dump Table…") { onDumpTable(namespace, table.name) }
             }
     }

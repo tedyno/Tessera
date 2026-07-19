@@ -601,6 +601,23 @@ final class QueryConsoleModel {
 
     // MARK: History
 
+    /// Applies a schema change on the active connection and re-introspects, so the
+    /// tree reflects it right away. Returns an error message on failure.
+    func runDDL(_ sql: String) async -> String? {
+        guard let session = activeSession else { return "Not connected" }
+        guard await ensureReady(session), let driver = session.driver else {
+            return session.errorMessage ?? "Not connected"
+        }
+        do {
+            _ = try await driver.execute(sql)
+            recordHistory(sql: sql, connectionName: session.name, rowCount: 0, elapsedMS: nil)
+            await session.refreshSchema()
+            return nil
+        } catch {
+            return ConnectionSession.message(for: error)
+        }
+    }
+
     /// Stops a running query: cancels the client task *and* asks the server to abort
     /// it, so a heavy query doesn't keep burning resources after Stop.
     func cancel(_ tab: QueryTab) async {
