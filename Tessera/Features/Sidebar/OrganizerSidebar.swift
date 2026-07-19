@@ -10,6 +10,8 @@ struct OrganizerSidebar: View {
     @Binding var selection: UUID?
     /// Opens the New Connection sheet targeting the given parent container.
     var onNewConnection: (UUID?) -> Void
+    /// Opens the editor for the connection at the given tree node id.
+    var onEditConnection: (UUID) -> Void = { _ in }
 
     private enum PendingEdit {
         case rename(id: UUID)
@@ -29,7 +31,9 @@ struct OrganizerSidebar: View {
             onNewProject: { startNewProject(workspace: $0) },
             onNewWorkspace: { editText = ""; pending = .newWorkspace },
             onRename: { id, current in editText = current; pending = .rename(id: id) },
-            onSetColor: { id, color in model.setFolderColor(color, folderID: id) })
+            onSetColor: { id, color in model.setFolderColor(color, folderID: id) },
+            onSetConnectionColor: { profileID, color in model.setProfileColor(color, profileID: profileID) },
+            onEditConnection: onEditConnection)
         .safeAreaInset(edge: .bottom) { bottomBar }
         .alert(alertTitle, isPresented: pendingBinding) {
             TextField("Name", text: $editText)

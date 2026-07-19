@@ -64,6 +64,8 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
     public var ssh: SSHConfig?
     /// Optional so older profiles decode; use `isReadOnly`.
     public var readOnly: Bool?
+    /// Optional palette color name for the connection dot.
+    public var color: String?
 
     /// Stable Keychain key (service = bundle ID, account = this value).
     public var keychainAccount: String { id.uuidString }
@@ -81,7 +83,8 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
         username: String,
         tlsMode: TLSMode = .prefer,
         ssh: SSHConfig? = nil,
-        readOnly: Bool = false
+        readOnly: Bool = false,
+        color: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -93,6 +96,7 @@ public struct ConnectionProfile: Codable, Sendable, Identifiable, Hashable {
         self.tlsMode = tlsMode
         self.ssh = ssh
         self.readOnly = readOnly ? true : nil
+        self.color = color
     }
 }
 

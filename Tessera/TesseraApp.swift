@@ -27,7 +27,7 @@ struct TesseraCommands: Commands {
                 .keyboardShortcut("n")
         }
 
-        CommandGroup(after: .sidebar) {
+        CommandGroup(replacing: .sidebar) {
             Button("Toggle Sidebar") { app.toggleSidebar() }
                 .keyboardShortcut("s", modifiers: [.control, .command])
         }

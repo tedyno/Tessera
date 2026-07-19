@@ -5,10 +5,14 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $app.columnVisibility) {
-            OrganizerSidebar(model: app.connections, selection: $app.selection) { parent in
-                app.newConnectionParent = parent
-                app.showingNewConnection = true
-            }
+            OrganizerSidebar(
+                model: app.connections,
+                selection: $app.selection,
+                onNewConnection: { parent in
+                    app.newConnectionParent = parent
+                    app.showingNewConnection = true
+                },
+                onEditConnection: { app.editConnection(nodeID: $0) })
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 320)
         } content: {
             SchemaSidebar(
@@ -45,6 +49,13 @@ struct ContentView: View {
             NewConnectionView { profile, secrets in
                 let nodeID = app.connections.addConnection(profile, secrets: secrets, into: app.newConnectionParent)
                 app.selection = nodeID
+            }
+        }
+        .sheet(isPresented: $app.showingEditConnection) {
+            if let profile = app.editingProfile {
+                NewConnectionView(editing: profile, secrets: app.editingSecrets) { updated, secrets in
+                    app.connections.updateConnection(updated, secrets: secrets)
+                }
             }
         }
         .confirmationDialog("Run which query?", isPresented: $app.showingRunChoice, presenting: app.pendingRun) { choice in

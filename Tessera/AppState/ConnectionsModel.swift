@@ -202,6 +202,23 @@ final class ConnectionsModel {
         saveOrganizer()
     }
 
+    func setProfileColor(_ color: String?, profileID: UUID) {
+        guard let index = profiles.firstIndex(where: { $0.id == profileID }) else { return }
+        profiles[index].color = color
+        try? profileStore.save(profiles)
+    }
+
+    /// Updates an existing profile in place (parameters + secrets).
+    func updateConnection(_ profile: ConnectionProfile, secrets: Secrets) {
+        try? secretsStore.save(for: profile, secrets: secrets)
+        if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
+            profiles[index] = profile
+        } else {
+            profiles.append(profile)
+        }
+        try? profileStore.save(profiles)
+    }
+
     func path(forProfile profileID: UUID) -> [String] {
         organizer.path(toProfile: profileID)
     }

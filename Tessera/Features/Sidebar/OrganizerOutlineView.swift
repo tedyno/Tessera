@@ -50,6 +50,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
     var onNewWorkspace: () -> Void
     var onRename: (UUID, String) -> Void
     var onSetColor: (UUID, String?) -> Void
+    var onSetConnectionColor: (UUID, String?) -> Void
+    var onEditConnection: (UUID) -> Void
 
     private static let nodeType = NSPasteboard.PasteboardType("io.github.tedyno.tessera.node")
 
@@ -93,7 +95,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
         Coordinator(model: model, selection: $selection,
                     onNewConnection: onNewConnection, onNewFolder: onNewFolder,
                     onNewProject: onNewProject, onNewWorkspace: onNewWorkspace,
-                    onRename: onRename, onSetColor: onSetColor)
+                    onRename: onRename, onSetColor: onSetColor,
+                    onSetConnectionColor: onSetConnectionColor, onEditConnection: onEditConnection)
     }
 
     // MARK: Coordinator
@@ -108,6 +111,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
         let onNewWorkspace: () -> Void
         let onRename: (UUID, String) -> Void
         let onSetColor: (UUID, String?) -> Void
+        let onSetConnectionColor: (UUID, String?) -> Void
+        let onEditConnection: (UUID) -> Void
 
         weak var outlineView: NSOutlineView?
         var pasteboardType: NSPasteboard.PasteboardType = .string
@@ -118,7 +123,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
         init(model: ConnectionsModel, selection: Binding<UUID?>,
              onNewConnection: @escaping (UUID?) -> Void, onNewFolder: @escaping (UUID) -> Void,
              onNewProject: @escaping (UUID) -> Void, onNewWorkspace: @escaping () -> Void,
-             onRename: @escaping (UUID, String) -> Void, onSetColor: @escaping (UUID, String?) -> Void) {
+             onRename: @escaping (UUID, String) -> Void, onSetColor: @escaping (UUID, String?) -> Void,
+             onSetConnectionColor: @escaping (UUID, String?) -> Void, onEditConnection: @escaping (UUID) -> Void) {
             self.model = model
             self.selection = selection
             self.onNewConnection = onNewConnection
@@ -127,6 +133,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
             self.onNewWorkspace = onNewWorkspace
             self.onRename = onRename
             self.onSetColor = onSetColor
+            self.onSetConnectionColor = onSetConnectionColor
+            self.onEditConnection = onEditConnection
         }
 
         // MARK: Building
@@ -235,10 +243,22 @@ struct OrganizerOutlineView: NSViewRepresentable {
             let cell = (outlineView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView)
                 ?? Self.makeCellView(identifier: identifier)
             cell.textField?.stringValue = title(for: orgItem)
-            let (symbol, color) = Self.symbol(for: orgItem, kind: profileKind(for: orgItem))
+            let (symbol, color) = Self.symbol(for: orgItem, kind: profileKind(for: orgItem),
+                                              custom: currentColorName(for: orgItem))
             cell.imageView?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
             cell.imageView?.contentTintColor = color
             return cell
+        }
+
+        /// The color the user assigned to this item (folder color, or profile color).
+        private func currentColorName(for item: OrganizerItem) -> String? {
+            switch item.category {
+            case .folder: return item.color
+            case .connection:
+                guard let profileID = model.organizer.profileID(forNode: item.id) else { return nil }
+                return model.profile(id: profileID)?.color
+            default: return nil
+            }
         }
 
         private static func makeCellView(identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
@@ -275,17 +295,18 @@ struct OrganizerOutlineView: NSViewRepresentable {
             palette.first { $0.name == name }?.color
         }
 
-        private static func symbol(for item: OrganizerItem, kind: DatabaseKind?) -> (String, NSColor?) {
+        private static func symbol(for item: OrganizerItem, kind: DatabaseKind?, custom: String?) -> (String, NSColor?) {
             switch item.category {
             case .workspace: return ("rectangle.3.group", nil)
             case .project: return ("square.stack.3d.up.fill", nil)
-            case .folder: return ("folder.fill", nsColor(item.color) ?? .controlAccentColor)
+            case .folder: return ("folder.fill", nsColor(custom) ?? .controlAccentColor)
             case .connection:
-                switch kind {
-                case .postgres: return ("circle.fill", .systemBlue)
-                case .mysql: return ("circle.fill", .systemOrange)
-                case nil: return ("circle.fill", .secondaryLabelColor)
+                let base: NSColor = switch kind {
+                case .postgres: .systemBlue
+                case .mysql: .systemOrange
+                case nil: .secondaryLabelColor
                 }
+                return ("circle.fill", nsColor(custom) ?? base)
             }
         }
 
@@ -344,6 +365,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 add(menu, "Rename", #selector(actionRename), item)
             } else {
                 add(menu, "Connect", #selector(actionConnect), item)
+                add(menu, "Edit…", #selector(actionEdit), item)
+                menu.addItem(colorMenuItem(for: item))
             }
             add(menu, "Delete", #selector(actionDelete), item)
             return menu
@@ -357,27 +380,28 @@ struct OrganizerOutlineView: NSViewRepresentable {
         }
 
         private final class ColorChoice: NSObject {
-            let folderID: UUID
+            let item: OrganizerItem
             let color: String?
-            init(folderID: UUID, color: String?) { self.folderID = folderID; self.color = color }
+            init(item: OrganizerItem, color: String?) { self.item = item; self.color = color }
         }
 
         private func colorMenuItem(for item: OrganizerItem) -> NSMenuItem {
+            let current = currentColorName(for: item)
             let parent = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
             let submenu = NSMenu()
             for (name, color) in Self.palette {
                 let entry = NSMenuItem(title: name.capitalized, action: #selector(actionSetColor(_:)), keyEquivalent: "")
                 entry.target = self
-                entry.representedObject = ColorChoice(folderID: item.id, color: name)
+                entry.representedObject = ColorChoice(item: item, color: name)
                 entry.image = Self.swatch(color)
-                entry.state = item.color == name ? .on : .off
+                entry.state = current == name ? .on : .off
                 submenu.addItem(entry)
             }
             submenu.addItem(.separator())
             let none = NSMenuItem(title: "None", action: #selector(actionSetColor(_:)), keyEquivalent: "")
             none.target = self
-            none.representedObject = ColorChoice(folderID: item.id, color: nil)
-            none.state = item.color == nil ? .on : .off
+            none.representedObject = ColorChoice(item: item, color: nil)
+            none.state = current == nil ? .on : .off
             submenu.addItem(none)
             parent.submenu = submenu
             return parent
@@ -393,10 +417,22 @@ struct OrganizerOutlineView: NSViewRepresentable {
         }
 
         @objc private func actionSetColor(_ sender: NSMenuItem) {
-            if let choice = sender.representedObject as? ColorChoice {
-                onSetColor(choice.folderID, choice.color)
-                rebuild(expandingAll: false)
+            guard let choice = sender.representedObject as? ColorChoice else { return }
+            switch choice.item.category {
+            case .folder:
+                onSetColor(choice.item.id, choice.color)
+            case .connection:
+                if let profileID = model.organizer.profileID(forNode: choice.item.id) {
+                    onSetConnectionColor(profileID, choice.color)
+                }
+            default:
+                break
             }
+            rebuild(expandingAll: false)
+        }
+
+        @objc private func actionEdit(_ sender: NSMenuItem) {
+            if let item = sender.representedObject as? OrganizerItem { onEditConnection(item.id) }
         }
 
         @objc private func actionNewConnection(_ sender: NSMenuItem) {

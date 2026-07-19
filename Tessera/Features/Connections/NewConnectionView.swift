@@ -6,7 +6,8 @@ import DBDriverPostgres
 /// Sheet for creating a connection profile. Saves connection parameters to the
 /// profile store and the password/SSH secrets to the Keychain (via the caller).
 struct NewConnectionView: View {
-    var onSave: (ConnectionProfile, Secrets) -> Void
+    let editing: ConnectionProfile?
+    let onSave: (ConnectionProfile, Secrets) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -19,6 +20,7 @@ struct NewConnectionView: View {
     @State private var password = ""
     @State private var tlsMode: TLSMode = .prefer
     @State private var readOnly = false
+    @State private var revealPassword = false
 
     @State private var sshEnabled = false
     @State private var sshHost = ""
@@ -28,11 +30,42 @@ struct NewConnectionView: View {
     @State private var sshPassword = ""
     @State private var sshKeyPath = "~/.ssh/id_ed25519"
     @State private var sshPassphrase = ""
+    @State private var revealSSHPassword = false
 
     private enum SSHAuthKind: Hashable { case password, privateKey }
 
     private enum TestState: Equatable { case none, testing, ok(String), failed(String) }
     @State private var testState: TestState = .none
+
+    init(editing: ConnectionProfile? = nil, secrets: Secrets = Secrets(),
+         onSave: @escaping (ConnectionProfile, Secrets) -> Void) {
+        self.editing = editing
+        self.onSave = onSave
+        _name = State(initialValue: editing?.name ?? "")
+        _kind = State(initialValue: editing?.kind ?? .postgres)
+        _host = State(initialValue: editing?.host ?? "")
+        _port = State(initialValue: editing.map { String($0.port) } ?? "")
+        _database = State(initialValue: editing?.database ?? "")
+        _username = State(initialValue: editing?.username ?? "")
+        _password = State(initialValue: secrets.databasePassword ?? "")
+        _tlsMode = State(initialValue: editing?.tlsMode ?? .prefer)
+        _readOnly = State(initialValue: editing?.isReadOnly ?? false)
+        if let ssh = editing?.ssh {
+            _sshEnabled = State(initialValue: true)
+            _sshHost = State(initialValue: ssh.host)
+            _sshPort = State(initialValue: String(ssh.port))
+            _sshUser = State(initialValue: ssh.username)
+            switch ssh.authMethod {
+            case .password:
+                _sshAuth = State(initialValue: .password)
+                _sshPassword = State(initialValue: secrets.sshPassword ?? "")
+            case .privateKey(let path):
+                _sshAuth = State(initialValue: .privateKey)
+                _sshKeyPath = State(initialValue: path)
+                _sshPassphrase = State(initialValue: secrets.sshPassphrase ?? "")
+            }
+        }
+    }
 
     private var canSave: Bool {
         !name.isEmpty && !host.isEmpty && !database.isEmpty && !username.isEmpty
@@ -40,7 +73,7 @@ struct NewConnectionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("New Connection").font(.headline).padding(.top, 16)
+            Text(editing == nil ? "New Connection" : "Edit Connection").font(.headline).padding(.top, 16)
 
             Form {
                 Section {
@@ -56,7 +89,7 @@ struct NewConnectionView: View {
                     }
                     TextField("Database", text: $database)
                     TextField("User", text: $username)
-                    SecureField("Password", text: $password)
+                    revealableField("Password", text: $password, reveal: $revealPassword)
                     Picker("TLS", selection: $tlsMode) {
                         ForEach(TLSMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
@@ -77,7 +110,7 @@ struct NewConnectionView: View {
                         }
                         .pickerStyle(.segmented)
                         if sshAuth == .password {
-                            SecureField("SSH password", text: $sshPassword)
+                            revealableField("SSH password", text: $sshPassword, reveal: $revealSSHPassword)
                         } else {
                             HStack {
                                 TextField("Key path", text: $sshKeyPath)
@@ -127,6 +160,23 @@ struct NewConnectionView: View {
         }
     }
 
+    @ViewBuilder
+    private func revealableField(_ title: String, text: Binding<String>, reveal: Binding<Bool>) -> some View {
+        HStack(spacing: 4) {
+            if reveal.wrappedValue {
+                TextField(title, text: text)
+            } else {
+                SecureField(title, text: text)
+            }
+            Button { reveal.wrappedValue.toggle() } label: {
+                Image(systemName: reveal.wrappedValue ? "eye.slash" : "eye")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Show/hide")
+        }
+    }
+
     private func makeProfile() -> ConnectionProfile {
         let ssh: SSHConfig? = sshEnabled
             ? SSHConfig(
@@ -134,6 +184,7 @@ struct NewConnectionView: View {
                 authMethod: sshAuth == .password ? .password : .privateKey(path: sshKeyPath))
             : nil
         return ConnectionProfile(
+            id: editing?.id ?? UUID(),
             name: name, kind: kind, host: host, port: Int(port),
             database: database, username: username, tlsMode: tlsMode, ssh: ssh, readOnly: readOnly)
     }

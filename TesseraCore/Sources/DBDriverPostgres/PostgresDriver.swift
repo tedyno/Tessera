@@ -208,7 +208,8 @@ public actor PostgresDriver: DatabaseDriver {
             case .numeric:
                 return try cell.decode(Decimal.self).description
             case .uuid:
-                return try cell.decode(UUID.self).uuidString
+                // Postgres renders UUIDs lowercase; Swift's uuidString is uppercase.
+                return try cell.decode(UUID.self).uuidString.lowercased()
             case .timestamp, .timestamptz, .date:
                 return try cell.decode(Date.self).ISO8601Format()
             case .text, .varchar, .bpchar, .name, .char, .json, .jsonb:

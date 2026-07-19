@@ -21,6 +21,7 @@ struct DetailView: View {
             editor
             Divider()
             resultsArea
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             statusBar
         }
         .sheet(isPresented: $showingHistory) {

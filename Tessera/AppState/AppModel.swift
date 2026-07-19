@@ -15,6 +15,9 @@ final class AppModel {
     var columnVisibility: NavigationSplitViewVisibility = .all
     var showingNewConnection = false
     var newConnectionParent: UUID?
+    var showingEditConnection = false
+    var editingProfile: ConnectionProfile?
+    @ObservationIgnored var editingSecrets = Secrets()
     var showingHistory = false
     /// Bumped to request first-responder focus in the SQL editor (⌘L).
     var editorFocusRequests = 0
@@ -214,10 +217,18 @@ final class AppModel {
         showingNewConnection = true
     }
 
+    func editConnection(nodeID: UUID) {
+        guard let profileID = connections.profileID(forNode: nodeID),
+              let profile = connections.profile(id: profileID) else { return }
+        editingProfile = profile
+        editingSecrets = connections.secrets(for: profile)
+        showingEditConnection = true
+    }
+
     func focusEditor() { editorFocusRequests += 1 }
 
     func toggleSidebar() {
-        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+        columnVisibility = columnVisibility == .all ? .doubleColumn : .all
     }
 
     var currentHiddenSchemas: Set<String> {
