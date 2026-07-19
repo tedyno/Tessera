@@ -16,7 +16,7 @@ struct FilterField: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.borderType = .bezelBorder
 
-        let textView = CompletingTextView(frame: .zero, textContainer: nil)
+        let textView = CompletingTextView(frame: .zero)
         textView.placeholder = placeholder
         textView.delegate = context.coordinator
         textView.isRichText = false

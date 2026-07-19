@@ -11,18 +11,16 @@ final class CompletingTextView: NSTextView {
     /// Return an empty list to hide the popup.
     var completionSource: ((_ text: String, _ caret: Int) -> (range: NSRange, items: [String]))?
 
-    private let popup = CompletionPopup()
     private var completionRange = NSRange(location: 0, length: 0)
     private var suppressNextUpdate = false
 
-    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
-        super.init(frame: frameRect, textContainer: container)
+    /// Lazy so the class needs no custom initializer — that lets `init(frame:)` build
+    /// the full text system (a nil text container leaves the view unclickable).
+    private lazy var popup: CompletionPopup = {
+        let popup = CompletionPopup()
         popup.onClickCommit = { [weak self] in self?.commitCompletion() }
-    }
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        popup.onClickCommit = { [weak self] in self?.commitCompletion() }
-    }
+        return popup
+    }()
 
     // MARK: Auto-capitalization guard
 

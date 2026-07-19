@@ -18,7 +18,7 @@ struct SQLEditor: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.drawsBackground = false
-        let textView = CompletingTextView(frame: .zero, textContainer: nil)
+        let textView = CompletingTextView(frame: .zero)
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
