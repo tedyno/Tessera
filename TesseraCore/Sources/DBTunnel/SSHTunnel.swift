@@ -4,6 +4,7 @@ import DBKit
 import NIOCore
 import NIOPosix
 import NIOSSH
+import Crypto
 
 /// An SSH tunnel doing local port forwarding: connects to an SSH server, opens a
 /// local listener on 127.0.0.1, and forwards each accepted connection through the
@@ -31,8 +32,9 @@ public actor SSHTunnel {
         switch ssh.authMethod {
         case .password:
             auth = .passwordBased(username: ssh.username, password: secrets.sshPassword ?? "")
-        case .privateKey:
-            throw DatabaseError.unsupported("SSH private key auth is not implemented yet — use password")
+        case .privateKey(let path):
+            auth = try Self.privateKeyAuth(username: ssh.username, path: path,
+                                           passphrase: secrets.sshPassphrase)
         }
 
         let client: SSHClient
@@ -90,5 +92,26 @@ public actor SSHTunnel {
         serverChannel = nil
         if let client { try? await client.close() }
         client = nil
+    }
+
+    /// Loads an OpenSSH private key from disk and builds the matching auth method.
+    /// Supports ed25519 and RSA keys, encrypted ones via the stored passphrase.
+    private static func privateKeyAuth(username: String, path: String,
+                                       passphrase: String?) throws -> SSHAuthenticationMethod {
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        guard let key = try? String(contentsOf: url, encoding: .utf8) else {
+            throw DatabaseError.connectionFailed("Cannot read the SSH private key at \(path)")
+        }
+        let decryptionKey = passphrase.flatMap { $0.isEmpty ? nil : Data($0.utf8) }
+
+        if let ed25519 = try? Curve25519.Signing.PrivateKey(sshEd25519: key, decryptionKey: decryptionKey) {
+            return .ed25519(username: username, privateKey: ed25519)
+        }
+        if let rsa = try? Insecure.RSA.PrivateKey(sshRsa: key, decryptionKey: decryptionKey) {
+            return .rsa(username: username, privateKey: rsa)
+        }
+        throw DatabaseError.connectionFailed(
+            "Unsupported or encrypted SSH key at \(path). Supported: OpenSSH ed25519 and RSA"
+            + (decryptionKey == nil ? " (add the passphrase if the key is encrypted)." : "."))
     }
 }
