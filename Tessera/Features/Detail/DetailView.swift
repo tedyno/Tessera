@@ -27,6 +27,8 @@ struct DetailView: View {
 
     /// Whether the value inspector panel is shown below the results grid.
     @State private var showInspector = false
+    @State private var showingSaveQuery = false
+    @State private var saveQueryTitle = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -217,6 +219,7 @@ struct DetailView: View {
                 Text("\(ms) ms").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            savedQueriesMenu
             Button {
                 showingHistory = true
             } label: {
@@ -225,6 +228,55 @@ struct DetailView: View {
             .controlSize(.small)
         }
         .padding(6)
+        .alert("Save Query", isPresented: $showingSaveQuery) {
+            TextField("Name", text: $saveQueryTitle)
+            Button("Save") {
+                if let sql = model.activeTab?.sql { model.saveQuery(title: saveQueryTitle, sql: sql) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Give this query a name to find it later.")
+        }
+    }
+
+    private var savedQueriesMenu: some View {
+        Menu {
+            Button {
+                saveQueryTitle = suggestedSaveTitle
+                showingSaveQuery = true
+            } label: {
+                Label("Save Current Query…", systemImage: "bookmark")
+            }
+            .disabled((model.activeTab?.sql ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            if !model.savedQueries.isEmpty {
+                Divider()
+                ForEach(model.savedQueries) { query in
+                    Button(query.title) { model.loadIntoActiveTab(query.sql) }
+                }
+                Divider()
+                Menu {
+                    ForEach(model.savedQueries) { query in
+                        Button(query.title, role: .destructive) { model.deleteSavedQuery(query.id) }
+                    }
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        } label: {
+            Label("Saved Queries", systemImage: "bookmark")
+        }
+        .menuStyle(.borderlessButton)
+        .controlSize(.small)
+        .fixedSize()
+    }
+
+    /// A default bookmark name: the first non-empty line of the current SQL, trimmed.
+    private var suggestedSaveTitle: String {
+        let sql = model.activeTab?.sql ?? ""
+        let firstLine = sql.split(whereSeparator: \.isNewline)
+            .first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? ""
+        return String(firstLine.prefix(48))
     }
 
     private var editor: some View {

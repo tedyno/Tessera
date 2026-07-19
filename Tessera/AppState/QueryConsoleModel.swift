@@ -18,6 +18,10 @@ final class QueryConsoleModel {
     private(set) var history: [QueryHistoryEntry] = []
     private let historyStore: QueryHistoryStore
 
+    /// User-bookmarked SQL snippets, newest first.
+    private(set) var savedQueries: [SavedQuery] = []
+    private let savedQueryStore: SavedQueryStore
+
     /// Injected by `AppModel`: reconnects a dropped session (it needs Keychain
     /// secrets, which live outside the console). Lets a run auto-reconnect first.
     var reconnect: (ConnectionSession) async -> Void = { _ in }
@@ -34,6 +38,11 @@ final class QueryConsoleModel {
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("tessera-history.json")
         self.historyStore = QueryHistoryStore(fileURL: url)
         self.history = historyStore.load()
+
+        let savedURL = (try? SavedQueryStore.defaultURL())
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("tessera-saved-queries.json")
+        self.savedQueryStore = SavedQueryStore(fileURL: savedURL)
+        self.savedQueries = savedQueryStore.load()
     }
 
     // MARK: Active tab / session
@@ -677,6 +686,30 @@ final class QueryConsoleModel {
         history = []
         let store = historyStore
         Task.detached { store.save([]) }
+    }
+
+    // MARK: Saved queries
+
+    /// Bookmarks `sql` under `title` (newest first) and persists.
+    func saveQuery(title: String, sql: String) {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty else { return }
+        let entry = SavedQuery(title: name.isEmpty ? String(localized: "Untitled") : name,
+                               sql: sql, createdAt: Date())
+        savedQueries.insert(entry, at: 0)
+        persistSavedQueries()
+    }
+
+    func deleteSavedQuery(_ id: UUID) {
+        savedQueries.removeAll { $0.id == id }
+        persistSavedQueries()
+    }
+
+    private func persistSavedQueries() {
+        let snapshot = savedQueries
+        let store = savedQueryStore
+        Task.detached { store.save(snapshot) }
     }
 
     private func recordHistory(sql: String, connectionName: String, rowCount: Int, elapsedMS: Int?) {
