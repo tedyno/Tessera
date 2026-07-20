@@ -55,6 +55,13 @@ final class TypedHeaderCell: NSTableHeaderCell {
                           width: max(cellFrame.width - 22, 0), height: height)
         text.draw(in: rect)
     }
+
+    /// The sorted column is drawn via `highlight(_:withFrame:in:)`, not `draw(withFrame:in:)`
+    /// — without this override, AppKit's own default implementation takes over for
+    /// that one column and shows only the plain name, dropping the type.
+    override func highlight(_ flag: Bool, withFrame cellFrame: NSRect, in controlView: NSView) {
+        draw(withFrame: cellFrame, in: controlView)
+    }
 }
 
 struct CellPos: Hashable { let row: Int; let col: Int }
