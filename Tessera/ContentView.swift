@@ -34,6 +34,7 @@ struct ContentView: View {
                     hiddenSchemas: app.currentHiddenSchemas,
                     reveal: app.schemaReveal,
                     connectionName: app.console.connectionName,
+                    status: app.console.status,
                     databases: app.console.activeSession?.databases ?? [],
                     onSwitchDatabase: { database in
                         if let profileID = app.console.currentProfileID {

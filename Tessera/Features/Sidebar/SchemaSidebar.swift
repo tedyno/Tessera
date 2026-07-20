@@ -18,6 +18,9 @@ struct SchemaSidebar: View {
     /// Which connection this tree belongs to. Two connections often share a database
     /// name (a local and a tunnelled `enelink`), so the name alone is ambiguous.
     var connectionName: String?
+    /// Distinguishes "still connecting" from "nothing selected" while `tree` is nil —
+    /// otherwise a slow connection briefly looks like there's no database at all.
+    var status: ConnectionSession.Status = .idle
     /// Databases on the server, for the database-switcher menu.
     var databases: [String] = []
     var onSwitchDatabase: (String) -> Void = { _ in }
@@ -120,6 +123,12 @@ struct SchemaSidebar: View {
                     }
                 }
                 .safeAreaInset(edge: .bottom) { filterBar(tree) }
+            } else if status == .connecting {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("Loading schema…").foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView("No schema", systemImage: "cylinder.split.1x2",
                                        description: Text("Connect to a database to browse its schema."))

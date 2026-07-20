@@ -1734,6 +1734,17 @@
         }
       }
     },
+    "Loading schema…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Načítání schématu…"
+          }
+        }
+      }
+    },
     "Load more": {
       "extractionState": "manual",
       "localizations": {
