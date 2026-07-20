@@ -5,14 +5,24 @@ import Foundation
 /// CRC — no third-party dependency for a format we write in exactly one shape.
 public enum XLSXWriter {
 
-    public static func workbook(from result: QueryResult, sheetName: String = "Results") -> Data {
+    /// A plain ZIP addresses offsets and sizes with 32 bits; past that the file would
+    /// need ZIP64, which we don't emit. Refusing beats writing a corrupt workbook.
+    public struct TooLarge: Error, CustomStringConvertible {
+        public var description: String {
+            "The result is too large for an .xlsx file (over 4 GB). "
+            + "Export it as CSV, or lower “Max rows per query”."
+        }
+    }
+
+    public static func workbook(from result: QueryResult,
+                                sheetName: String = "Results") throws -> Data {
         var zip = ZipBuilder()
         zip.add(path: "[Content_Types].xml", contents: contentTypes)
         zip.add(path: "_rels/.rels", contents: rootRelationships)
         zip.add(path: "xl/workbook.xml", contents: workbookXML(sheetName: sheetName))
         zip.add(path: "xl/_rels/workbook.xml.rels", contents: workbookRelationships)
         zip.add(path: "xl/worksheets/sheet1.xml", contents: sheetXML(result))
-        return zip.finish()
+        return try zip.finish()
     }
 
     // MARK: Sheet
@@ -143,22 +153,30 @@ struct ZipBuilder {
 
     private var payload = Data()
     private var entries: [Entry] = []
+    /// Set once anything overflows 32 bits, so `finish()` can refuse rather than
+    /// truncate an offset and hand back a corrupt archive.
+    private var overflowed = false
 
     mutating func add(path: String, contents: String) {
         let data = Data(contents.utf8)
-        let entry = Entry(path: path, data: data, crc: CRC32.checksum(data),
-                          offset: UInt32(payload.count))
+        guard let offset = UInt32(exactly: payload.count),
+              UInt32(exactly: data.count) != nil else {
+            overflowed = true
+            return
+        }
+        let entry = Entry(path: path, data: data, crc: CRC32.checksum(data), offset: offset)
         payload.append(localHeader(for: entry))
         payload.append(data)
         entries.append(entry)
     }
 
-    mutating func finish() -> Data {
+    func finish() throws -> Data {
         var directory = Data()
         for entry in entries { directory.append(centralHeader(for: entry)) }
 
         var archive = payload
-        let directoryOffset = UInt32(archive.count)
+        guard !overflowed, let directoryOffset = UInt32(exactly: archive.count),
+              UInt32(exactly: directory.count) != nil else { throw XLSXWriter.TooLarge() }
         archive.append(directory)
         archive.append(UInt32(0x0605_4b50).littleEndianData)   // end of central directory
         archive.append(UInt16(0).littleEndianData)             // this disk

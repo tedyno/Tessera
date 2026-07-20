@@ -37,6 +37,11 @@ final class AppModel {
             guard let self, let profile = self.connections.profile(id: session.id) else { return }
             await self.openSession(session, profile: profile)
         }
+        // Deleting a connection must take its live session and tabs with it.
+        connections.onProfilesRemoved = { [weak self] profileIDs in
+            guard let self else { return }
+            for profileID in profileIDs { self.console.forgetSession(profileID: profileID) }
+        }
         NotificationCenter.default.addObserver(forName: .mcpSettingsChanged, object: nil,
                                                queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.syncMCPServer() }
@@ -582,8 +587,8 @@ final class AppModel {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         // Qualify the table for generated INSERTs so they can be replayed elsewhere.
         let table = tab.dataSchema.map { "\($0).\(tab.dataTable ?? "")" } ?? tab.dataTable
-        let data = ResultExport.data(from: result, format: format, table: table)
         do {
+            let data = try ResultExport.data(from: result, format: format, table: table)
             try data.write(to: url, options: .atomic)
             if ExportSettings.revealAfterExport {
                 NSWorkspace.shared.activateFileViewerSelecting([url])

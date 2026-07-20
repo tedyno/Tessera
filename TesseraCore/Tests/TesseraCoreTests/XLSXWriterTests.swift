@@ -39,7 +39,7 @@ final class XLSXWriterTests: XCTestCase {
     // MARK: Archive
 
     func testWorkbookIsAZipHoldingTheExpectedParts() throws {
-        let data = XLSXWriter.workbook(from: sample())
+        let data = try XLSXWriter.workbook(from: sample())
         XCTAssertEqual(Array(data.prefix(2)), Array("PK".utf8))
 
         let parts = try unzip(data)
@@ -50,7 +50,7 @@ final class XLSXWriterTests: XCTestCase {
     }
 
     func testSheetContentsAndTypes() throws {
-        let sheet = try XCTUnwrap(try unzip(XLSXWriter.workbook(from: sample()))["xl/worksheets/sheet1.xml"])
+        let sheet = try XCTUnwrap(try unzip(try XLSXWriter.workbook(from: sample()))["xl/worksheets/sheet1.xml"])
 
         XCTAssertTrue(sheet.contains("<t xml:space=\"preserve\">id</t>"))   // header
         XCTAssertTrue(sheet.contains("<c r=\"A2\"><v>1</v></c>"))           // numeric cell
@@ -60,7 +60,7 @@ final class XLSXWriterTests: XCTestCase {
     }
 
     func testSheetNameIsSanitized() throws {
-        let workbook = XLSXWriter.workbook(from: sample(), sheetName: "a/b*c[d]e")
+        let workbook = try XLSXWriter.workbook(from: sample(), sheetName: "a/b*c[d]e")
         let xml = try XCTUnwrap(try unzip(workbook)["xl/workbook.xml"])
         XCTAssertTrue(xml.contains("name=\"abcde\""))
     }

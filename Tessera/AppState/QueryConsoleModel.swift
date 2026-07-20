@@ -60,6 +60,18 @@ final class QueryConsoleModel {
     /// Makes a connection current without opening anything.
     func selectSession(_ session: ConnectionSession) { currentSession = session }
 
+    /// Drops a connection that no longer exists: closes it, closes its tabs, and
+    /// clears it as the current one so nothing keeps pointing at a deleted profile.
+    func forgetSession(profileID: UUID) {
+        guard let session = session(for: profileID) else { return }
+        for tab in tabs where tab.session === session { tab.task?.cancel() }
+        tabs.removeAll { $0.session === session }
+        if !tabs.contains(where: { $0.id == activeTabID }) { activeTabID = tabs.last?.id }
+        if currentSession === session { currentSession = nil }
+        sessions.removeAll { $0 === session }
+        Task { await session.close() }
+    }
+
     /// Connection state of the active tab's session, surfaced for the status bar.
     var status: ConnectionSession.Status { activeSession?.status ?? .idle }
     var schema: DatabaseTree? { activeSession?.schema }

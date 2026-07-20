@@ -189,10 +189,17 @@ public struct MCPQueryResult: Codable, Equatable, Sendable {
 public struct MCPExportResult: Codable, Equatable, Sendable {
     public let path: String
     public let bytes: Int
+    /// Rows written, for a result export.
+    public let rows: Int?
+    /// True when the row cap cut the export short — otherwise a partial file would
+    /// look complete to the caller.
+    public let truncated: Bool?
 
-    public init(path: String, bytes: Int) {
+    public init(path: String, bytes: Int, rows: Int? = nil, truncated: Bool? = nil) {
         self.path = path
         self.bytes = bytes
+        self.rows = rows
+        self.truncated = truncated
     }
 }
 

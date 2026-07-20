@@ -249,13 +249,15 @@ final class MCPBridge: MCPDataSource {
             let result = try await driver.execute(sql, maxRows: cap)
             let url = ExportSettings.directory.appendingPathComponent(
                 ExportSettings.fileName(base: connection, extension: exportFormat.fileExtension))
-            let data = ResultExport.data(from: result, format: exportFormat)
+            let data = try ResultExport.data(from: result, format: exportFormat)
             try data.write(to: url, options: .atomic)
             app.mcpAudit.record(tool: "export_result", connection: connection, detail: sql,
-                                outcome: "wrote \(url.path) (\(result.rows.count) rows)")
-            return MCPExportResult(path: url.path, bytes: data.count)
+                                outcome: "wrote \(url.path) (\(result.rows.count) rows"
+                                       + (result.isTruncated ? ", truncated)" : ")"))
+            return MCPExportResult(path: url.path, bytes: data.count,
+                                   rows: result.rows.count, truncated: result.isTruncated)
         } catch {
-            let message = error is MCPToolError ? "\(error)" : ConnectionSession.message(for: error)
+            let message = Self.message(for: error)
             app.mcpAudit.record(tool: "export_result", connection: connection,
                                 detail: sql, outcome: "failed: \(message)")
             throw MCPToolError(message)

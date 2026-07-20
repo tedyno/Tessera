@@ -106,3 +106,35 @@ final class LooseConnectionTests: XCTestCase {
         XCTAssertEqual(document.looseConnections.count, 1)
     }
 }
+
+// MARK: Deleting the last workspace
+
+final class LastWorkspaceDeletionTests: XCTestCase {
+
+    /// Keeping the contents of the only workspace is impossible — there is nowhere to
+    /// move them — so the caller must not be able to drop them without cleanup.
+    func testRemovingTheOnlyWorkspaceWithNoTargetKeepsNothingBehind() {
+        var document = OrganizerDocument(workspaces: [Workspace(name: "Only")])
+        let ref = ConnectionRef(profileID: UUID())
+        document.insert(.connection(ref), toParent: document.workspaces[0].id, at: nil)
+        let workspaceID = document.workspaces[0].id
+
+        // What the model must clean up is discoverable before the removal…
+        XCTAssertEqual(document.profileIDs(inSubtreeOf: workspaceID), [ref.profileID])
+        document.removeWorkspace(workspaceID, movingChildrenInto: nil)
+
+        XCTAssertTrue(document.workspaces.isEmpty)
+        XCTAssertNil(document.node(id: ref.id))
+    }
+
+    func testRemovingAWorkspaceMovesChildrenIntoTheTarget() {
+        let keep = Workspace(name: "Keep")
+        var document = OrganizerDocument(workspaces: [Workspace(name: "Going"), keep])
+        let ref = ConnectionRef(profileID: UUID())
+        document.insert(.connection(ref), toParent: document.workspaces[0].id, at: nil)
+
+        document.removeWorkspace(document.workspaces[0].id, movingChildrenInto: keep.id)
+        XCTAssertEqual(document.workspaces.count, 1)
+        XCTAssertEqual(document.location(of: ref.id)?.parent, keep.id)
+    }
+}

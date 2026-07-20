@@ -188,24 +188,37 @@ final class ConnectionsModel {
 
     /// Deletes a profile and its secrets once nothing in the tree refers to it.
     private func discardProfiles(_ profileIDs: [UUID]) {
-        var removedAny = false
+        var removed: [UUID] = []
         for profileID in Set(profileIDs) where organizer.refs(toProfile: profileID).isEmpty {
             if let profile = profile(id: profileID) {
                 try? secretsStore.deleteAll(for: profile)
             }
             profiles.removeAll { $0.id == profileID }
-            removedAny = true
+            removed.append(profileID)
         }
-        if removedAny { try? profileStore.save(profiles) }
+        guard !removed.isEmpty else { return }
+        try? profileStore.save(profiles)
+        // A live session (and any tab on it) would otherwise outlive the connection.
+        onProfilesRemoved(removed)
     }
+
+    /// Called with profiles that no longer exist anywhere in the tree, so the app can
+    /// close their sessions and tabs. Injected because this store knows nothing about
+    /// the query console.
+    var onProfilesRemoved: ([UUID]) -> Void = { _ in }
 
     /// Deletes a container, either taking its contents with it or keeping them by
     /// moving them up a level (into another workspace, for a workspace).
     func deleteContainer(_ id: UUID, removingContents: Bool) {
         let isWorkspace = organizer.workspaces.contains { $0.id == id }
-        guard removingContents else {
+        // Keeping the contents of the last workspace is impossible — there is nowhere
+        // to move them. Fall through to the deleting path so the profiles and their
+        // Keychain entries are still cleaned up instead of silently orphaned.
+        let target = isWorkspace ? fallbackWorkspaceID(excluding: id) : nil
+        let canKeep = !isWorkspace || target != nil
+        guard removingContents || !canKeep else {
             if isWorkspace {
-                organizer.removeWorkspace(id, movingChildrenInto: fallbackWorkspaceID(excluding: id))
+                organizer.removeWorkspace(id, movingChildrenInto: target)
             } else {
                 organizer.removeKeepingChildren(id)
             }

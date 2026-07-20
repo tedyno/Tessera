@@ -11,23 +11,31 @@ public enum ResultExport {
         public var isText: Bool { self != .xlsx }
     }
 
+    /// The text formats, so a caller cannot ask for a `String` of a binary workbook.
+    public enum TextFormat { case csv, json, sql }
+
     /// Bytes to write for any format. Text formats are UTF-8; `.xlsx` is a workbook.
     /// `table` names the target of generated INSERT statements.
     public static func data(from result: QueryResult, format: Format,
-                            table: String? = nil) -> Data {
+                            table: String? = nil) throws -> Data {
         switch format {
-        case .xlsx: XLSXWriter.workbook(from: result, sheetName: table ?? "Results")
-        default: Data(string(from: result, format: format, table: table).utf8)
+        case .xlsx:
+            return try XLSXWriter.workbook(from: result, sheetName: table ?? "Results")
+        case .csv:
+            return Data(string(from: result, format: .csv, table: table).utf8)
+        case .json:
+            return Data(string(from: result, format: .json, table: table).utf8)
+        case .sql:
+            return Data(string(from: result, format: .sql, table: table).utf8)
         }
     }
 
-    public static func string(from result: QueryResult, format: Format,
+    public static func string(from result: QueryResult, format: TextFormat,
                               table: String? = nil) -> String {
         switch format {
         case .csv: csv(result)
         case .json: json(result)
         case .sql: inserts(result, table: table ?? "table")
-        case .xlsx: ""   // binary — use `data(from:format:)`
         }
     }
 
