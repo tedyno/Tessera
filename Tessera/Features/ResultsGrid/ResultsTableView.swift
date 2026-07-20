@@ -414,6 +414,11 @@ struct ResultsTableView: NSViewRepresentable {
         private var columnsSignature: [String] = []
         private var lastResultVersion = -1
         private var lastSearchQuery = ""
+        private var lastFingerprint: Int?
+        /// True while a cell edit session is live — configure() must not reload the
+        /// table then (the live-preview mutations would otherwise retrigger it and
+        /// kill the very session that made them).
+        private var isEditingActive = false
         private var selected: Set<CellPos> = []
         private var anchor: CellPos?
         /// The cell arrow keys move from — the last cell clicked or stepped onto
@@ -587,28 +592,10 @@ struct ResultsTableView: NSViewRepresentable {
             return set
         }
 
-        /// The one editor the grid ever uses: a dedicated field the coordinator lays
-        /// over the edited cell's rect. Cell views themselves are recycled by the
-        /// table (and torn down wholesale by every observed-state reloadData), so an
-        /// editing session anchored to them dies the moment a reload lands — this
-        /// overlay is owned here and is always attached.
-        private lazy var overlayEditor: GridTextField = {
-            let field = GridTextField(string: "")
-            field.font = Self.mono
-            field.isBordered = false
-            field.isBezeled = false
-            field.drawsBackground = true
-            field.backgroundColor = .textBackgroundColor
-            field.focusRingType = .none
-            field.wantsLayer = true
-            field.layer?.borderWidth = 1
-            field.layer?.cornerRadius = 2
-            field.cell?.usesSingleLineMode = true
-            field.delegate = self
-            return field
-        }()
-
-        /// Returns the field editor when editing actually started.
+        /// Returns the field editor when editing actually started. Native in-cell
+        /// editing: the cell's own text field becomes first responder — with
+        /// `configure` no longer reloading the table on every observed change, the
+        /// cell view is guaranteed live, and AppKit never recycles a view mid-edit.
         @discardableResult
         func beginEdit(row: Int, col: Int) -> NSText? {
             guard tab.isEditable, visibleRowMap == nil, let tableView, let result, col < result.columns.count
@@ -620,21 +607,21 @@ struct ResultsTableView: NSViewRepresentable {
             selected = [CellPos(row: row, col: col)]
             anchor = CellPos(row: row, col: col)
             focus = CellPos(row: row, col: col)
-            reload(rows: old.union(selectionRows))
+            // Repaint rows losing their highlight, but never the row being edited —
+            // its live view is what the editing session attaches to.
+            var repaint = old.union(selectionRows)
+            repaint.remove(row)
+            reload(rows: repaint)
 
-            let rect = tableView.frameOfCell(atColumn: col, row: row)
-            guard rect != .zero else { return nil }
-            overlayEditor.frame = rect
-            overlayEditor.rowIndex = row
-            overlayEditor.columnIndex = col
-            overlayEditor.stringValue = cellString(row: row, col: col) ?? "NULL"
-            overlayEditor.alignment = isNumericColumnType(result.columns[col].typeName) ? .right : .left
-            overlayEditor.layer?.borderColor = NSColor.controlAccentColor.cgColor
-            tableView.addSubview(overlayEditor)
-            overlayEditor.isHidden = false
-            tableView.window?.makeFirstResponder(overlayEditor)
-            overlayEditor.currentEditor()?.selectAll(nil)
-            return overlayEditor.currentEditor()
+            guard let field = tableView.view(atColumn: col, row: row, makeIfNecessary: false) as? GridTextField,
+                  field.window != nil else { return nil }
+            field.isEditable = true
+            field.isSelectable = true
+            tableView.window?.makeFirstResponder(field)
+            let editor = field.currentEditor()
+            editor?.selectAll(nil)
+            isEditingActive = editor != nil
+            return editor
         }
 
         /// Cells a multi-selection edit session will write into on commit.
@@ -651,10 +638,40 @@ struct ResultsTableView: NSViewRepresentable {
                 bulkEditTargets = nil
                 return false
             }
-            bulkEditTargets = targets.count > 1 ? targets : nil
+            if targets.count > 1 {
+                // One snapshot for the whole session — Escape reverts the live
+                // preview below in a single undo step.
+                tab.captureEditSnapshot()
+                bulkEditTargets = targets
+            } else {
+                bulkEditTargets = nil
+            }
             editor.string = text
             editor.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+            // Programmatic string changes post no controlTextDidChange — seed the
+            // live preview for the first character by hand.
+            propagateBulkPreview(text, excluding: cell)
             return true
+        }
+
+        /// Live preview while a multi-cell typing session runs: what's in the editor
+        /// lands in every other selected cell on each keystroke. The edited row is
+        /// never reloaded — that would recycle the view hosting the session.
+        private func propagateBulkPreview(_ value: String, excluding edited: CellPos) {
+            guard let targets = bulkEditTargets else { return }
+            var rows = IndexSet()
+            for cell in targets where cell != edited {
+                setCell(cell, to: value)
+                rows.insert(cell.row)
+            }
+            rows.remove(edited.row)
+            reload(rows: rows)
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard bulkEditTargets != nil, let field = notification.object as? GridTextField else { return }
+            propagateBulkPreview(field.stringValue,
+                                 excluding: CellPos(row: field.rowIndex, col: field.columnIndex))
         }
 
         private func reload(rows: IndexSet) {
@@ -1028,8 +1045,35 @@ struct ResultsTableView: NSViewRepresentable {
                     tableView.addTableColumn(column)
                 }
             }
-            tableView.reloadData()
-            updateSortIndicator(tableView, result)
+            // Reload only when the data under the grid actually changed. SwiftUI
+            // re-invokes updateNSView on every observed mutation — including ones a
+            // reload must NOT interrupt, like the inspector update from the click
+            // that precedes typing: a full reloadData tears down row views (they
+            // re-materialize only on the next draw pass) and kills any editing
+            // session, which is exactly how in-cell editing kept breaking.
+            var hasher = Hasher()
+            hasher.combine(ObjectIdentifier(tab))
+            hasher.combine(tab.resultVersion)
+            hasher.combine(tab.searchQuery)
+            hasher.combine(signature)
+            hasher.combine(tab.pendingDeletes)
+            hasher.combine(tab.edits)
+            hasher.combine(tab.sortColumn)
+            hasher.combine(tab.sortAscending)
+            for insert in tab.pendingInserts {
+                hasher.combine(insert.id)
+                hasher.combine(insert.values)
+            }
+            let fingerprint = hasher.finalize()
+            // While an edit session is live, skip (and don't record) the reload — the
+            // live-preview writes change `edits` on every keystroke, and reloading
+            // would kill the session doing the typing. The skipped reload happens on
+            // the first configure after the session ends.
+            if fingerprint != lastFingerprint, !isEditingActive {
+                lastFingerprint = fingerprint
+                tableView.reloadData()
+                updateSortIndicator(tableView, result)
+            }
             // Clearing the inspector here (during updateNSView) would mutate observed
             // state mid-render; defer it, and only if nothing got selected meanwhile.
             if selected.isEmpty, tab.inspected != nil {
@@ -1182,31 +1226,33 @@ struct ResultsTableView: NSViewRepresentable {
             let row = field.rowIndex
             let columnName = result.columns[field.columnIndex].name
             let newValue = field.stringValue
-            if field === overlayEditor {
-                overlayEditor.isHidden = true
-                overlayEditor.removeFromSuperview()
-            }
+            let movement = notification.userInfo?["NSTextMovement"] as? Int ?? 0
+            isEditingActive = false
+            // Back to a plain label until the next explicit edit — an editable field
+            // left behind would swallow the grid's own click handling.
+            field.isEditable = false
+            field.isSelectable = false
 
-            // Editing now starts by making the field first responder, so a keyboard
+            // Editing starts by making the field first responder, so a keyboard
             // commit (Return/Tab; nonzero NSTextMovement) hands focus back to the
             // grid — a click into another control keeps its own focus.
-            if (notification.userInfo?["NSTextMovement"] as? Int ?? 0) != 0 {
+            if movement != 0 {
                 DispatchQueue.main.async { [weak self] in
                     guard let self, let tableView = self.tableView else { return }
                     tableView.window?.makeFirstResponder(tableView)
                 }
             }
 
-            // A multi-selection typing session: the committed value lands in every
-            // cell that was selected when typing started. A value identical to what
-            // the focused cell already showed means the edit was cancelled (Escape
-            // restores the original) — apply nothing.
+            // A multi-selection typing session: the keystrokes already live-previewed
+            // into every selected cell; commit just writes the final value (the
+            // session's snapshot was captured when it armed). Escape reverts the
+            // whole preview through that snapshot in one step.
             if let targets = bulkEditTargets {
                 bulkEditTargets = nil
                 let editedCell = CellPos(row: row, col: field.columnIndex)
-                let shown = cellString(row: row, col: field.columnIndex) ?? "NULL"
-                if newValue != shown {
-                    tab.captureEditSnapshot()
+                if movement == NSTextMovement.cancel.rawValue {
+                    tab.undoEdits()
+                } else {
                     for cell in targets { setCell(cell, to: newValue) }
                 }
                 let old = selectionRows
