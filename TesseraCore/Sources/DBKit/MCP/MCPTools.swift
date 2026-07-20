@@ -77,6 +77,17 @@ enum MCPTools {
                           "gzip": booleanSchema("Compress the dump with gzip (default false).")],
              required: ["connection"]),
 
+        tool(name: "export_result",
+             description: "Run a read-only query and save its rows to a file as csv, xlsx "
+                        + "(Excel), json, or sql (INSERT statements). The user approves it "
+                        + "first, and Tessera chooses the destination inside their export "
+                        + "folder — the path cannot be set here.",
+             properties: ["connection": stringSchema("Connection name."),
+                          "sql": stringSchema("A single read-only statement."),
+                          "format": stringSchema("csv, xlsx, json or sql (default csv)."),
+                          "limit": integerSchema("Maximum rows to export.")],
+             required: ["connection", "sql"]),
+
         tool(name: "import_dump",
              description: "Restore a .sql, .sql.gz, or .dump file into a connection. Writes to the "
                         + "database, so the user approves it first; refused on connections marked "

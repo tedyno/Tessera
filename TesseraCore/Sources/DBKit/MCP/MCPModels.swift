@@ -236,6 +236,11 @@ public protocol MCPDataSource: Sendable {
     /// Restores a dump file. The app must show the file and get approval first.
     func importDump(connection: String, filePath: String) async throws -> MCPImportResult
 
+    /// Saves the rows of a read-only query as CSV/Excel/JSON/SQL. Like `exportDump`,
+    /// the app picks the destination inside the user's export folder and asks first.
+    func exportResult(connection: String, sql: String, format: String,
+                      limit: Int?) async throws -> MCPExportResult
+
     /// Reports which MCP client connected (from `initialize`), so approval prompts can
     /// name it. Any client can speak MCP, so this is never assumed.
     func clientIdentified(name: String, version: String?) async

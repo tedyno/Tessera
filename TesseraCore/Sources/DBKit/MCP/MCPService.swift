@@ -148,6 +148,24 @@ public struct MCPService: Sendable {
         case "run_query":
             return try await runQuery(arguments)
 
+        case "export_result":
+            let connection = try string(arguments, "connection")
+            try await requireConnection(connection)
+            let sql = try string(arguments, "sql")
+            // Exporting must never be a way to smuggle a write past the approval that
+            // run_query would demand, so only read-only statements are accepted.
+            let (statement, access) = try MCPSQLPolicy.classify(sql)
+            guard access == .readOnly else {
+                throw MCPToolError("Only read-only statements can be exported.")
+            }
+            let format = arguments["format"]?.stringValue ?? "csv"
+            guard ResultExport.Format(rawValue: format.lowercased()) != nil else {
+                throw MCPToolError("Unknown format “\(format)”. Use csv, xlsx, json or sql.")
+            }
+            return try encodeJSON(await source.exportResult(
+                connection: connection, sql: statement, format: format.lowercased(),
+                limit: arguments["limit"]?.intValue))
+
         case "export_dump":
             let connection = try string(arguments, "connection")
             try await requireConnection(connection)

@@ -224,6 +224,44 @@ final class MCPBridge: MCPDataSource {
 
     // MARK: Dumps
 
+    func exportResult(connection: String, sql: String, format: String,
+                      limit: Int?) async throws -> MCPExportResult {
+        guard let exportFormat = ResultExport.Format(rawValue: format) else {
+            throw MCPToolError("Unknown format “\(format)”.")
+        }
+        // Same rule as export_dump: reading is harmless, but writing a file to the
+        // user's disk is theirs to allow, and they pick nothing about the path.
+        let outcome = await app.mcpApprovals.request(
+            title: "\(app.mcpClientLabel) wants to export from “\(connection)”",
+            connection: connection,
+            detail: "Save the result of this query as \(exportFormat.rawValue) "
+                  + "in your export folder:\n\n\(sql)")
+        guard outcome.isApproved else {
+            app.mcpAudit.record(tool: "export_result", connection: connection,
+                                detail: sql, outcome: outcome.auditLabel)
+            throw MCPToolError(outcome.message("export"))
+        }
+
+        let session = try await readySession(connection)
+        guard let driver = session.driver else { throw MCPToolError("Not connected.") }
+        do {
+            let cap = limit ?? (ExportSettings.maxRows > 0 ? ExportSettings.maxRows : nil)
+            let result = try await driver.execute(sql, maxRows: cap)
+            let url = ExportSettings.directory.appendingPathComponent(
+                ExportSettings.fileName(base: connection, extension: exportFormat.fileExtension))
+            let data = ResultExport.data(from: result, format: exportFormat)
+            try data.write(to: url, options: .atomic)
+            app.mcpAudit.record(tool: "export_result", connection: connection, detail: sql,
+                                outcome: "wrote \(url.path) (\(result.rows.count) rows)")
+            return MCPExportResult(path: url.path, bytes: data.count)
+        } catch {
+            let message = error is MCPToolError ? "\(error)" : ConnectionSession.message(for: error)
+            app.mcpAudit.record(tool: "export_result", connection: connection,
+                                detail: sql, outcome: "failed: \(message)")
+            throw MCPToolError(message)
+        }
+    }
+
     func exportDump(connection: String, schemas: [String], tables: [String],
                     structure: Bool, data: Bool, gzip: Bool) async throws -> MCPExportResult {
         let profile = try profile(connection)

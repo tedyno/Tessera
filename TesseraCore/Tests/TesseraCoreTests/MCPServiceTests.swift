@@ -36,6 +36,14 @@ private actor FakeSource: MCPDataSource {
         return MCPQueryResult(columns: [], textRows: [], truncated: false, rowsAffected: 1)
     }
 
+    private(set) var resultExports: [(sql: String, format: String)] = []
+    func exportResult(connection: String, sql: String, format: String,
+                      limit: Int?) async throws -> MCPExportResult {
+        resultExports.append((sql, format))
+        guard approveWrites else { throw MCPToolError("The user declined the export.") }
+        return MCPExportResult(path: "/tmp/result.\(format)", bytes: 7)
+    }
+
     private(set) var exports: [String] = []
     private(set) var imports: [String] = []
 
@@ -173,6 +181,41 @@ final class MCPServiceTests: XCTestCase {
         let (_, isError) = try await call(service, tool: "explain_query",
                                           ["connection": "staging", "sql": "DELETE FROM t"])
         XCTAssertTrue(isError)
+    }
+
+    // MARK: export_result
+
+    /// Exporting must not become a back door for writes that run_query would gate.
+    func testExportResultRejectsWritingStatements() async throws {
+        let source = FakeSource(connections: [writable])
+        let service = MCPService(source: source)
+        let (_, isError) = try await call(service, tool: "export_result",
+                                          ["connection": "staging", "sql": "DELETE FROM t"])
+        XCTAssertTrue(isError)
+        let exports = await source.resultExports
+        XCTAssertTrue(exports.isEmpty)
+    }
+
+    func testExportResultRejectsUnknownFormat() async throws {
+        let source = FakeSource(connections: [writable])
+        let service = MCPService(source: source)
+        let (_, isError) = try await call(service, tool: "export_result",
+                                          ["connection": "staging", "sql": "SELECT 1",
+                                           "format": "pdf"])
+        XCTAssertTrue(isError)
+        let exports = await source.resultExports
+        XCTAssertTrue(exports.isEmpty)
+    }
+
+    func testExportResultDefaultsToCSV() async throws {
+        let source = FakeSource(connections: [writable])
+        let service = MCPService(source: source)
+        let (_, isError) = try await call(service, tool: "export_result",
+                                          ["connection": "staging", "sql": "SELECT 1"])
+        XCTAssertFalse(isError)
+        let exports = await source.resultExports
+        XCTAssertEqual(exports.count, 1)
+        XCTAssertEqual(exports.first?.format, "csv")
     }
 
     func testCreateTableGoesThroughApproval() async throws {
