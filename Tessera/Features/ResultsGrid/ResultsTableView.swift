@@ -93,9 +93,14 @@ final class GridTableView: NSTableView {
     var fetchedRowCount = 0
     /// Whether a row has a pending edit/delete/insert (for the "Revert Row" item).
     var isRowPending: ((Int) -> Bool)?
+    /// Escape — returns whether it was consumed (a ⌘F filter was active and got
+    /// cleared); when false, Escape falls through to its normal handling.
+    var onEscape: (() -> Bool)?
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 51 || event.keyCode == 117 { // delete / forward-delete
+        if event.keyCode == 53 { // escape
+            if onEscape?() != true { super.keyDown(with: event) }
+        } else if event.keyCode == 51 || event.keyCode == 117 { // delete / forward-delete
             onDeleteRows?()
         } else {
             super.keyDown(with: event)
@@ -284,6 +289,7 @@ struct ResultsTableView: NSViewRepresentable {
         tableView.onFollowSelectedForeignKey = { [c = context.coordinator] in
             c.followSelectedForeignKey()
         }
+        tableView.onEscape = { [c = context.coordinator] in c.cancelSearchIfActive() }
 
         let scrollView = NSScrollView()
         scrollView.documentView = tableView
@@ -549,6 +555,14 @@ struct ResultsTableView: NSViewRepresentable {
         }
 
         var hasSelection: Bool { !selected.isEmpty }
+
+        /// Escape while the grid (not the search field) has focus — e.g. after
+        /// clicking a cell to dismiss the find bar's keyboard focus.
+        func cancelSearchIfActive() -> Bool {
+            guard tab.isSearchBarVisible else { return false }
+            tab.clearSearch()
+            return true
+        }
 
         // MARK: Foreign keys
 
