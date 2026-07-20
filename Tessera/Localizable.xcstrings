@@ -1411,6 +1411,28 @@
         }
       }
     },
+    "Find in Results": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najít ve výsledcích"
+          }
+        }
+      }
+    },
+    "Find in results": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najít ve výsledcích"
+          }
+        }
+      }
+    },
     "Focus Editor": {
       "extractionState": "manual",
       "localizations": {

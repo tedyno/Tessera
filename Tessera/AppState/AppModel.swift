@@ -643,6 +643,13 @@ final class AppModel {
         console.addInsertRow(tab)
     }
 
+    var canFindInResults: Bool { console.activeTab?.result != nil }
+
+    /// ⌘F — reveals the find bar over the active tab's results grid.
+    func findInResults() {
+        console.activeTab?.isSearchBarVisible = true
+    }
+
     /// Discards all pending edits/inserts/deletes on the active tab.
     func discardPendingChanges() {
         guard let tab = console.activeTab else { return }
@@ -769,6 +776,8 @@ final class AppModel {
             enabled: isConnected) { self.runSQLFile() }
         add("add-row", String(localized: "Add Row"), "⌘N", "plus.rectangle",
             enabled: canEditRows) { self.addRowToActiveTab() }
+        add("find-in-results", String(localized: "Find in Results"), "⌘F", "magnifyingglass",
+            enabled: canFindInResults) { self.findInResults() }
         add("discard", String(localized: "Discard Pending Changes"), nil, "arrow.uturn.backward",
             enabled: hasPendingChanges) { self.discardPendingChanges() }
         add("export-csv", String(localized: "Export Result as CSV…"), nil, "tablecells",

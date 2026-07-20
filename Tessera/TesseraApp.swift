@@ -90,6 +90,9 @@ struct TesseraCommands: Commands {
             Button("Add Row") { app.addRowToActiveTab() }
                 .keyboardShortcut("n", modifiers: .command)
                 .disabled(!app.canEditRows)
+            Button("Find in Results") { app.findInResults() }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(!app.canFindInResults)
 
             Divider()
 

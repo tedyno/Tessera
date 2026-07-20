@@ -316,10 +316,21 @@ struct ResultsTableView: NSViewRepresentable {
         static let monoItalic = NSFontManager.shared.convert(mono, toHaveTrait: .italicFontMask)
         private var columnsSignature: [String] = []
         private var lastResultVersion = -1
+        private var lastSearchQuery = ""
         private var selected: Set<CellPos> = []
         private var anchor: CellPos?
+        /// Data-row indices shown, in display order, while a ⌘F filter is active;
+        /// nil when unfiltered (display row == data row).
+        private var visibleRowMap: [Int]?
 
         init(tab: QueryTab) { self.tab = tab }
+
+        /// Maps a row index as AppKit sees it (display order) to its index into
+        /// `tab.result.rows` (data order) — the same thing when there's no filter.
+        private func dataRow(forDisplay display: Int) -> Int {
+            guard let visibleRowMap else { return display }
+            return display < visibleRowMap.count ? visibleRowMap[display] : display
+        }
 
         // MARK: Cell selection
 
@@ -358,15 +369,16 @@ struct ResultsTableView: NSViewRepresentable {
                 if tab.inspected != nil { tab.inspected = nil }
                 return
             }
+            let row = dataRow(forDisplay: cell.row)
             let column = result.columns[cell.col]
             let value: String?
-            if isInsertRow(cell.row) {
-                let index = cell.row - fetchedRowCount
+            if isInsertRow(row) {
+                let index = row - fetchedRowCount
                 value = index < tab.pendingInserts.count ? tab.pendingInserts[index].values[column.name] : nil
-            } else if let edited = tab.edits[cell.row]?[column.name] {
+            } else if let edited = tab.edits[row]?[column.name] {
                 value = edited
-            } else if cell.row < result.rows.count {
-                let cells = result.rows[cell.row]
+            } else if row < result.rows.count {
+                let cells = result.rows[row]
                 value = cell.col < cells.count ? cells[cell.col].text : nil
             } else {
                 value = nil
@@ -387,7 +399,7 @@ struct ResultsTableView: NSViewRepresentable {
         }
 
         func beginEdit(row: Int, col: Int) {
-            guard tab.isEditable, let tableView, let result, col < result.columns.count else { return }
+            guard tab.isEditable, visibleRowMap == nil, let tableView, let result, col < result.columns.count else { return }
             // Auto-increment cells on insert rows are DB-generated — not editable.
             if isInsertRow(row),
                tab.editSource?.autoIncrementColumns.contains(result.columns[col].name) == true { return }
@@ -412,7 +424,8 @@ struct ResultsTableView: NSViewRepresentable {
             }
         }
 
-        func rowState(_ row: Int) -> DirtyRowView.State {
+        func rowState(_ displayRow: Int) -> DirtyRowView.State {
+            let row = dataRow(forDisplay: displayRow)
             if isInsertRow(row) { return .insert }
             if tab.pendingDeletes.contains(row) { return .delete }
             if tab.edits[row] != nil { return .update }
@@ -422,7 +435,7 @@ struct ResultsTableView: NSViewRepresentable {
         /// Backspace — removes selected insert rows outright; toggles the deletion
         /// mark (red highlight) on selected fetched rows.
         func deleteSelectedRows() {
-            guard tab.isEditable else { return }
+            guard tab.isEditable, visibleRowMap == nil else { return }
             let rows = selectionRows
             guard !rows.isEmpty else { return }
 
@@ -449,7 +462,7 @@ struct ResultsTableView: NSViewRepresentable {
         /// Reverts a single row's pending change: removes an insert row, or clears an
         /// edit / delete mark on a fetched row.
         func revertRow(_ row: Int) {
-            guard tab.isEditable else { return }
+            guard tab.isEditable, visibleRowMap == nil else { return }
             if isInsertRow(row) {
                 let index = row - fetchedRowCount
                 guard index < tab.pendingInserts.count else { return }
@@ -465,7 +478,7 @@ struct ResultsTableView: NSViewRepresentable {
 
         /// Appends a blank insert row (green) and scrolls it into view.
         func addRow() {
-            guard tab.isEditable else { return }
+            guard tab.isEditable, visibleRowMap == nil else { return }
             tab.pendingInserts.append(PendingInsert())
             tableView?.reloadData()
             let newRow = fetchedRowCount + tab.pendingInserts.count - 1
@@ -475,7 +488,7 @@ struct ResultsTableView: NSViewRepresentable {
         /// Copies a fetched row into a new insert row, dropping DB-generated
         /// (auto-increment) columns so the database assigns fresh values.
         func duplicateRow(_ row: Int) {
-            guard tab.isEditable, let values = insertValues(from: row) else { return }
+            guard tab.isEditable, visibleRowMap == nil, let values = insertValues(from: row) else { return }
             tab.pendingInserts.append(PendingInsert(values: values))
             tableView?.reloadData()
             tableView?.scrollRowToVisible(fetchedRowCount + tab.pendingInserts.count - 1)
@@ -483,7 +496,7 @@ struct ResultsTableView: NSViewRepresentable {
 
         /// ⌘D — duplicates every selected fetched row into new insert rows.
         func duplicateSelectedRows() {
-            guard tab.isEditable else { return }
+            guard tab.isEditable, visibleRowMap == nil else { return }
             let rows = selectionRows.filter { !isInsertRow($0) }.sorted()
             guard !rows.isEmpty else { return }
             for row in rows {
@@ -513,7 +526,7 @@ struct ResultsTableView: NSViewRepresentable {
 
         /// ⌘V — writes the clipboard string into every selected cell.
         func pasteIntoSelection() {
-            guard tab.isEditable, let result = tab.result, !selected.isEmpty,
+            guard tab.isEditable, visibleRowMap == nil, let result = tab.result, !selected.isEmpty,
                   let value = NSPasteboard.general.string(forType: .string) else { return }
             for cell in selected where cell.col < result.columns.count {
                 let columnName = result.columns[cell.col].name
@@ -585,6 +598,7 @@ struct ResultsTableView: NSViewRepresentable {
         /// The raw value of a cell (nil = SQL NULL), preferring a pending edit/insert.
         private func cellString(row: Int, col: Int) -> String? {
             guard let result = tab.result, col < result.columns.count else { return nil }
+            let row = dataRow(forDisplay: row)
             let columnName = result.columns[col].name
             if isInsertRow(row) {
                 let index = row - fetchedRowCount
@@ -678,14 +692,25 @@ struct ResultsTableView: NSViewRepresentable {
         func configure(for tab: QueryTab) {
             self.tab = tab
             guard let tableView, let result = tab.result else { return }
+            visibleRowMap = tab.matchingRowIndices()
             if let grid = tableView as? GridTableView {
-                grid.canEditRows = tab.isEditable
+                // Editing (and pending-insert rows) is unavailable while a ⌘F filter
+                // narrows what's on screen — the row indices it juggles only make
+                // sense over the full, unfiltered result.
+                grid.canEditRows = tab.isEditable && visibleRowMap == nil
                 grid.fetchedRowCount = result.rows.count
             }
             // Reset the cell selection only when the underlying data actually changed
             // (new query / sort / filter / page) — not on the re-render after an edit.
             if tab.resultVersion != lastResultVersion {
                 lastResultVersion = tab.resultVersion
+                selected = []
+                anchor = nil
+            }
+            // Display row indices shift whenever the ⌘F filter text changes, so a
+            // held selection would silently point at the wrong cells.
+            if tab.searchQuery != lastSearchQuery {
+                lastSearchQuery = tab.searchQuery
                 selected = []
                 anchor = nil
             }
@@ -748,7 +773,8 @@ struct ResultsTableView: NSViewRepresentable {
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int {
-            (result?.rows.count ?? 0) + tab.pendingInserts.count
+            if let visibleRowMap { return visibleRowMap.count }
+            return (result?.rows.count ?? 0) + tab.pendingInserts.count
         }
 
         /// Double-clicking a header divider auto-fits the column to its widest value
@@ -787,15 +813,18 @@ struct ResultsTableView: NSViewRepresentable {
                   let columnIndex = Int(tableColumn.identifier.rawValue), columnIndex < result.columns.count
             else { return nil }
 
+            let dataRowIndex = dataRow(forDisplay: row)
             let identifier = NSUserInterfaceItemIdentifier("cell")
             let field = (tableView.makeView(withIdentifier: identifier, owner: self) as? GridTextField)
                 ?? makeField(identifier: identifier)
-            field.rowIndex = row
+            field.rowIndex = dataRowIndex
             field.columnIndex = columnIndex
             // Cells select on click (edit on double-click), so keep them non-editable here.
             field.isEditable = false
             field.isSelectable = false
 
+            // Selection is tracked in display-row space (it comes straight from
+            // mouse events), so compare against the un-mapped `row`, not `dataRowIndex`.
             let selected = isSelected(row: row, col: columnIndex)
             field.drawsBackground = selected
             field.backgroundColor = selected ? NSColor.controlAccentColor.withAlphaComponent(0.30) : .clear
@@ -805,8 +834,8 @@ struct ResultsTableView: NSViewRepresentable {
             field.alignment = isNumericColumnType(result.columns[columnIndex].typeName) ? .right : .left
             field.font = Self.mono
 
-            if isInsertRow(row) {
-                let insertIndex = row - fetchedRowCount
+            if isInsertRow(dataRowIndex) {
+                let insertIndex = dataRowIndex - fetchedRowCount
                 let insert = insertIndex < tab.pendingInserts.count ? tab.pendingInserts[insertIndex] : nil
                 if tab.editSource?.autoIncrementColumns.contains(columnName) == true {
                     field.stringValue = "(generated)"
@@ -821,9 +850,9 @@ struct ResultsTableView: NSViewRepresentable {
                 return field
             }
 
-            let cells = result.rows[row]
+            let cells = result.rows[dataRowIndex]
             let original = columnIndex < cells.count ? cells[columnIndex].text : nil
-            let value = tab.edits[row]?[columnName] ?? original
+            let value = tab.edits[dataRowIndex]?[columnName] ?? original
             if let value {
                 field.stringValue = value
                 field.textColor = .labelColor

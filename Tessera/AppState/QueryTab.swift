@@ -93,6 +93,28 @@ final class QueryTab: Identifiable {
     var sortColumn: String?
     var sortAscending = true
 
+    /// ⌘F row filter over the current result: hides non-matching rows client-side,
+    /// without re-running the query. Empty = no filter. Escape clears it.
+    var searchQuery = ""
+    var isSearchBarVisible = false
+
+    /// Data-row indices matching `searchQuery` (checked case-insensitively against
+    /// fetched cells and any pending edit); nil when there's no active filter.
+    func matchingRowIndices() -> [Int]? {
+        guard !searchQuery.isEmpty, let result else { return nil }
+        return result.rows.indices.filter { index in
+            if result.rows[index].contains(where: { $0.text?.localizedCaseInsensitiveContains(searchQuery) == true }) {
+                return true
+            }
+            return edits[index]?.values.contains(where: { $0.localizedCaseInsensitiveContains(searchQuery) }) == true
+        }
+    }
+
+    func clearSearch() {
+        searchQuery = ""
+        isSearchBarVisible = false
+    }
+
     /// Caret offset in the editor, used to run the statement under the cursor.
     var cursorPosition = 0
     /// Set to scroll the results grid to a column by name after a query runs.

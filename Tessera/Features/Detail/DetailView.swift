@@ -32,6 +32,7 @@ struct DetailView: View {
     @State private var showingConnectionLog = false
     @State private var showingSaveQuery = false
     @State private var saveQueryTitle = ""
+    @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -162,7 +163,7 @@ struct DetailView: View {
         }
         .overlay(alignment: .trailing) { Divider() }
         .contentShape(Rectangle())
-        .onTapGesture { model.activeTabID = tab.id }
+        .onTapGesture { model.activate(tab) }
         .overlay { MiddleClickCatcher { model.closeTab(tab.id) } }
         .contextMenu { tabMenu(tab) }
     }
@@ -519,6 +520,9 @@ struct DetailView: View {
                                                                 where: clause)
                             }
                         })
+                    .overlay(alignment: .topTrailing) {
+                        if tab.isSearchBarVisible { findBar(tab, result: result) }
+                    }
                 } else {
                     Spacer(minLength: 0)
                 }
@@ -527,6 +531,42 @@ struct DetailView: View {
             ContentUnavailableView("No results", systemImage: "tablecells",
                                    description: Text("Press Run to execute the query."))
         }
+    }
+
+    /// ⌘F find bar: filters the grid to rows containing the text, client-side, without
+    /// re-running the query. Escape clears the filter and hides the bar again.
+    private func findBar(_ tab: QueryTab, result: QueryResult) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Find in results", text: Binding(
+                get: { tab.searchQuery },
+                set: { tab.searchQuery = $0 }
+            ))
+            .textFieldStyle(.plain)
+            .focused($searchFieldFocused)
+            .frame(width: 160)
+            if !tab.searchQuery.isEmpty {
+                Text("\(tab.matchingRowIndices()?.count ?? 0) of \(result.rows.count) rows")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
+            Button {
+                tab.clearSearch()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+        }
+        .onExitCommand { tab.clearSearch() }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(.separator))
+        .shadow(radius: 3, y: 1)
+        .padding(8)
+        .onAppear { searchFieldFocused = true }
     }
 
     private func successText(_ tab: QueryTab, _ result: QueryResult) -> String {
