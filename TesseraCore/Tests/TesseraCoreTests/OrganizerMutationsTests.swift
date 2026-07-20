@@ -57,3 +57,52 @@ final class OrganizerMutationsTests: XCTestCase {
         XCTAssertNotNil(doc.node(id: ref.id))
     }
 }
+
+// MARK: Connections without a workspace
+
+final class LooseConnectionTests: XCTestCase {
+
+    func testDocumentWithoutLooseKeyDecodes() throws {
+        // organizer.json written by older builds has no `looseConnections`.
+        let json = #"{"workspaces":[{"id":"\#(UUID().uuidString)","name":"W","children":[]}]}"#
+        let document = try JSONDecoder().decode(OrganizerDocument.self, from: Data(json.utf8))
+        XCTAssertTrue(document.looseConnections.isEmpty)
+        XCTAssertEqual(document.workspaces.count, 1)
+    }
+
+    func testConnectionCanLiveOutsideAnyWorkspace() {
+        var document = OrganizerDocument(workspaces: [Workspace(name: "W")])
+        let profileID = UUID()
+        let ref = ConnectionRef(profileID: profileID)
+        XCTAssertTrue(document.insert(.connection(ref), toParent: OrganizerDocument.looseParentID, at: nil))
+
+        XCTAssertEqual(document.looseConnections.count, 1)
+        XCTAssertNotNil(document.node(id: ref.id))
+        XCTAssertEqual(document.profileID(forNode: ref.id), profileID)
+        XCTAssertEqual(document.refs(toProfile: profileID).count, 1)
+        XCTAssertEqual(document.location(of: ref.id)?.parent, OrganizerDocument.looseParentID)
+    }
+
+    func testFoldersAreRejectedAtTheLooseLevel() {
+        var document = OrganizerDocument()
+        XCTAssertFalse(document.insert(.folder(Folder(name: "F")),
+                                       toParent: OrganizerDocument.looseParentID, at: nil))
+        XCTAssertTrue(document.looseConnections.isEmpty)
+    }
+
+    func testLooseConnectionMovesIntoWorkspaceAndBack() {
+        let workspace = Workspace(name: "W")
+        var document = OrganizerDocument(workspaces: [workspace])
+        let ref = ConnectionRef(profileID: UUID())
+        document.insert(.connection(ref), toParent: OrganizerDocument.looseParentID, at: nil)
+
+        guard let removed = document.remove(ref.id) else { return XCTFail("not removed") }
+        XCTAssertTrue(document.looseConnections.isEmpty)
+        XCTAssertTrue(document.insert(removed, toParent: workspace.id, at: nil))
+        XCTAssertEqual(document.location(of: ref.id)?.parent, workspace.id)
+
+        guard let back = document.remove(ref.id) else { return XCTFail("not removed") }
+        document.insert(back, toParent: OrganizerDocument.looseParentID, at: nil)
+        XCTAssertEqual(document.looseConnections.count, 1)
+    }
+}

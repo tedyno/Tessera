@@ -627,7 +627,9 @@ final class AppModel {
     }
 
     func newConnection() {
-        newConnectionParent = connections.organizer.workspaces.first?.id
+        // No workspace by default: it lands at the loose top level, and the user can
+        // drag it into a workspace if they want one.
+        newConnectionParent = nil
         showingNewConnection = true
     }
 

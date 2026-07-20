@@ -32,6 +32,7 @@ extension OrganizerDocument {
     // MARK: Lookup
 
     public func node(id: UUID) -> OrganizerNode? {
+        if let found = Self.find(id, in: looseConnections) { return found }
         for workspace in workspaces {
             if let found = Self.find(id, in: workspace.children) { return found }
         }
@@ -47,12 +48,16 @@ extension OrganizerDocument {
     /// All connection refs in the document that point at `profileID`.
     public func refs(toProfile profileID: UUID) -> [ConnectionRef] {
         var out: [ConnectionRef] = []
+        Self.collectRefs(profileID, in: looseConnections, into: &out)
         Self.collectRefs(profileID, in: workspaces.flatMap(\.children), into: &out)
         return out
     }
 
     /// The parent container id and index of `id`, or `nil` if not found.
     public func location(of id: UUID) -> (parent: UUID, index: Int)? {
+        if let index = looseConnections.firstIndex(where: { $0.id == id }) {
+            return (Self.looseParentID, index)
+        }
         for workspace in workspaces {
             if let index = workspace.children.firstIndex(where: { $0.id == id }) {
                 return (workspace.id, index)
@@ -86,6 +91,10 @@ extension OrganizerDocument {
     /// The breadcrumb of ancestor names (workspace → … → folder) leading to the
     /// first connection referencing `profileID`.
     public func path(toProfile profileID: UUID) -> [String] {
+        if looseConnections.contains(where: {
+            if case .connection(let ref) = $0 { return ref.profileID == profileID }
+            return false
+        }) { return [] }
         for workspace in workspaces {
             if let path = Self.path(toProfile: profileID, in: workspace.children, ancestors: [workspace.name]) {
                 return path
@@ -151,6 +160,9 @@ extension OrganizerDocument {
 
     @discardableResult
     public mutating func remove(_ id: UUID) -> OrganizerNode? {
+        if let index = looseConnections.firstIndex(where: { $0.id == id }) {
+            return looseConnections.remove(at: index)
+        }
         for i in workspaces.indices {
             var children = workspaces[i].children
             if let removed = Self.remove(id, from: &children) {
@@ -164,6 +176,7 @@ extension OrganizerDocument {
     /// Every profile referenced by `id` or anything nested under it — what a delete
     /// would orphan if it didn't clean up.
     public func profileIDs(inSubtreeOf id: UUID) -> [UUID] {
+        if id == Self.looseParentID { return Self.collectProfileIDs(in: looseConnections) }
         if let workspace = workspaces.first(where: { $0.id == id }) {
             return Self.collectProfileIDs(in: workspace.children)
         }
@@ -219,6 +232,12 @@ extension OrganizerDocument {
 
     @discardableResult
     public mutating func insert(_ node: OrganizerNode, toParent parentID: UUID, at index: Int?) -> Bool {
+        if parentID == Self.looseParentID {
+            // Only connections live at the loose level; there is no folder to open.
+            guard case .connection = node else { return false }
+            looseConnections.insert(node, at: min(index ?? looseConnections.count, looseConnections.count))
+            return true
+        }
         for i in workspaces.indices {
             if workspaces[i].id == parentID {
                 var children = workspaces[i].children

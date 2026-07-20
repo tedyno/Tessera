@@ -144,8 +144,9 @@ final class ConnectionsModel {
         profiles.append(profile)
         try? profileStore.save(profiles)
         let ref = ConnectionRef(profileID: profile.id)
+        // No parent means no workspace: the connection sits loose above them all.
         organizer.append(.connection(.init(id: ref.id, profileID: profile.id)),
-                         toParent: parentID ?? defaultParentID ?? UUID())
+                         toParent: parentID ?? OrganizerDocument.looseParentID)
         saveOrganizer()
         return ref.id
     }

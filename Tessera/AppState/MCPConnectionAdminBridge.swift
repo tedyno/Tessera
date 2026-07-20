@@ -17,10 +17,12 @@ extension MCPBridge {
     // MARK: Reading the tree
 
     func organizer() async -> [MCPOrganizerNode] {
-        app.connections.organizer.workspaces.map { workspace in
-            MCPOrganizerNode(id: workspace.id.uuidString, kind: "workspace", name: workspace.name,
-                             children: workspace.children.map(node(from:)))
-        }
+        // Connections outside any workspace come first, matching the sidebar.
+        app.connections.organizer.looseConnections.map(node(from:))
+            + app.connections.organizer.workspaces.map { workspace in
+                MCPOrganizerNode(id: workspace.id.uuidString, kind: "workspace", name: workspace.name,
+                                 children: workspace.children.map(node(from:)))
+            }
     }
 
     private func node(from node: OrganizerNode) -> MCPOrganizerNode {

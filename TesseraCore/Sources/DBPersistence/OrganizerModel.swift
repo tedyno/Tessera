@@ -83,9 +83,26 @@ public struct Workspace: Codable, Sendable, Hashable, Identifiable {
 
 /// The full persisted organizer document.
 public struct OrganizerDocument: Codable, Sendable, Hashable {
+    /// Connections that belong to no workspace. They sit above every workspace and
+    /// hold connections only — there is nothing to organize at that level, so
+    /// folders are not allowed here.
+    public var looseConnections: [OrganizerNode]
     public var workspaces: [Workspace]
 
-    public init(workspaces: [Workspace] = []) {
+    /// The parent id that means "no workspace"; lets the move/insert API address the
+    /// loose level the same way it addresses any container.
+    public static let looseParentID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+
+    public init(workspaces: [Workspace] = [], looseConnections: [OrganizerNode] = []) {
         self.workspaces = workspaces
+        self.looseConnections = looseConnections
+    }
+
+    // Written by older builds without the key, so it must decode as empty.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workspaces = try container.decodeIfPresent([Workspace].self, forKey: .workspaces) ?? []
+        looseConnections = try container.decodeIfPresent([OrganizerNode].self,
+                                                         forKey: .looseConnections) ?? []
     }
 }

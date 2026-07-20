@@ -186,7 +186,9 @@ struct OrganizerOutlineView: NSViewRepresentable {
         }
 
         func rebuild(expandingAll: Bool) {
-            roots = model.organizer.workspaces.map(Self.item(forWorkspace:))
+            // Connections belonging to no workspace list first, at the top level.
+            roots = model.organizer.looseConnections.map(Self.item(forNode:))
+                + model.organizer.workspaces.map(Self.item(forWorkspace:))
             lastHash = currentHash
             outlineView?.reloadData()
             if expandingAll { outlineView?.expandItem(nil, expandChildren: true) }
@@ -411,9 +413,13 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo,
                          proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
-            guard let draggedID = draggedID(from: info),
-                  let target = item as? OrganizerItem, target.isContainer,
-                  target.id != draggedID,
+            guard let draggedID = draggedID(from: info) else { return [] }
+            // Dropping on empty space (no item) means the loose level, which holds
+            // connections only — a folder or workspace has nowhere to go there.
+            guard let target = item as? OrganizerItem else {
+                return model.organizer.node(id: draggedID)?.isContainer == false ? .move : []
+            }
+            guard target.isContainer, target.id != draggedID,
                   !model.organizer.descendants(of: draggedID).contains(target.id)
             else { return [] }
             return .move
@@ -421,9 +427,9 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo,
                          item: Any?, childIndex index: Int) -> Bool {
-            guard let draggedID = draggedID(from: info),
-                  let target = item as? OrganizerItem else { return false }
-            let ok = model.move(nodeID: draggedID, toParent: target.id, at: index >= 0 ? index : nil)
+            guard let draggedID = draggedID(from: info) else { return false }
+            let parentID = (item as? OrganizerItem)?.id ?? OrganizerDocument.looseParentID
+            let ok = model.move(nodeID: draggedID, toParent: parentID, at: index >= 0 ? index : nil)
             if ok { rebuild(expandingAll: false) }
             return ok
         }
@@ -439,6 +445,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
             guard let outlineView else { return nil }
             let menu = NSMenu()
             guard row >= 0, let item = outlineView.item(atRow: row) as? OrganizerItem else {
+                // The loose level takes connections only — no folders to organize.
+                add(menu, "New Connection", #selector(actionNewConnection), nil)
                 add(menu, "New Workspace", #selector(actionNewWorkspace), nil)
                 return menu
             }
