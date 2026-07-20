@@ -558,9 +558,11 @@ final class AppModel {
         let base = tab.dataTable ?? tab.title
         panel.nameFieldStringValue = ExportSettings.fileName(base: base, extension: format.fileExtension)
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let text = ResultExport.string(from: result, format: format)
+        // Qualify the table for generated INSERTs so they can be replayed elsewhere.
+        let table = tab.dataSchema.map { "\($0).\(tab.dataTable ?? "")" } ?? tab.dataTable
+        let data = ResultExport.data(from: result, format: format, table: table)
         do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try data.write(to: url, options: .atomic)
             if ExportSettings.revealAfterExport {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }

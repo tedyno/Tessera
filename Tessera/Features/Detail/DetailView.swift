@@ -672,7 +672,9 @@ struct DetailView: View {
                 .help("Show the value inspector for the selected cell")
                 Menu {
                     Button("CSV…") { onExportResult(.csv) }
+                    Button("Excel…") { onExportResult(.xlsx) }
                     Button("JSON…") { onExportResult(.json) }
+                    Button("SQL INSERT…") { onExportResult(.sql) }
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }

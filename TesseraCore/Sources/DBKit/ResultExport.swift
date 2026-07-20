@@ -3,16 +3,45 @@ import Foundation
 /// Serializes a `QueryResult` for saving to a file. Pure, so it can be unit-tested.
 public enum ResultExport {
     public enum Format: String, Sendable, CaseIterable {
-        case csv, json
+        case csv, json, xlsx, sql
 
         public var fileExtension: String { rawValue }
+
+        /// Whether the format is text; `.xlsx` is a binary package.
+        public var isText: Bool { self != .xlsx }
     }
 
-    public static func string(from result: QueryResult, format: Format) -> String {
+    /// Bytes to write for any format. Text formats are UTF-8; `.xlsx` is a workbook.
+    /// `table` names the target of generated INSERT statements.
+    public static func data(from result: QueryResult, format: Format,
+                            table: String? = nil) -> Data {
+        switch format {
+        case .xlsx: XLSXWriter.workbook(from: result, sheetName: table ?? "Results")
+        default: Data(string(from: result, format: format, table: table).utf8)
+        }
+    }
+
+    public static func string(from result: QueryResult, format: Format,
+                              table: String? = nil) -> String {
         switch format {
         case .csv: csv(result)
         case .json: json(result)
+        case .sql: inserts(result, table: table ?? "table")
+        case .xlsx: ""   // binary — use `data(from:format:)`
         }
+    }
+
+    /// One INSERT per row. Numeric columns stay unquoted; SQL NULL is written as NULL.
+    public static func inserts(_ result: QueryResult, table: String) -> String {
+        guard !result.columns.isEmpty else { return "" }
+        let columnList = result.columns.map(\.name).joined(separator: ", ")
+        return result.rows.map { row in
+            let values = result.columns.enumerated().map { index, column -> String in
+                let text = index < row.count ? row[index].text : nil
+                return SQLTypes.literal(text, typeName: column.typeName)
+            }.joined(separator: ", ")
+            return "INSERT INTO \(table) (\(columnList)) VALUES (\(values));"
+        }.joined(separator: "\n")
     }
 
     /// RFC 4180-style CSV: header row, fields quoted when they contain a comma,

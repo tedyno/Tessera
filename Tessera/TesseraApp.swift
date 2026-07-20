@@ -72,7 +72,11 @@ struct TesseraCommands: Commands {
 
             Button("Export Result as CSV…") { app.exportResult(format: .csv) }
                 .disabled(!app.canExportResult)
+            Button("Export Result as Excel…") { app.exportResult(format: .xlsx) }
+                .disabled(!app.canExportResult)
             Button("Export Result as JSON…") { app.exportResult(format: .json) }
+                .disabled(!app.canExportResult)
+            Button("Export Result as SQL INSERT…") { app.exportResult(format: .sql) }
                 .disabled(!app.canExportResult)
 
             Divider()

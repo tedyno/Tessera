@@ -1125,6 +1125,17 @@
         }
       }
     },
+    "Excel…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excel…"
+          }
+        }
+      }
+    },
     "Executed": {
       "extractionState": "manual",
       "localizations": {
@@ -1180,6 +1191,17 @@
         }
       }
     },
+    "Export Result as Excel…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportovat výsledek jako Excel…"
+          }
+        }
+      }
+    },
     "Export Result as JSON…": {
       "extractionState": "manual",
       "localizations": {
@@ -1187,6 +1209,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Exportovat výsledek jako JSON…"
+          }
+        }
+      }
+    },
+    "Export Result as SQL INSERT…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportovat výsledek jako SQL INSERT…"
           }
         }
       }
@@ -2386,6 +2419,17 @@
     "SQL INSERT": {
       "extractionState": "manual",
       "shouldTranslate": false
+    },
+    "SQL INSERT…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SQL INSERT…"
+          }
+        }
+      }
     },
     "SSH host": {
       "extractionState": "manual",
