@@ -176,16 +176,67 @@ final class ConnectionsModel {
     /// Deletes a node. If it is a connection whose profile no longer has any refs,
     /// the profile and its secrets are removed too.
     func deleteNode(_ id: UUID) {
-        let profileID = organizer.profileID(forNode: id)
+        // Collect before removing: a container takes its whole subtree with it, and
+        // every connection in there would otherwise leave a profile and Keychain
+        // entry behind with nothing in the UI pointing at them.
+        let orphaned = organizer.profileIDs(inSubtreeOf: id)
         organizer.remove(id)
-        if let profileID, organizer.refs(toProfile: profileID).isEmpty {
+        discardProfiles(orphaned)
+        saveOrganizer()
+    }
+
+    /// Deletes a profile and its secrets once nothing in the tree refers to it.
+    private func discardProfiles(_ profileIDs: [UUID]) {
+        var removedAny = false
+        for profileID in Set(profileIDs) where organizer.refs(toProfile: profileID).isEmpty {
             if let profile = profile(id: profileID) {
                 try? secretsStore.deleteAll(for: profile)
             }
             profiles.removeAll { $0.id == profileID }
-            try? profileStore.save(profiles)
+            removedAny = true
         }
+        if removedAny { try? profileStore.save(profiles) }
+    }
+
+    /// Deletes a container, either taking its contents with it or keeping them by
+    /// moving them up a level (into another workspace, for a workspace).
+    func deleteContainer(_ id: UUID, removingContents: Bool) {
+        let isWorkspace = organizer.workspaces.contains { $0.id == id }
+        guard removingContents else {
+            if isWorkspace {
+                organizer.removeWorkspace(id, movingChildrenInto: fallbackWorkspaceID(excluding: id))
+            } else {
+                organizer.removeKeepingChildren(id)
+            }
+            saveOrganizer()
+            return
+        }
+        let orphaned = organizer.profileIDs(inSubtreeOf: id)
+        if isWorkspace {
+            organizer.removeWorkspace(id, movingChildrenInto: nil)
+        } else {
+            organizer.remove(id)
+        }
+        discardProfiles(orphaned)
         saveOrganizer()
+    }
+
+    /// Where a deleted workspace's contents go: the first workspace that isn't the one
+    /// being deleted. Nil when it is the last one, so its contents can't be kept.
+    func fallbackWorkspaceID(excluding id: UUID) -> UUID? {
+        organizer.workspaces.first { $0.id != id }?.id
+    }
+
+    func fallbackWorkspaceName(excluding id: UUID) -> String? {
+        organizer.workspaces.first { $0.id != id }?.name
+    }
+
+    /// What deleting `id` would affect, for the confirmation prompt.
+    func deletionSummary(_ id: UUID) -> (connections: Int, isEmpty: Bool) {
+        let connections = organizer.profileIDs(inSubtreeOf: id).count
+        let children = organizer.workspaces.first { $0.id == id }?.children
+            ?? organizer.node(id: id)?.children ?? []
+        return (connections, children.isEmpty)
     }
 
     /// Moves a node under a new parent container, optionally at a specific index.
@@ -214,8 +265,7 @@ final class ConnectionsModel {
     }
 
     func deleteWorkspace(_ id: UUID) {
-        organizer.workspaces.removeAll { $0.id == id }
-        saveOrganizer()
+        deleteContainer(id, removingContents: true)
     }
 
     func setFolderColor(_ color: String?, folderID: UUID) {

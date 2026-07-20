@@ -378,14 +378,12 @@ struct OrganizerOutlineView: NSViewRepresentable {
             }
         }
 
-        static let palette: [(name: String, color: NSColor)] = [
-            ("red", .systemRed), ("orange", .systemOrange), ("yellow", .systemYellow),
-            ("green", .systemGreen), ("blue", .systemBlue), ("purple", .systemPurple), ("gray", .systemGray),
-        ]
+        static let palette: [(name: String, color: NSColor)] =
+            ConnectionPalette.names.compactMap { name in
+                ConnectionPalette.nsColor(name).map { (name: name, color: $0) }
+            }
 
-        static func nsColor(_ name: String?) -> NSColor? {
-            palette.first { $0.name == name }?.color
-        }
+        static func nsColor(_ name: String?) -> NSColor? { ConnectionPalette.nsColor(name) }
 
         private static func symbol(for item: OrganizerItem, kind: DatabaseKind?, custom: String?) -> (String, NSColor?) {
             switch item.category {
@@ -578,10 +576,58 @@ struct OrganizerOutlineView: NSViewRepresentable {
             return model.organizer.profileID(forNode: item.id)
         }
         @objc private func actionDelete(_ sender: NSMenuItem) {
-            if let item = sender.representedObject as? OrganizerItem {
+            guard let item = sender.representedObject as? OrganizerItem else { return }
+            let isWorkspace = model.organizer.workspaces.contains { $0.id == item.id }
+            let isContainer = isWorkspace || model.organizer.node(id: item.id)?.children != nil
+            let summary = model.deletionSummary(item.id)
+
+            // A connection, or an empty container, has nothing to lose — delete it.
+            guard isContainer, !summary.isEmpty else {
                 model.delete(id: item.id)
                 rebuild(expandingAll: false)
+                return
             }
+            guard let remove = confirmDelete(item, isWorkspace: isWorkspace,
+                                             connections: summary.connections) else { return }
+            model.deleteContainer(item.id, removingContents: remove)
+            rebuild(expandingAll: false)
+        }
+
+        /// Asks what to do with a non-empty container. Returns whether to delete the
+        /// contents too, or nil when the user cancelled.
+        private func confirmDelete(_ item: OrganizerItem, isWorkspace: Bool,
+                                   connections: Int) -> Bool? {
+            let name = model.name(forNode: item.id) ?? ""
+            // A workspace has no parent to promote children to, so they move to another
+            // workspace — and if it is the last one, they cannot be kept at all.
+            let moveTarget = isWorkspace ? model.fallbackWorkspaceName(excluding: item.id) : nil
+            let canKeepContents = !isWorkspace || moveTarget != nil
+
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(localized: "Delete “\(name)”?")
+            var detail = connections > 0 ? String(localized: "\(connections) connections inside.") : ""
+            if canKeepContents {
+                detail += " " + (moveTarget.map {
+                    String(localized: "Unless you remove them, its contents move to “\($0)”.")
+                } ?? String(localized: "Unless you remove them, its contents move up one level."))
+            } else {
+                detail += " " + String(localized: "This is the last workspace, so its contents go too.")
+            }
+            alert.informativeText = detail.trimmingCharacters(in: .whitespaces)
+
+            let checkbox = NSButton(
+                checkboxWithTitle: String(localized: "Remove nested folders and connections"),
+                target: nil, action: nil)
+            checkbox.state = canKeepContents ? .off : .on
+            checkbox.isEnabled = canKeepContents
+            checkbox.sizeToFit()
+            alert.accessoryView = checkbox
+
+            alert.addButton(withTitle: String(localized: "Delete"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
+            guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+            return checkbox.state == .on
         }
     }
 }

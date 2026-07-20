@@ -161,6 +161,55 @@ extension OrganizerDocument {
         return nil
     }
 
+    /// Every profile referenced by `id` or anything nested under it — what a delete
+    /// would orphan if it didn't clean up.
+    public func profileIDs(inSubtreeOf id: UUID) -> [UUID] {
+        if let workspace = workspaces.first(where: { $0.id == id }) {
+            return Self.collectProfileIDs(in: workspace.children)
+        }
+        guard let node = node(id: id) else { return [] }
+        if case .connection(let ref) = node { return [ref.profileID] }
+        return Self.collectProfileIDs(in: node.children ?? [])
+    }
+
+    private static func collectProfileIDs(in nodes: [OrganizerNode]) -> [UUID] {
+        var found: [UUID] = []
+        for node in nodes {
+            if case .connection(let ref) = node { found.append(ref.profileID) }
+            found.append(contentsOf: collectProfileIDs(in: node.children ?? []))
+        }
+        return found
+    }
+
+    /// Removes a workspace. Its children move into `target` when given, so deleting a
+    /// workspace need not take its connections with it; a workspace has no parent to
+    /// promote them to, hence the explicit destination.
+    @discardableResult
+    public mutating func removeWorkspace(_ id: UUID, movingChildrenInto target: UUID?) -> Bool {
+        guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return false }
+        let children = workspaces[index].children
+        workspaces.remove(at: index)
+        guard let target, let destination = workspaces.firstIndex(where: { $0.id == target })
+        else { return true }
+        workspaces[destination].children.append(contentsOf: children)
+        return true
+    }
+
+    /// Removes a container but keeps what was inside it, moving its children into the
+    /// container's own parent at the position it occupied. Returns false when `id`
+    /// isn't a container, or isn't in the tree.
+    @discardableResult
+    public mutating func removeKeepingChildren(_ id: UUID) -> Bool {
+        guard let location = location(of: id), let node = node(id: id),
+              let children = node.children else { return false }
+        guard remove(id) != nil else { return false }
+        // Insert in order at the spot the container held, so the layout barely moves.
+        for (offset, child) in children.enumerated() {
+            insert(child, toParent: location.parent, at: location.index + offset)
+        }
+        return true
+    }
+
     /// Appends `node` under the container identified by `parentID` (a workspace,
     /// project or folder). Returns `false` if the parent was not found.
     @discardableResult
