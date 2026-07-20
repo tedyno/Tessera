@@ -13,7 +13,13 @@ final class QueryConsoleModel {
     var sessions: [ConnectionSession] = []
 
     var tabs: [QueryTab] = []
-    var activeTabID: UUID?
+    var activeTabID: UUID? {
+        didSet {
+            // Switching tabs moves the sidebar with it, so the schema on screen always
+            // belongs to whatever you are looking at.
+            if let session = activeTab?.session { currentSession = session }
+        }
+    }
 
     private(set) var history: [QueryHistoryEntry] = []
     private let historyStore: QueryHistoryStore
@@ -56,9 +62,10 @@ final class QueryConsoleModel {
     /// it instead, so connecting can leave the workspace empty until you open a table.
     private(set) var currentSession: ConnectionSession?
 
-    /// The tab wins when one is open (switching tabs switches the schema), otherwise
-    /// the connection the user last picked.
-    var activeSession: ConnectionSession? { activeTab?.session ?? currentSession }
+    /// The connection currently in focus: the one last picked in the organizer, which
+    /// switching tabs keeps in sync. Picking a connection therefore updates the schema
+    /// tree even while a tab from another one is open.
+    var activeSession: ConnectionSession? { currentSession ?? activeTab?.session }
 
     /// Makes a connection current without opening anything.
     func selectSession(_ session: ConnectionSession) { currentSession = session }
@@ -571,8 +578,10 @@ final class QueryConsoleModel {
 
     /// Opens a dedicated data-view tab (grid + filter + paging, no SQL editor) for a
     /// table on the active connection. Double-clicking a table in the schema tree.
-    func openTable(schema: String, table: String) async {
-        guard let session = activeSession else { return }
+    /// `on` names the connection explicitly. Without it the active *tab* decides,
+    /// which is wrong when opening a search hit that belongs to another connection.
+    func openTable(schema: String, table: String, on session: ConnectionSession? = nil) async {
+        guard let session = session ?? activeSession else { return }
         // Reuse an existing data view for the same table on this connection.
         if let existing = tabs.first(where: {
             $0.session === session && $0.kind == .data && $0.dataSchema == schema && $0.dataTable == table
@@ -595,7 +604,8 @@ final class QueryConsoleModel {
     /// "follow this reference". Reuses an existing view of that table, replacing its
     /// filter so the same tab doesn't keep a stale one.
     func openReferencedTable(schema: String, table: String, where clause: String) async {
-        await openTable(schema: schema, table: table)
+        // Stays on the tab's own connection — a foreign key never crosses databases.
+        await openTable(schema: schema, table: table, on: activeSession)
         guard let tab = activeTab, tab.kind == .data else { return }
         tab.filterWhere = clause
         tab.sortColumn = nil

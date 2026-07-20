@@ -513,7 +513,8 @@ final class AppModel {
             if let table = result.table, let schema = result.schema {
                 // Picking a table opens the browsable data view, the same as
                 // double-clicking it in the schema tree — not a SELECT in a console tab.
-                await console.openTable(schema: schema, table: table)
+                // Pass the session: a tab from another connection would otherwise win.
+                await console.openTable(schema: schema, table: table, on: session)
                 if let column = result.column { console.activeTab?.scrollToColumn = column }
                 schemaReveal = SchemaRevealTarget(schema: schema, table: table, column: result.column)
             } else if result.kind == .schema, let schema = result.schema {
@@ -630,6 +631,8 @@ final class AppModel {
                 let session = ensureSession(profile: profile)
                 if !session.isReady, !session.isConnecting { await openSession(session, profile: profile) }
                 console.selectSession(session)
+                await console.openTable(schema: schema, table: table, on: session)
+                return
             }
             await console.openTable(schema: schema, table: table)
         }
