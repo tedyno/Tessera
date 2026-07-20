@@ -16,6 +16,10 @@ public struct CachedSchema: Codable, Sendable {
 }
 
 /// Persists introspected schemas as JSON, keyed by profile id.
+///
+/// Lives in `~/Library/Caches`, not Application Support: it is derived data that a
+/// reconnect rebuilds, so it is fine for the system to purge it — unlike the
+/// organizer, profiles, history and saved queries, which the user would miss.
 public struct SchemaCacheStore: Sendable {
     public let fileURL: URL
 
@@ -28,7 +32,7 @@ public struct SchemaCacheStore: Sendable {
         fileManager: FileManager = .default
     ) throws -> URL {
         let base = try fileManager.url(
-            for: .applicationSupportDirectory, in: .userDomainMask,
+            for: .cachesDirectory, in: .userDomainMask,
             appropriateFor: nil, create: true)
         let dir = base.appendingPathComponent(bundleID, isDirectory: true)
         try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
