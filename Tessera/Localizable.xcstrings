@@ -1225,6 +1225,23 @@
         }
       }
     },
+    "Dump %lld Tables…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Dump %1$lld Tables…"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dump %lld tabulek…"
+          }
+        }
+      }
+    },
     "Duplicate Row": {
       "extractionState": "manual",
       "localizations": {
@@ -2215,6 +2232,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK"
+          }
+        }
+      }
+    },
+    "Open %lld Tables": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Open %1$lld Tables"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otevřít %lld tabulek"
           }
         }
       }
