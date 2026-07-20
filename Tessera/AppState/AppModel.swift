@@ -308,6 +308,26 @@ final class AppModel {
         }
     }
 
+    /// Opens a query tab bound to a connection, connecting it if needed.
+    func newQueryTab(profileID: UUID) {
+        guard let profile = connections.profile(id: profileID) else { return }
+        let session = ensureSession(profile: profile)
+        console.selectSession(session)
+        console.addTab()
+        // addTab inherits the active tab's session, which may be another connection.
+        console.activeTab?.session = session
+        if !session.isReady, !session.isConnecting {
+            Task { await openSession(session, profile: profile) }
+        }
+    }
+
+    /// Opens a query tab on whatever connection the schema tree is showing.
+    func newQueryTabForCurrentConnection() {
+        guard let session = console.activeSession else { return }
+        console.addTab()
+        console.activeTab?.session = session
+    }
+
     func introspect(profileID: UUID) {
         guard let session = console.session(for: profileID) else { return }
         Task {

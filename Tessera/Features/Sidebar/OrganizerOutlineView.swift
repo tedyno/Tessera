@@ -62,6 +62,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
     var onIntrospect: (UUID) -> Void = { _ in }
     var onExport: (UUID) -> Void = { _ in }
     var onImport: (UUID) -> Void = { _ in }
+    /// Opens a query tab bound to a connection (⌘T from its context menu).
+    var onNewQueryTab: (UUID) -> Void = { _ in }
     /// Live status of a connection (profile id → dot), for the green indicator.
     var connectionDot: (UUID) -> ConnectionDot = { _ in .none }
     /// A value that changes with the organizer/profiles so SwiftUI re-invokes
@@ -119,6 +121,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
         coordinator.onIntrospect = onIntrospect
         coordinator.onExport = onExport
         coordinator.onImport = onImport
+        coordinator.onNewQueryTab = onNewQueryTab
     }
 
     func makeCoordinator() -> Coordinator {
@@ -149,6 +152,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
         var onIntrospect: (UUID) -> Void = { _ in }
         var onExport: (UUID) -> Void = { _ in }
         var onImport: (UUID) -> Void = { _ in }
+        var onNewQueryTab: (UUID) -> Void = { _ in }
         var connectionDot: (UUID) -> ConnectionDot = { _ in .none }
         var statusVersion = 0
 
@@ -446,48 +450,55 @@ struct OrganizerOutlineView: NSViewRepresentable {
             let menu = NSMenu()
             guard row >= 0, let item = outlineView.item(atRow: row) as? OrganizerItem else {
                 // The loose level takes connections only — no folders to organize.
-                add(menu, "New Connection", #selector(actionNewConnection), nil)
-                add(menu, "New Workspace", #selector(actionNewWorkspace), nil)
+                add(menu, String(localized: "New Connection"), #selector(actionNewConnection), nil)
+                add(menu, String(localized: "New Workspace"), #selector(actionNewWorkspace), nil)
                 return menu
             }
             if item.isContainer {
-                add(menu, "New Connection", #selector(actionNewConnection), item)
-                add(menu, "New Folder", #selector(actionNewFolder), item)
+                add(menu, String(localized: "New Connection"), #selector(actionNewConnection), item)
+                add(menu, String(localized: "New Folder"), #selector(actionNewFolder), item)
                 if item.category == .workspace {
-                    add(menu, "New Project", #selector(actionNewProject), item)
+                    add(menu, String(localized: "New Project"), #selector(actionNewProject), item)
                 }
                 menu.addItem(.separator())
                 if item.category == .folder {
                     menu.addItem(colorMenuItem(for: item))
                 }
-                add(menu, "Rename", #selector(actionRename), item)
+                add(menu, String(localized: "Rename"), #selector(actionRename), item)
             } else {
                 let status = (model.organizer.profileID(forNode: item.id)).map { connectionDot($0) } ?? .none
                 switch status {
                 case .connected:
-                    add(menu, "Disconnect", #selector(actionDisconnect), item)
-                    add(menu, "Reconnect", #selector(actionReconnect), item)
-                    add(menu, "Refresh Schema", #selector(actionIntrospect), item)
+                    add(menu, String(localized: "Disconnect"), #selector(actionDisconnect), item)
+                    add(menu, String(localized: "Reconnect"), #selector(actionReconnect), item)
+                    add(menu, String(localized: "Refresh Schema"), #selector(actionIntrospect), item)
                 case .connecting:
-                    add(menu, "Disconnect", #selector(actionDisconnect), item)
+                    add(menu, String(localized: "Disconnect"), #selector(actionDisconnect), item)
                 case .failed, .none:
-                    add(menu, "Connect", #selector(actionConnect), item)
+                    add(menu, String(localized: "Connect"), #selector(actionConnect), item)
                 }
+                let queryTab = add(menu, String(localized: "New Query Tab"),
+                                   #selector(actionNewQueryTab), item)
+                queryTab.keyEquivalent = "t"
+                queryTab.keyEquivalentModifierMask = .command
                 menu.addItem(.separator())
-                add(menu, "Export…", #selector(actionExport), item)
-                add(menu, "Import…", #selector(actionImport), item)
-                add(menu, "Edit…", #selector(actionEdit), item)
+                add(menu, String(localized: "Export…"), #selector(actionExport), item)
+                add(menu, String(localized: "Import…"), #selector(actionImport), item)
+                add(menu, String(localized: "Edit…"), #selector(actionEdit), item)
                 menu.addItem(colorMenuItem(for: item))
             }
-            add(menu, "Delete", #selector(actionDelete), item)
+            add(menu, String(localized: "Delete"), #selector(actionDelete), item)
             return menu
         }
 
-        private func add(_ menu: NSMenu, _ title: String, _ action: Selector, _ item: OrganizerItem?) {
+        @discardableResult
+        private func add(_ menu: NSMenu, _ title: String, _ action: Selector,
+                         _ item: OrganizerItem?) -> NSMenuItem {
             let menuItem = NSMenuItem(title: title, action: action, keyEquivalent: "")
             menuItem.target = self
             menuItem.representedObject = item
             menu.addItem(menuItem)
+            return menuItem
         }
 
         private final class ColorChoice: NSObject {
@@ -498,7 +509,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         private func colorMenuItem(for item: OrganizerItem) -> NSMenuItem {
             let current = currentColorName(for: item)
-            let parent = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
+            let parent = NSMenuItem(title: String(localized: "Color"), action: nil, keyEquivalent: "")
             let submenu = NSMenu()
             for (name, color) in Self.palette {
                 let entry = NSMenuItem(title: name.capitalized, action: #selector(actionSetColor(_:)), keyEquivalent: "")
@@ -509,7 +520,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 submenu.addItem(entry)
             }
             submenu.addItem(.separator())
-            let none = NSMenuItem(title: "None", action: #selector(actionSetColor(_:)), keyEquivalent: "")
+            let none = NSMenuItem(title: String(localized: "None"), action: #selector(actionSetColor(_:)), keyEquivalent: "")
             none.target = self
             none.representedObject = ColorChoice(item: item, color: nil)
             none.state = current == nil ? .on : .off
@@ -546,6 +557,9 @@ struct OrganizerOutlineView: NSViewRepresentable {
             if let item = sender.representedObject as? OrganizerItem { onEditConnection(item.id) }
         }
 
+        @objc private func actionNewQueryTab(_ sender: NSMenuItem) {
+            if let profileID = profileID(from: sender) { onNewQueryTab(profileID) }
+        }
         @objc private func actionNewConnection(_ sender: NSMenuItem) {
             onNewConnection((sender.representedObject as? OrganizerItem)?.id)
         }

@@ -608,6 +608,17 @@
         }
       }
     },
+    "Color": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barva"
+          }
+        }
+      }
+    },
     "Colour": {
       "extractionState": "manual",
       "localizations": {
@@ -670,6 +681,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Komprimovat (gzip)"
+          }
+        }
+      }
+    },
+    "Connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Připojit"
           }
         }
       }
@@ -949,6 +971,17 @@
         }
       }
     },
+    "Disconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odpojit"
+          }
+        }
+      }
+    },
     "Done": {
       "extractionState": "manual",
       "localizations": {
@@ -1103,6 +1136,17 @@
         }
       }
     },
+    "Edit…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upravit…"
+          }
+        }
+      }
+    },
     "Enable the MCP server": {
       "extractionState": "manual",
       "localizations": {
@@ -1242,6 +1286,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Exportuji…"
+          }
+        }
+      }
+    },
+    "Export…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportovat…"
           }
         }
       }
@@ -1407,6 +1462,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Importuji…"
+          }
+        }
+      }
+    },
+    "Import…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importovat…"
           }
         }
       }
@@ -1701,6 +1767,17 @@
         }
       }
     },
+    "New Project": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nový projekt"
+          }
+        }
+      }
+    },
     "New Query Tab": {
       "extractionState": "manual",
       "localizations": {
@@ -1884,6 +1961,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Není otevřený žádný panel"
+          }
+        }
+      }
+    },
+    "None": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Žádná"
           }
         }
       }
@@ -2141,6 +2229,17 @@
         }
       }
     },
+    "Reconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Připojit znovu"
+          }
+        }
+      }
+    },
     "Reconnecting… (attempt %@ of %@)": {
       "extractionState": "manual",
       "localizations": {
@@ -2192,6 +2291,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Smazat i vnořené složky a připojení"
+          }
+        }
+      }
+    },
+    "Rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Přejmenovat"
           }
         }
       }

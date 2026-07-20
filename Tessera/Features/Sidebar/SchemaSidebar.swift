@@ -18,6 +18,8 @@ struct SchemaSidebar: View {
     /// Databases on the server, for the database-switcher menu.
     var databases: [String] = []
     var onSwitchDatabase: (String) -> Void = { _ in }
+    /// Opens a query tab on this connection (⌘T from the tree).
+    var onNewQueryTab: () -> Void = { }
     var onToggleSchema: (String) -> Void = { _ in }
     var onOpenTable: (_ schema: String, _ table: String) -> Void
     var onOpenColumn: (_ schema: String, _ table: String, _ column: String) -> Void
@@ -101,6 +103,9 @@ struct SchemaSidebar: View {
                                             }
                                             Divider()
                                         }
+                                        Button("New Query Tab") { onNewQueryTab() }
+                                            .keyboardShortcut("t", modifiers: .command)
+                                        Divider()
                                         Button("Dump Database…") { onDumpDatabase() }
                                     }
                             }
@@ -133,6 +138,9 @@ struct SchemaSidebar: View {
                 .contentShape(Rectangle())
                 .simultaneousGesture(TapGesture(count: 2).onEnded { toggle("s:\(namespace.name)") })
                 .contextMenu {
+                    Button("New Query Tab") { onNewQueryTab() }
+                        .keyboardShortcut("t", modifiers: .command)
+                    Divider()
                     Button("Create Table…") { onDDL(.createTable(schema: namespace.name)) }
                     Divider()
                     Button("Dump Schema…") { onDumpSchema(namespace.name) }

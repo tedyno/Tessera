@@ -18,6 +18,7 @@ struct OrganizerSidebar: View {
     var onIntrospect: (UUID) -> Void = { _ in }
     var onExport: (UUID) -> Void = { _ in }
     var onImport: (UUID) -> Void = { _ in }
+    var onNewQueryTab: (UUID) -> Void = { _ in }
     var connectionDot: (UUID) -> ConnectionDot = { _ in .none }
     var statusVersion: Int = 0
 
@@ -48,6 +49,7 @@ struct OrganizerSidebar: View {
             onIntrospect: onIntrospect,
             onExport: onExport,
             onImport: onImport,
+            onNewQueryTab: onNewQueryTab,
             connectionDot: connectionDot,
             version: model.stateVersion,
             statusVersion: statusVersion)

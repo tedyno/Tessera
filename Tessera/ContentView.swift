@@ -24,6 +24,7 @@ struct ContentView: View {
                     onIntrospect: { app.introspect(profileID: $0) },
                     onExport: { app.exportConnection(profileID: $0) },
                     onImport: { app.importConnection(profileID: $0) },
+                    onNewQueryTab: { app.newQueryTab(profileID: $0) },
                     connectionDot: { app.connectionDot(profileID: $0) },
                     statusVersion: app.sessionStatusVersion)
                 .frame(minHeight: 120, idealHeight: 320, maxHeight: .infinity)
@@ -38,6 +39,7 @@ struct ContentView: View {
                             app.switchDatabase(profileID: profileID, to: database)
                         }
                     },
+                    onNewQueryTab: { app.newQueryTabForCurrentConnection() },
                     onToggleSchema: { app.toggleSchema($0) },
                     onOpenTable: { schema, table in
                         Task { await app.console.openTable(schema: schema, table: table) }
