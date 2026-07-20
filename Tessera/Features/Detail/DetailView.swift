@@ -19,6 +19,8 @@ struct DetailView: View {
     var cursor: Binding<Int>
     var isReadOnly: Bool = false
     var onRun: () -> Void
+    /// EXPLAIN (analyze = true executes the statement too) for the current query.
+    var onExplain: (Bool) -> Void = { _ in }
     var onExportResult: (ResultExport.Format) -> Void = { _ in }
     /// History actions route to the connection each entry came from.
     var onPickHistory: (QueryHistoryEntry) -> Void = { _ in }
@@ -228,6 +230,9 @@ struct DetailView: View {
             .controlSize(.small)
             .disabled(!(model.activeTab?.isRunning ?? false))
 
+            explainMenu
+            if let tab = model.activeTab { autoRefreshMenu(tab) }
+
             if model.activeTab?.isEditable == true {
                 Button {
                     if let tab = model.activeTab { model.addInsertRow(tab) }
@@ -341,6 +346,8 @@ struct DetailView: View {
 
             sortMenu(tab)
             limitField(tab)
+            explainMenu
+            autoRefreshMenu(tab)
 
             if tab.isRunning { ProgressView().controlSize(.mini) }
             Spacer()
@@ -352,6 +359,57 @@ struct DetailView: View {
             .controlSize(.small)
         }
         .padding(6)
+    }
+
+    /// EXPLAIN / EXPLAIN ANALYZE for the current statement.
+    private var explainMenu: some View {
+        Menu {
+            Button("Explain") { onExplain(false) }
+            Button("Explain Analyze") { onExplain(true) }
+        } label: {
+            Label("Explain", systemImage: "list.bullet.indent")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .controlSize(.small)
+        .disabled(model.activeTab?.session == nil || model.activeTab?.isRunning == true)
+        .help("Show the query plan (Analyze also executes the statement)")
+    }
+
+    /// Automatic re-run cadence for this tab; the timer icon tints when active.
+    private func autoRefreshMenu(_ tab: QueryTab) -> some View {
+        Menu {
+            Button {
+                model.setAutoRefresh(tab, interval: nil)
+            } label: {
+                if tab.autoRefreshInterval == nil { Label("Off", systemImage: "checkmark") }
+                else { Text("Off") }
+            }
+            Divider()
+            ForEach([2.0, 5, 10, 30, 60], id: \.self) { seconds in
+                Button {
+                    model.setAutoRefresh(tab, interval: seconds)
+                } label: {
+                    if tab.autoRefreshInterval == seconds {
+                        Label(Self.intervalLabel(seconds), systemImage: "checkmark")
+                    } else {
+                        Text(Self.intervalLabel(seconds))
+                    }
+                }
+            }
+        } label: {
+            Label("Auto-refresh", systemImage: "timer").labelStyle(.iconOnly)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .controlSize(.small)
+        .foregroundStyle(tab.autoRefreshInterval != nil ? Color.accentColor : Color.secondary)
+        .help("Re-run this query automatically")
+    }
+
+    /// Plain, non-localized interval labels ("5 s", "1 min").
+    private static func intervalLabel(_ seconds: Double) -> String {
+        seconds < 60 ? "\(Int(seconds)) s" : "1 min"
     }
 
     /// Column sort picker for a data view (mirrors header-click sorting).

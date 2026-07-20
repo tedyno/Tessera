@@ -362,6 +362,17 @@
         }
       }
     },
+    "Auto-refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatické obnovování"
+          }
+        }
+      }
+    },
     "Auth": {
       "extractionState": "manual",
       "localizations": {
@@ -1384,6 +1395,28 @@
         }
       }
     },
+    "Explain": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explain"
+          }
+        }
+      }
+    },
+    "Explain Analyze": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explain Analyze"
+          }
+        }
+      }
+    },
     "Export": {
       "extractionState": "manual",
       "localizations": {
@@ -2246,6 +2279,17 @@
         }
       }
     },
+    "Off": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vypnuto"
+          }
+        }
+      }
+    },
     "Not connected.": {
       "extractionState": "manual",
       "localizations": {
@@ -2589,6 +2633,17 @@
         }
       }
     },
+    "Re-run this query automatically": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spouštět tento dotaz automaticky znovu"
+          }
+        }
+      }
+    },
     "Relaunch": {
       "extractionState": "manual",
       "localizations": {
@@ -2886,6 +2941,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "SSH uživatel"
+          }
+        }
+      }
+    },
+    "Set NULL": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavit NULL"
+          }
+        }
+      }
+    },
+    "Show the query plan (Analyze also executes the statement)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zobrazit plán dotazu (Analyze příkaz zároveň spustí)"
           }
         }
       }

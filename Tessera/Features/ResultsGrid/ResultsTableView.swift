@@ -112,13 +112,30 @@ final class GridTableView: NSTableView {
     /// Escape — returns whether it was consumed (a ⌘F filter was active and got
     /// cleared); when false, Escape falls through to its normal handling.
     var onEscape: (() -> Bool)?
+    /// Arrow keys / Tab — moves the cell selection by (rows, cols); extend = Shift.
+    var onMoveSelection: ((Int, Int, Bool) -> Void)?
+    /// Return — starts editing the single selected cell; false when it can't.
+    var onEditSelected: (() -> Bool)?
+    /// ⌥⌫ / context menu — sets every selected cell to SQL NULL.
+    var onSetNull: (() -> Void)?
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { // escape
+        let shift = event.modifierFlags.contains(.shift)
+        switch event.keyCode {
+        case 123: onMoveSelection?(0, -1, shift)   // ←
+        case 124: onMoveSelection?(0, 1, shift)    // →
+        case 125: onMoveSelection?(1, 0, shift)    // ↓
+        case 126: onMoveSelection?(-1, 0, shift)   // ↑
+        case 48:  onMoveSelection?(0, shift ? -1 : 1, false)   // tab / ⇧-tab
+        case 36:  // return — edit the selected cell; otherwise keep normal handling
+            if onEditSelected?() != true { super.keyDown(with: event) }
+        case 53:  // escape
             if onEscape?() != true { super.keyDown(with: event) }
-        } else if event.keyCode == 51 || event.keyCode == 117 { // delete / forward-delete
+        case 51 where event.modifierFlags.contains(.option):   // ⌥⌫ — set NULL
+            onSetNull?()
+        case 51, 117: // delete / forward-delete
             onDeleteRows?()
-        } else {
+        default:
             super.keyDown(with: event)
         }
     }
@@ -200,6 +217,14 @@ final class GridTableView: NSTableView {
             duplicate.representedObject = row
             menu.addItem(duplicate)
         }
+        // ⌥⌫ already does this; without an item the gesture is undiscoverable.
+        if hasSelection?() == true {
+            let setNull = NSMenuItem(title: String(localized: "Set NULL"),
+                                     action: #selector(setNullAction), keyEquivalent: "\u{8}")
+            setNull.keyEquivalentModifierMask = .option
+            setNull.target = self
+            menu.addItem(setNull)
+        }
         // Backspace already does this; without an item the gesture is undiscoverable.
         if hasSelection?() == true {
             let delete = NSMenuItem(title: String(localized: "Delete Rows"),
@@ -221,6 +246,7 @@ final class GridTableView: NSTableView {
     }
 
     @objc private func addRowAction() { onAddRow?() }
+    @objc private func setNullAction() { onSetNull?() }
     @objc private func duplicateRowAction(_ sender: NSMenuItem) {
         onDuplicateRow?(sender.representedObject as? Int ?? -1)
     }
@@ -306,6 +332,11 @@ struct ResultsTableView: NSViewRepresentable {
             c.followSelectedForeignKey()
         }
         tableView.onEscape = { [c = context.coordinator] in c.cancelSearchIfActive() }
+        tableView.onMoveSelection = { [c = context.coordinator] dRow, dCol, extend in
+            c.moveSelection(dRow: dRow, dCol: dCol, extend: extend)
+        }
+        tableView.onEditSelected = { [c = context.coordinator] in c.editSelectedCell() }
+        tableView.onSetNull = { [c = context.coordinator] in c.setSelectedToNull() }
 
         let scrollView = NSScrollView()
         scrollView.documentView = tableView
@@ -341,6 +372,9 @@ struct ResultsTableView: NSViewRepresentable {
         private var lastSearchQuery = ""
         private var selected: Set<CellPos> = []
         private var anchor: CellPos?
+        /// The cell arrow keys move from — the last cell clicked or stepped onto
+        /// (unlike `anchor`, which stays put while Shift extends a range from it).
+        private var focus: CellPos?
         /// Data-row indices shown, in display order, while a ⌘F filter is active;
         /// nil when unfiltered (display row == data row).
         private var visibleRowMap: [Int]?
@@ -379,7 +413,68 @@ struct ResultsTableView: NSViewRepresentable {
                 selected = [cell]
                 anchor = cell
             }
+            focus = cell
             reload(rows: old.union(selectionRows))
+            updateInspector()
+        }
+
+        /// Arrow keys / Tab — steps the selection by (dRow, dCol), clamped to the
+        /// grid; Shift extends the rectangle from the anchor instead of moving it.
+        func moveSelection(dRow: Int, dCol: Int, extend: Bool) {
+            guard let tableView, let result = tab.result, !result.columns.isEmpty else { return }
+            let rowCount = visibleRowMap?.count ?? (result.rows.count + tab.pendingInserts.count)
+            guard rowCount > 0 else { return }
+            let from = focus ?? anchor ?? selected.first ?? CellPos(row: 0, col: 0)
+            let cell = selected.isEmpty
+                ? CellPos(row: 0, col: 0)   // nothing selected yet — land on the first cell
+                : CellPos(row: min(max(from.row + dRow, 0), rowCount - 1),
+                          col: min(max(from.col + dCol, 0), result.columns.count - 1))
+            let old = selectionRows
+            if extend, let anchor {
+                selected = Self.rectangle(from: anchor, to: cell)
+            } else {
+                selected = [cell]
+                anchor = cell
+            }
+            focus = cell
+            reload(rows: old.union(selectionRows))
+            tableView.scrollRowToVisible(cell.row)
+            tableView.scrollColumnToVisible(cell.col)
+            updateInspector()
+        }
+
+        /// Return — starts editing the focused cell when there's exactly one
+        /// selected; false lets the key fall through to its normal handling.
+        func editSelectedCell() -> Bool {
+            guard tab.isEditable, visibleRowMap == nil,
+                  selected.count == 1, let cell = selected.first else { return false }
+            beginEdit(row: cell.row, col: cell.col)
+            return true
+        }
+
+        /// ⌥⌫ / context menu — sets every selected cell to SQL NULL (on an insert
+        /// row: clears the value, letting the database default apply).
+        func setSelectedToNull() {
+            guard tab.isEditable, visibleRowMap == nil, let result = tab.result, !selected.isEmpty else { return }
+            for cell in selected where cell.col < result.columns.count {
+                let columnName = result.columns[cell.col].name
+                guard tab.editSource?.autoIncrementColumns.contains(columnName) != true else { continue }
+                if isInsertRow(cell.row) {
+                    let index = cell.row - fetchedRowCount
+                    if index < tab.pendingInserts.count { tab.pendingInserts[index].values[columnName] = nil }
+                    continue
+                }
+                guard cell.row < result.rows.count else { continue }
+                let original = cell.col < result.rows[cell.row].count ? result.rows[cell.row][cell.col].text : nil
+                if original == nil {
+                    // Already NULL — drop any pending edit instead of recording a no-op.
+                    tab.edits[cell.row]?[columnName] = nil
+                    if tab.edits[cell.row]?.isEmpty == true { tab.edits[cell.row] = nil }
+                } else {
+                    tab.edits[cell.row, default: [:]].updateValue(nil, forKey: columnName)
+                }
+            }
+            reload(rows: selectionRows)
             updateInspector()
         }
 
@@ -467,7 +562,7 @@ struct ResultsTableView: NSViewRepresentable {
                     tab.pendingInserts.remove(at: index)
                 }
                 selected = selected.filter { !isInsertRow($0.row) }
-                anchor = nil
+                anchor = nil; focus = nil
                 tableView?.reloadData()
             }
 
@@ -735,20 +830,20 @@ struct ResultsTableView: NSViewRepresentable {
             if tab.resultVersion != lastResultVersion {
                 lastResultVersion = tab.resultVersion
                 selected = []
-                anchor = nil
+                anchor = nil; focus = nil
             }
             // Display row indices shift whenever the ⌘F filter text changes, so a
             // held selection would silently point at the wrong cells.
             if tab.searchQuery != lastSearchQuery {
                 lastSearchQuery = tab.searchQuery
                 selected = []
-                anchor = nil
+                anchor = nil; focus = nil
             }
             let signature = result.columns.map(\.name)
             if signature != columnsSignature {
                 columnsSignature = signature
                 selected = []
-                anchor = nil
+                anchor = nil; focus = nil
                 for column in tableView.tableColumns { tableView.removeTableColumn(column) }
                 for (index, descriptor) in result.columns.enumerated() {
                     let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("\(index)"))
@@ -822,7 +917,8 @@ struct ResultsTableView: NSViewRepresentable {
             }
             for row in 0..<min(result.rows.count, 1000) {
                 let cells = result.rows[row]
-                consider(tab.edits[row]?[name] ?? (column < cells.count ? cells[column].text : nil) ?? "NULL")
+                let original = column < cells.count ? cells[column].text : nil
+                consider((tab.edits[row]?[name] ?? original) ?? "NULL")
             }
             for insert in tab.pendingInserts { consider(insert.values[name] ?? "") }
             return min(max(maxWidth + 16, 40), 600)

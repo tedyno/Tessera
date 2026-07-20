@@ -77,9 +77,12 @@ final class QueryTab: Identifiable {
     var scriptSummary: String?
 
     /// Set when the result maps to a single table with a primary key; enables
-    /// editing. `edits` holds pending, unsaved cell changes: row → column → value.
+    /// editing. `edits` holds pending, unsaved cell changes: row → column → value,
+    /// where an inner `nil` value means "set to SQL NULL" (distinct from removing
+    /// the entry, which reverts the cell — use `updateValue(nil,…)` to set NULL,
+    /// since plain subscript assignment of nil removes the key).
     var editSource: EditSource?
-    var edits: [Int: [String: String]] = [:]
+    var edits: [Int: [String: String?]] = [:]
     /// Row indices marked for deletion (Backspace on a selected row).
     var pendingDeletes: Set<Int> = []
     /// New rows queued for insertion, rendered below the fetched rows.
@@ -106,7 +109,7 @@ final class QueryTab: Identifiable {
             if result.rows[index].contains(where: { $0.text?.localizedCaseInsensitiveContains(searchQuery) == true }) {
                 return true
             }
-            return edits[index]?.values.contains(where: { $0.localizedCaseInsensitiveContains(searchQuery) }) == true
+            return edits[index]?.values.contains(where: { $0?.localizedCaseInsensitiveContains(searchQuery) == true }) == true
         }
     }
 
@@ -123,6 +126,10 @@ final class QueryTab: Identifiable {
     /// The single selected cell mirrored for the value inspector (nil = no single
     /// selection). Set by the grid, read by the inspector panel.
     var inspected: InspectedCell?
+
+    /// Seconds between automatic re-runs of this tab (nil = off).
+    var autoRefreshInterval: TimeInterval?
+    @ObservationIgnored var autoRefreshTask: Task<Void, Never>?
 
     /// The in-flight run, so a Stop button can cancel it.
     @ObservationIgnored var task: Task<Void, Never>?

@@ -62,6 +62,12 @@ struct TesseraCommands: Commands {
             Button("Stop") { app.stopActiveQuery() }
                 .keyboardShortcut(".", modifiers: .command)
                 .disabled(!app.isRunning)
+            Button("Explain") { app.explainActiveQuery(analyze: false) }
+                .keyboardShortcut("e", modifiers: .command)
+                .disabled(!app.canExplain)
+            Button("Explain Analyze") { app.explainActiveQuery(analyze: true) }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(!app.canExplain)
 
             Divider()
 

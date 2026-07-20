@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import DBKit
 import DBPersistence
 
@@ -142,6 +143,7 @@ final class QueryConsoleModel {
     func closeTab(_ id: UUID) {
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
         tab.task?.cancel()
+        tab.autoRefreshTask?.cancel()
         tabs.removeAll { $0.id == id }
         if activeTabID == id { activeTabID = tabs.last?.id }
     }
@@ -149,7 +151,10 @@ final class QueryConsoleModel {
     /// Closes every tab whose id is in `ids`, cancelling anything they were running.
     private func closeTabs(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
-        for tab in tabs where ids.contains(tab.id) { tab.task?.cancel() }
+        for tab in tabs where ids.contains(tab.id) {
+            tab.task?.cancel()
+            tab.autoRefreshTask?.cancel()
+        }
         tabs.removeAll { ids.contains($0.id) }
         if let active = activeTabID, ids.contains(active) { activeTabID = tabs.last?.id }
     }
@@ -195,9 +200,12 @@ final class QueryConsoleModel {
         SQLStatements.resolve(sql: tab.sql, cursor: tab.cursorPosition)
     }
 
-    func run(_ tab: QueryTab, sqlToRun: String? = nil, preserveSort: Bool = false) async {
+    func run(_ tab: QueryTab, sqlToRun: String? = nil, preserveSort: Bool = false,
+             preserveSearch: Bool = false) async {
         guard let session = tab.session, !tab.isRunning else { return }
         let sql = sqlToRun ?? tab.sql
+        let clock = ContinuousClock()
+        let started = clock.now
         if !preserveSort { tab.sortColumn = nil }
         tab.isRunning = true
         tab.errorMessage = nil
@@ -227,8 +235,10 @@ final class QueryConsoleModel {
             tab.edits = [:]
             tab.pendingDeletes = []
             tab.pendingInserts = []
-            tab.clearSearch()   // a stale ⌘F filter over the old result would otherwise
-                                // silently block editing on every row of the new one
+            if !preserveSearch {
+                tab.clearSearch()   // a stale ⌘F filter over the old result would
+                                    // otherwise silently block editing on the new one
+            }
             tab.editSource = detectEditSource(sql: sql, columns: result.columns, schema: session.schema)
             let ms = result.elapsed.map(Self.milliseconds)
             tab.elapsedMS = ms
@@ -239,6 +249,14 @@ final class QueryConsoleModel {
             tab.errorMessage = ConnectionSession.message(for: error)
         }
         tab.isRunning = false
+        Self.bounceDockIfLong(started, clock: clock)
+    }
+
+    /// A long query that finished while the app was in the background deserves a
+    /// nudge — one Dock bounce, which needs no notification permissions.
+    private static func bounceDockIfLong(_ started: ContinuousClock.Instant, clock: ContinuousClock) {
+        guard clock.now - started >= .seconds(10), !NSApplication.shared.isActive else { return }
+        NSApplication.shared.requestUserAttention(.informationalRequest)
     }
 
     /// Runs a multi-statement script (e.g. a loaded `.sql` file) against the tab's
@@ -248,6 +266,8 @@ final class QueryConsoleModel {
         guard let session = tab.session, !tab.isRunning else { return }
         let statements = SQLScript.statements(in: tab.sql)
         guard !statements.isEmpty else { return }
+        let clock = ContinuousClock()
+        let started = clock.now
         tab.isRunning = true
         tab.errorMessage = nil
         guard await ensureReady(session), let driver = session.driver else {
@@ -277,6 +297,7 @@ final class QueryConsoleModel {
                 + ConnectionSession.message(for: error)
         }
         tab.isRunning = false
+        Self.bounceDockIfLong(started, clock: clock)
     }
 
     /// Writes pending edits/deletes/inserts, then re-runs the query to show saved data.
@@ -453,9 +474,11 @@ final class QueryConsoleModel {
         }
 
         // UPDATEs grouped by identical change-set (skip rows being deleted).
-        var groups: [String: (changes: [String: String], rows: [Int])] = [:]
+        var groups: [String: (changes: [String: String?], rows: [Int])] = [:]
         for (row, changes) in tab.edits where !tab.pendingDeletes.contains(row) {
-            let key = changes.sorted { $0.key < $1.key }.map { "\($0.key)\u{1}\($0.value)" }.joined(separator: "\u{2}")
+            // "s"/"n" prefix keeps a cell set to NULL distinct from any real text.
+            let key = changes.sorted { $0.key < $1.key }
+                .map { "\($0.key)\u{1}\($0.value.map { "s\($0)" } ?? "n")" }.joined(separator: "\u{2}")
             groups[key, default: (changes, [])].rows.append(row)
         }
         for group in groups.values.sorted(by: { ($0.rows.min() ?? 0) < ($1.rows.min() ?? 0) }) {
@@ -563,9 +586,11 @@ final class QueryConsoleModel {
         }.joined(separator: " AND ")
     }
 
-    /// A SQL literal for `value`, unquoted for numeric columns (so `id = 3`, not
-    /// `id = '3'`) when the text is actually a number, quoted and escaped otherwise.
-    private func literal(_ value: String, columnName: String, result: QueryResult) -> String {
+    /// A SQL literal for `value`: `NULL` for nil (a cell explicitly set to NULL),
+    /// unquoted for numeric columns (so `id = 3`, not `id = '3'`) when the text is
+    /// actually a number, quoted and escaped otherwise.
+    private func literal(_ value: String?, columnName: String, result: QueryResult) -> String {
+        guard let value else { return "NULL" }
         if let column = result.columns.first(where: { $0.name == columnName }),
            Self.isNumericType(column.typeName), Self.looksNumeric(value) {
             return value
@@ -659,10 +684,45 @@ final class QueryConsoleModel {
     }
 
     /// Runs the data view's generated query; optionally refreshes the total count.
-    func reloadData(_ tab: QueryTab, refreshCount: Bool = false) async {
+    func reloadData(_ tab: QueryTab, refreshCount: Bool = false, preserveSearch: Bool = false) async {
         tab.sql = dataSQL(tab)
-        await run(tab, sqlToRun: tab.sql, preserveSort: true)
+        await run(tab, sqlToRun: tab.sql, preserveSort: true, preserveSearch: preserveSearch)
         if refreshCount { await self.refreshCount(tab) }
+    }
+
+    // MARK: Auto-refresh
+
+    /// Re-runs the tab on a fixed cadence (nil turns it off). A cycle is skipped —
+    /// not stopped — while the tab is busy or has unsaved edits, and the ⌘F filter
+    /// survives each refresh (its bar is visible, unlike the stale-filter case a
+    /// manual run clears).
+    func setAutoRefresh(_ tab: QueryTab, interval: TimeInterval?) {
+        tab.autoRefreshTask?.cancel()
+        tab.autoRefreshTask = nil
+        tab.autoRefreshInterval = interval
+        guard let interval else { return }
+        // Console tabs re-run the statement under the cursor as of now — not
+        // whatever the editor happens to say later, mid-edit.
+        var consoleSQL: String?
+        if tab.kind == .console {
+            switch resolveRunTarget(tab) {
+            case .statement(let statement): consoleSQL = statement.isEmpty ? tab.sql : statement
+            case .ambiguous(let choice): consoleSQL = choice.statement
+            }
+        }
+        let sql = consoleSQL
+        tab.autoRefreshTask = Task { [weak self, weak tab] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(interval))
+                guard let self, let tab, !Task.isCancelled else { return }
+                guard !tab.isRunning, !tab.hasEdits else { continue }
+                if tab.kind == .data {
+                    await self.reloadData(tab, preserveSearch: true)
+                } else if let sql {
+                    await self.run(tab, sqlToRun: sql, preserveSort: true, preserveSearch: true)
+                }
+            }
+        }
     }
 
     /// Fetches `SELECT count(*)` for the current filter so the UI can show "N of TOTAL".

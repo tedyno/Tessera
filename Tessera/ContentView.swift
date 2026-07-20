@@ -42,6 +42,7 @@ struct ContentView: View {
                        cursor: cursorBinding,
                        isReadOnly: app.currentIsReadOnly,
                        onRun: { app.runActiveQuery() },
+                       onExplain: { app.explainActiveQuery(analyze: $0) },
                        onExportResult: { app.exportResult(format: $0) },
                        onPickHistory: { app.loadHistoryEntry($0) },
                        onRunHistory: { app.runHistoryEntry($0) },

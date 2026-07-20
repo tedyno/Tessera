@@ -618,6 +618,36 @@ final class AppModel {
         runChecked(sql, on: tab)
     }
 
+    var canExplain: Bool {
+        guard let tab = console.activeTab, tab.session != nil, !tab.isRunning else { return false }
+        return true
+    }
+
+    /// EXPLAIN (or EXPLAIN ANALYZE) for the statement under the cursor — the plan
+    /// lands in the results grid like any query, without touching the editor text.
+    /// ANALYZE actually executes the statement, so it goes through the same
+    /// destructive-statement confirmation as a normal run.
+    func explainActiveQuery(analyze: Bool) {
+        guard let tab = console.activeTab, tab.session != nil, !tab.isRunning else { return }
+        let sql: String
+        if tab.kind == .data {
+            sql = tab.sql   // the generated SELECT for this data view
+        } else {
+            switch console.resolveRunTarget(tab) {
+            case .statement(let statement): sql = statement.isEmpty ? tab.sql : statement
+            case .ambiguous(let choice): sql = choice.statement
+            }
+        }
+        let trimmed = sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let prefixed = (analyze ? "EXPLAIN ANALYZE " : "EXPLAIN ") + trimmed
+        if analyze {
+            runChecked(prefixed, on: tab)
+        } else {
+            tab.task = Task { await console.run(tab, sqlToRun: prefixed) }
+        }
+    }
+
     func confirmReadOnlyCommit() {
         guard let tab = pendingCommitTab else { return }
         pendingCommitTab = nil
