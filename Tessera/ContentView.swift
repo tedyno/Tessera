@@ -6,7 +6,9 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $app.columnVisibility) {
-            GeometryReader { geo in
+            // No GeometryReader here on purpose: deriving the panes' ideal height from
+            // the container made VSplitView re-apply it on every layout pass, snapping
+            // the divider back and fighting the drag. A constant ideal stays put.
             VSplitView {
                 OrganizerSidebar(
                     model: app.connections,
@@ -24,7 +26,7 @@ struct ContentView: View {
                     onImport: { app.importConnection(profileID: $0) },
                     connectionDot: { app.connectionDot(profileID: $0) },
                     statusVersion: app.sessionStatusVersion)
-                .frame(minHeight: 80, idealHeight: geo.size.height / 2, maxHeight: .infinity)
+                .frame(minHeight: 120, idealHeight: 320, maxHeight: .infinity)
 
                 SchemaSidebar(
                     tree: app.console.schema,
@@ -62,8 +64,7 @@ struct ContentView: View {
                         }
                     },
                     onDDL: { app.startDDL($0) })
-                .frame(minHeight: 80, idealHeight: geo.size.height / 2, maxHeight: .infinity)
-            }
+                .frame(minHeight: 120, maxHeight: .infinity)
             }
             .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
         } detail: {
