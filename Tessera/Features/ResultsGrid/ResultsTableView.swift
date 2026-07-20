@@ -105,18 +105,19 @@ final class GridTableView: NSTableView {
     /// ⌘D duplicates the selected row(s) — only when the grid is focused so it doesn't
     /// steal the shortcut from a focused text field elsewhere.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if canEditRows,
-           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-           event.charactersIgnoringModifiers == "d",
-           window?.firstResponder === self {
+        // Compare only the modifiers a shortcut is spelled with: arrow keys also carry
+        // .function and .numericPad, which would never match a plain `== .command`.
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        let isFocused = window?.firstResponder === self
+
+        if canEditRows, modifiers == .command,
+           event.charactersIgnoringModifiers == "d", isFocused {
             onDuplicateSelected?()
             return true
         }
         // ⌘↓ follows a foreign key in the selected cell; falls through when the cell
         // isn't one, so the key keeps its normal meaning everywhere else.
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-           event.keyCode == 125,   // down arrow
-           window?.firstResponder === self,
+        if modifiers == .command, event.keyCode == 125, isFocused,
            onFollowSelectedForeignKey?() == true {
             return true
         }
