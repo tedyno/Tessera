@@ -106,7 +106,7 @@ struct DetailView: View {
 
     private var tabBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
+            HStack(spacing: 3) {
                 ForEach(model.tabs) { tab in
                     tabChip(tab)
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
@@ -114,15 +114,17 @@ struct DetailView: View {
                 Button {
                     model.addTab()
                 } label: {
-                    Image(systemName: "plus").padding(.horizontal, 10)
+                    Image(systemName: "plus").padding(.horizontal, 8)
                 }
                 .buttonStyle(.borderless)
                 Spacer()
             }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
             // Opening/closing a tab slides its neighbours over instead of snapping.
             .animation(.snappy(duration: 0.2), value: model.tabs.map(\.id))
         }
-        .frame(height: 30)
+        .frame(height: 34)
         .background(.bar)
     }
 
@@ -130,7 +132,6 @@ struct DetailView: View {
 
     private func tabChip(_ tab: QueryTab) -> some View {
         let isActive = tab.id == model.activeTabID
-        let isData = tab.kind == .data
         // Label each tab with its connection when more than one is open, so the same
         // table from staging vs production is distinguishable.
         let showConnection = model.sessions.count > 1
@@ -138,9 +139,9 @@ struct DetailView: View {
             if tab.isRunning {
                 ProgressView().controlSize(.mini)
             } else {
-                Image(systemName: isData ? "tablecells" : "terminal")
+                Image(systemName: tab.kind == .data ? "tablecells" : "terminal")
                     .font(.system(size: 10))
-                    .foregroundStyle(isData ? AnyShapeStyle(.teal) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(.secondary)
             }
             if showConnection, let session = tab.session {
                 Circle().fill(connectionColor(session)).frame(width: 7, height: 7)
@@ -164,15 +165,15 @@ struct DetailView: View {
             .foregroundStyle(.tertiary)
             .help("Close tab")
         }
-        .padding(.horizontal, 12)
-        .frame(maxHeight: .infinity)
-        .background(tabChipBackground(isActive: isActive, isData: isData, isHovered: hoveredTabID == tab.id))
-        // A teal top-stripe marks data views apart from SQL console tabs.
-        .overlay(alignment: .top) {
-            if isData { Rectangle().fill(.teal).frame(height: 2) }
-        }
-        .overlay(alignment: .trailing) { Divider() }
-        .contentShape(Rectangle())
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            tabChipFill(isActive: isActive, tint: connectionTint(tab), isHovered: hoveredTabID == tab.id),
+            in: RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isActive ? (connectionTint(tab) ?? Color.primary).opacity(0.35) : .clear, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 6))
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.12)) {
                 if hovering { hoveredTabID = tab.id }
@@ -184,9 +185,16 @@ struct DetailView: View {
         .contextMenu { tabMenu(tab) }
     }
 
-    private func tabChipBackground(isActive: Bool, isData: Bool, isHovered: Bool) -> AnyShapeStyle {
+    /// The colour the user tagged this tab's connection with, if any.
+    private func connectionTint(_ tab: QueryTab) -> Color? {
+        ConnectionPalette.color(tab.session?.colorName)
+    }
+
+    /// Active tabs fill with their connection's colour (falling back to a neutral
+    /// elevation when the connection has none); hover gets a faint wash.
+    private func tabChipFill(isActive: Bool, tint: Color?, isHovered: Bool) -> AnyShapeStyle {
         if isActive {
-            return isData ? AnyShapeStyle(Color.teal.opacity(0.12)) : AnyShapeStyle(.background)
+            return AnyShapeStyle((tint ?? Color.primary).opacity(tint == nil ? 0.10 : 0.22))
         }
         return isHovered ? AnyShapeStyle(Color.primary.opacity(0.06)) : AnyShapeStyle(.clear)
     }
