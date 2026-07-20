@@ -112,9 +112,17 @@ final class QueryConsoleModel {
 
     // MARK: Tabs
 
-    func addTab() {
+    /// Opens a console tab. Coming from a table view it starts prefilled with the
+    /// query behind that view — handy for tweaking a filter or adding a join — but
+    /// deliberately isn't run, so nothing hits the database until you ask.
+    func addTab(boundTo session: ConnectionSession? = nil) {
         let tab = QueryTab(title: "Query \(tabs.count + 1)")
-        tab.session = activeSession ?? sessions.last
+        let target = session ?? activeSession ?? sessions.last
+        tab.session = target
+        if let source = activeTab, source.kind == .data, source.session === target,
+           !source.sql.isEmpty {
+            tab.sql = source.sql
+        }
         tabs.append(tab)
         activeTabID = tab.id
     }
@@ -557,15 +565,6 @@ final class QueryConsoleModel {
 
     private static func looksNumeric(_ text: String) -> Bool {
         text.range(of: #"^-?\d+(\.\d+)?([eE][+-]?\d+)?$"#, options: .regularExpression) != nil
-    }
-
-    /// Puts `SELECT *` into the active tab and runs it (from a spotlight navigation).
-    func selectAll(schema: String, table: String) async {
-        guard let session = activeSession else { return }
-        if activeTab == nil { activateTab(for: session) }
-        guard let tab = activeTab else { return }
-        tab.sql = "SELECT * FROM \(session.quote(schema)).\(session.quote(table)) LIMIT 200;"
-        await run(tab)
     }
 
     // MARK: Data views (schema-tree table browsing)

@@ -340,9 +340,7 @@ final class AppModel {
         guard let profile = connections.profile(id: profileID) else { return }
         let session = ensureSession(profile: profile)
         console.selectSession(session)
-        console.addTab()
-        // addTab inherits the active tab's session, which may be another connection.
-        console.activeTab?.session = session
+        console.addTab(boundTo: session)
         if !session.isReady, !session.isConnecting {
             Task { await openSession(session, profile: profile) }
         }
@@ -351,8 +349,7 @@ final class AppModel {
     /// Opens a query tab on whatever connection the schema tree is showing.
     func newQueryTabForCurrentConnection() {
         guard let session = console.activeSession else { return }
-        console.addTab()
-        console.activeTab?.session = session
+        console.addTab(boundTo: session)
     }
 
     func introspect(profileID: UUID) {
@@ -514,7 +511,9 @@ final class AppModel {
             console.selectSession(session)
             if let nodeID = connections.firstNodeID(forProfile: result.profileID) { selection = nodeID }
             if let table = result.table, let schema = result.schema {
-                await console.selectAll(schema: schema, table: table)
+                // Picking a table opens the browsable data view, the same as
+                // double-clicking it in the schema tree — not a SELECT in a console tab.
+                await console.openTable(schema: schema, table: table)
                 if let column = result.column { console.activeTab?.scrollToColumn = column }
                 schemaReveal = SchemaRevealTarget(schema: schema, table: table, column: result.column)
             } else if result.kind == .schema, let schema = result.schema {
