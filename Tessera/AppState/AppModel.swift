@@ -351,8 +351,7 @@ final class AppModel {
             // even without a fresh timestamp — never disconnect out from under those.
             let stillBusy = console.tabs.contains { $0.session === session && ($0.isRunning || $0.hasEdits) }
             guard !stillBusy else { continue }
-            session.log?.record(session.name, .disconnect, "Disconnected after 5 minutes idle")
-            Task { await session.close() }
+            Task { await session.close(reason: "Disconnected after 5 minutes idle") }
         }
     }
 

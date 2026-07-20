@@ -141,8 +141,12 @@ final class ConnectionSession: Identifiable {
         }
     }
 
-    /// Tears the connection down (driver + tunnel) and marks it idle.
-    func close() async {
+    /// Tears the connection down (driver + tunnel) and marks it idle. Logs only when
+    /// there was actually something live — `open()` also calls this to clear any
+    /// prior state before reconnecting, and a fresh first connect has nothing to tear
+    /// down yet.
+    func close(reason: String = "Disconnected") async {
+        let wasLive = driver != nil || tunnel != nil
         await driver?.close()
         await tunnel?.stop()
         driver = nil
@@ -153,6 +157,7 @@ final class ConnectionSession: Identifiable {
         database = nil
         databases = []
         status = .idle
+        if wasLive { log?.record(name, .disconnect, reason) }
     }
 
     /// Re-introspects the schema of a live connection.

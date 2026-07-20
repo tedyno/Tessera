@@ -35,6 +35,9 @@ struct SchemaSidebar: View {
     var onDDL: (DDLOperation) -> Void = { _ in }
 
     @State private var expanded: Set<String> = ["db"]
+    /// Schemas are expanded by default, so this tracks the ones a user explicitly
+    /// collapsed instead — an "opt out" set, unlike `expanded`'s "opt in".
+    @State private var collapsedSchemas: Set<String> = []
     @State private var highlightedID: String?
     @State private var showingFilter = false
     @State private var searchText = ""
@@ -146,7 +149,7 @@ struct SchemaSidebar: View {
     // MARK: Nodes
 
     private func schemaNode(_ namespace: SchemaNamespace) -> some View {
-        DisclosureGroup(isExpanded: binding("s:\(namespace.name)")) {
+        DisclosureGroup(isExpanded: schemaBinding("s:\(namespace.name)")) {
             ForEach(namespace.tables.filter(tableMatches)) { table in
                 tableNode(namespace: namespace.name, table: table)
             }
@@ -295,9 +298,16 @@ struct SchemaSidebar: View {
                 set: { if $0 { expanded.insert(key) } else { expanded.remove(key) } })
     }
 
+    /// Schema nodes, unlike DB/table nodes, start expanded — this only tracks the
+    /// ones a user collapsed by hand.
+    private func schemaBinding(_ key: String) -> Binding<Bool> {
+        Binding(get: { !collapsedSchemas.contains(key) || !query.isEmpty },
+                set: { if $0 { collapsedSchemas.remove(key) } else { collapsedSchemas.insert(key) } })
+    }
+
     private func applyReveal(_ target: SchemaRevealTarget, proxy: ScrollViewProxy) {
         expanded.insert("db")
-        expanded.insert("s:\(target.schema)")
+        collapsedSchemas.remove("s:\(target.schema)")
         let id: String
         if let column = target.column, let table = target.table {
             expanded.insert("t:\(target.schema).\(table)")
