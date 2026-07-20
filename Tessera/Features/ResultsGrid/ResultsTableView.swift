@@ -587,9 +587,28 @@ struct ResultsTableView: NSViewRepresentable {
             return set
         }
 
-        /// Returns the field editor when editing actually started — `NSControl.currentEditor()`
-        /// on the *table* is always nil (the editor belongs to the text field), which is
-        /// why callers get it from here instead of asking the table afterwards.
+        /// The one editor the grid ever uses: a dedicated field the coordinator lays
+        /// over the edited cell's rect. Cell views themselves are recycled by the
+        /// table (and torn down wholesale by every observed-state reloadData), so an
+        /// editing session anchored to them dies the moment a reload lands — this
+        /// overlay is owned here and is always attached.
+        private lazy var overlayEditor: GridTextField = {
+            let field = GridTextField(string: "")
+            field.font = Self.mono
+            field.isBordered = false
+            field.isBezeled = false
+            field.drawsBackground = true
+            field.backgroundColor = .textBackgroundColor
+            field.focusRingType = .none
+            field.wantsLayer = true
+            field.layer?.borderWidth = 1
+            field.layer?.cornerRadius = 2
+            field.cell?.usesSingleLineMode = true
+            field.delegate = self
+            return field
+        }()
+
+        /// Returns the field editor when editing actually started.
         @discardableResult
         func beginEdit(row: Int, col: Int) -> NSText? {
             guard tab.isEditable, visibleRowMap == nil, let tableView, let result, col < result.columns.count
@@ -602,14 +621,20 @@ struct ResultsTableView: NSViewRepresentable {
             anchor = CellPos(row: row, col: col)
             focus = CellPos(row: row, col: col)
             reload(rows: old.union(selectionRows))
-            guard let field = tableView.view(atColumn: col, row: row, makeIfNecessary: true) as? GridTextField
-            else { return nil }
-            field.isEditable = true
-            // editColumn requires the row to be part of the table's own selection;
-            // with selectionHighlightStyle == .none this stays invisible.
-            tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            tableView.editColumn(col, row: row, with: nil, select: true)
-            return field.currentEditor()
+
+            let rect = tableView.frameOfCell(atColumn: col, row: row)
+            guard rect != .zero else { return nil }
+            overlayEditor.frame = rect
+            overlayEditor.rowIndex = row
+            overlayEditor.columnIndex = col
+            overlayEditor.stringValue = cellString(row: row, col: col) ?? "NULL"
+            overlayEditor.alignment = isNumericColumnType(result.columns[col].typeName) ? .right : .left
+            overlayEditor.layer?.borderColor = NSColor.controlAccentColor.cgColor
+            tableView.addSubview(overlayEditor)
+            overlayEditor.isHidden = false
+            tableView.window?.makeFirstResponder(overlayEditor)
+            overlayEditor.currentEditor()?.selectAll(nil)
+            return overlayEditor.currentEditor()
         }
 
         /// Cells a multi-selection edit session will write into on commit.
@@ -1157,6 +1182,20 @@ struct ResultsTableView: NSViewRepresentable {
             let row = field.rowIndex
             let columnName = result.columns[field.columnIndex].name
             let newValue = field.stringValue
+            if field === overlayEditor {
+                overlayEditor.isHidden = true
+                overlayEditor.removeFromSuperview()
+            }
+
+            // Editing now starts by making the field first responder, so a keyboard
+            // commit (Return/Tab; nonzero NSTextMovement) hands focus back to the
+            // grid — a click into another control keeps its own focus.
+            if (notification.userInfo?["NSTextMovement"] as? Int ?? 0) != 0 {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let tableView = self.tableView else { return }
+                    tableView.window?.makeFirstResponder(tableView)
+                }
+            }
 
             // A multi-selection typing session: the committed value lands in every
             // cell that was selected when typing started. A value identical to what
