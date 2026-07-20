@@ -313,13 +313,15 @@ final class AppModel {
         Task { await session.close() }
     }
 
+    /// A failed session isn't actually connected to anything — only ready and
+    /// in-flight sessions count as something "Disconnect All" can act on.
     var hasActiveConnections: Bool {
-        console.sessions.contains { $0.status != .idle }
+        console.sessions.contains { $0.isReady || $0.isConnecting }
     }
 
     /// Disconnects every live or connecting session (the toolbar "Disconnect All").
     func disconnectAll() {
-        for session in console.sessions where session.status != .idle {
+        for session in console.sessions where session.isReady || session.isConnecting {
             Task { await session.close() }
         }
     }
