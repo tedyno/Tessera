@@ -125,6 +125,14 @@ struct SchemaSidebar: View {
             } else if status == .connecting {
                 VStack(spacing: 8) {
                     ProgressView()
+                    Text("Connecting…").foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if status == .ready {
+                // Connected, but the schema fetch (a separate round trip after the
+                // driver connects) hasn't come back yet.
+                VStack(spacing: 8) {
+                    ProgressView()
                     Text("Loading schema…").foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
