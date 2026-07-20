@@ -30,10 +30,12 @@ final class QueryConsoleModel {
     var reconnect: (ConnectionSession) async -> Void = { _ in }
 
     /// Ensures the session is live, reconnecting on demand, before a query runs.
+    /// Touches the session's activity clock on success, resetting the idle timer.
     private func ensureReady(_ session: ConnectionSession) async -> Bool {
-        if session.isReady { return true }
-        if !session.isConnecting { await reconnect(session) }
-        return session.isReady
+        if !session.isReady, !session.isConnecting { await reconnect(session) }
+        guard session.isReady else { return false }
+        session.touch()
+        return true
     }
 
     init() {
@@ -653,6 +655,7 @@ final class QueryConsoleModel {
     private func refreshCount(_ tab: QueryTab) async {
         guard let session = tab.session, let driver = session.driver,
               let schema = tab.dataSchema, let table = tab.dataTable else { return }
+        session.touch()
         var sql = "SELECT count(*) FROM \(session.quote(schema)).\(session.quote(table))"
         let filter = tab.filterWhere.trimmingCharacters(in: .whitespacesAndNewlines)
         if !filter.isEmpty { sql += " WHERE \(filter)" }

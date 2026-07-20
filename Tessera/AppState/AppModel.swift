@@ -54,6 +54,7 @@ final class AppModel {
                                                queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.syncMCPServer() }
         }
+        startIdleDisconnectSweep()
     }
 
     /// Brings the MCP server in line with the setting: running when enabled, stopped
@@ -310,6 +311,47 @@ final class AppModel {
     func disconnect(profileID: UUID) {
         guard let session = console.session(for: profileID) else { return }
         Task { await session.close() }
+    }
+
+    var hasActiveConnections: Bool {
+        console.sessions.contains { $0.status != .idle }
+    }
+
+    /// Disconnects every live or connecting session (the toolbar "Disconnect All").
+    func disconnectAll() {
+        for session in console.sessions where session.status != .idle {
+            Task { await session.close() }
+        }
+    }
+
+    /// A session with no query activity for this long auto-disconnects, so a
+    /// forgotten tab doesn't keep a database connection open indefinitely.
+    private static let idleDisconnectAfter: TimeInterval = 5 * 60
+    private static let idleSweepInterval: Duration = .seconds(60)
+
+    /// Runs forever in the background, closing sessions idle past the threshold.
+    /// Started once from `init()`.
+    private func startIdleDisconnectSweep() {
+        Task { [weak self] in
+            while true {
+                try? await Task.sleep(for: Self.idleSweepInterval)
+                guard let self else { return }
+                self.disconnectIdleSessions()
+            }
+        }
+    }
+
+    private func disconnectIdleSessions() {
+        let now = Date()
+        for session in console.sessions where session.isReady {
+            guard now.timeIntervalSince(session.lastActivityAt) >= Self.idleDisconnectAfter else { continue }
+            // A running query or unsaved edits mean the tab is still very much in use
+            // even without a fresh timestamp — never disconnect out from under those.
+            let stillBusy = console.tabs.contains { $0.session === session && ($0.isRunning || $0.hasEdits) }
+            guard !stillBusy else { continue }
+            session.log?.record(session.name, .disconnect, "Disconnected after 5 minutes idle")
+            Task { await session.close() }
+        }
     }
 
     func reconnect(profileID: UUID) {

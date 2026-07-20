@@ -50,6 +50,9 @@ final class ConnectionSession: Identifiable {
 
     private(set) var driver: (any DatabaseDriver)?
     private var tunnel: SSHTunnel?
+    /// Last time a query actually ran against this session — the auto-disconnect
+    /// idle sweep compares against this, not against when a tab merely sits open.
+    private(set) var lastActivityAt = Date()
     /// Diagnostics sink, injected by the console. Errors here are what the status
     /// bar can't show: the raw text plus the settings that produced it.
     @ObservationIgnored var log: ConnectionLog?
@@ -68,6 +71,9 @@ final class ConnectionSession: Identifiable {
     var isReady: Bool { status == .ready }
     var isConnecting: Bool { status == .connecting }
     var errorMessage: String? { if case .failed(let m) = status { return m }; return nil }
+
+    /// Resets the idle-disconnect timer — call whenever the session runs a query.
+    func touch() { lastActivityAt = Date() }
 
     /// Opens (or reopens) the connection, building an SSH tunnel first when configured.
     func open(profile: ConnectionProfile, secrets: Secrets) async {
@@ -118,6 +124,7 @@ final class ConnectionSession: Identifiable {
                 try await driver.connect(profile: effective, secrets: secrets, endpoint: endpoint)
             }
             status = .ready
+            lastActivityAt = Date()
             serverVersion = try? await driver.serverVersion()
             log?.record(profile.name, .connect,
                         "Connected\(serverVersion.map { " — \($0)" } ?? "")")

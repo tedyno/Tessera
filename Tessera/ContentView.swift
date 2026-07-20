@@ -26,7 +26,9 @@ struct ContentView: View {
                     onImport: { app.importConnection(profileID: $0) },
                     onNewQueryTab: { app.newQueryTab(profileID: $0) },
                     connectionDot: { app.connectionDot(profileID: $0) },
-                    statusVersion: app.sessionStatusVersion)
+                    statusVersion: app.sessionStatusVersion,
+                    onDisconnectAll: { app.disconnectAll() },
+                    hasActiveConnections: app.hasActiveConnections)
                 .frame(minHeight: 120, idealHeight: 320, maxHeight: .infinity)
 
                 SchemaSidebar(

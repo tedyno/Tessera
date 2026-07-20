@@ -21,6 +21,9 @@ struct OrganizerSidebar: View {
     var onNewQueryTab: (UUID) -> Void = { _ in }
     var connectionDot: (UUID) -> ConnectionDot = { _ in .none }
     var statusVersion: Int = 0
+    /// Disconnects every live connection at once.
+    var onDisconnectAll: () -> Void = { }
+    var hasActiveConnections: Bool = false
 
     private enum PendingEdit {
         case rename(id: UUID)
@@ -75,6 +78,14 @@ struct OrganizerSidebar: View {
             .fixedSize()
             .help("Add")
             Spacer()
+            Button {
+                onDisconnectAll()
+            } label: {
+                Image(systemName: "bolt.slash")
+            }
+            .buttonStyle(.borderless)
+            .disabled(!hasActiveConnections)
+            .help("Disconnect All")
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
