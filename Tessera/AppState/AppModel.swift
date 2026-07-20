@@ -247,7 +247,9 @@ final class AppModel {
     func connectProfile(profileID: UUID) {
         guard let profile = connections.profile(id: profileID) else { return }
         let session = ensureSession(profile: profile)
-        console.activateTab(for: session)
+        // Just make it current: no empty query tab you'd have to close before
+        // double-clicking the table you actually wanted.
+        console.selectSession(session)
         guard !session.isReady, !session.isConnecting else { return }
         Task { await openSession(session, profile: profile) }
     }
@@ -421,7 +423,7 @@ final class AppModel {
             if !session.isReady, !session.isConnecting {
                 await openSession(session, profile: profile)
             }
-            console.activateTab(for: session)
+            console.selectSession(session)
             if let nodeID = connections.firstNodeID(forProfile: result.profileID) { selection = nodeID }
             if let table = result.table, let schema = result.schema {
                 await console.selectAll(schema: schema, table: table)
@@ -533,7 +535,7 @@ final class AppModel {
             if let profileID = entry.profileID, let profile = connections.profile(id: profileID) {
                 let session = ensureSession(profile: profile)
                 if !session.isReady, !session.isConnecting { await openSession(session, profile: profile) }
-                console.activateTab(for: session)
+                console.selectSession(session)
             }
             await console.openTable(schema: schema, table: table)
         }

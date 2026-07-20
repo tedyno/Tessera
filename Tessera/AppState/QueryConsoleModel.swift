@@ -48,7 +48,17 @@ final class QueryConsoleModel {
     // MARK: Active tab / session
 
     var activeTab: QueryTab? { tabs.first { $0.id == activeTabID } }
-    var activeSession: ConnectionSession? { activeTab?.session }
+    /// The connection picked in the organizer. Selecting one used to fabricate an
+    /// empty query tab purely so the schema sidebar had a session to read; this holds
+    /// it instead, so connecting can leave the workspace empty until you open a table.
+    private(set) var currentSession: ConnectionSession?
+
+    /// The tab wins when one is open (switching tabs switches the schema), otherwise
+    /// the connection the user last picked.
+    var activeSession: ConnectionSession? { activeTab?.session ?? currentSession }
+
+    /// Makes a connection current without opening anything.
+    func selectSession(_ session: ConnectionSession) { currentSession = session }
 
     /// Connection state of the active tab's session, surfaced for the status bar.
     var status: ConnectionSession.Status { activeSession?.status ?? .idle }

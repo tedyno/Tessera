@@ -42,6 +42,25 @@ struct SchemaSidebar: View {
         return table.columns.contains { $0.name.lowercased().contains(query) }
     }
 
+    /// Opens the first table the filter matches, preferring a hit on the table's own
+    /// name over one that only matched a column.
+    private func openFirstMatch() {
+        guard !query.isEmpty, let tree else { return }
+        let visible = tree.schemas.filter { !hiddenSchemas.contains($0.name) }
+        for namespace in visible {
+            if let table = namespace.tables.first(where: { $0.name.lowercased().contains(query) }) {
+                onOpenTable(namespace.name, table.name)
+                return
+            }
+        }
+        for namespace in visible {
+            if let table = namespace.tables.first(where: tableMatches) {
+                onOpenTable(namespace.name, table.name)
+                return
+            }
+        }
+    }
+
     private func namespaceMatches(_ namespace: SchemaNamespace) -> Bool {
         guard !query.isEmpty else { return true }
         if namespace.name.lowercased().contains(query) { return true }
@@ -285,6 +304,9 @@ struct SchemaSidebar: View {
                 TextField("Filter tables & columns", text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.caption)
+                    // Enter opens the first match, so connect → type → Enter lands
+                    // straight in the table without reaching for the mouse.
+                    .onSubmit { openFirstMatch() }
                 if !searchText.isEmpty {
                     Button { searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill")
