@@ -41,6 +41,33 @@ final class ContextualOutlineView: NSOutlineView {
         let point = convert(event.locationInWindow, from: nil)
         return contextMenuProvider?(row(at: point))
     }
+
+    /// A pointing-hand cursor over each row — AppKit gives list rows no cursor
+    /// feedback by default. Scoped to actual row rects (not the whole view) so it
+    /// doesn't bleed into the empty space below the last item.
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        let visible = rows(in: visibleRect)
+        guard visible.location != NSNotFound, visible.length > 0 else { return }
+        for row in visible.location..<(visible.location + visible.length) {
+            addCursorRect(rect(ofRow: row), cursor: .pointingHand)
+        }
+    }
+
+    /// Row rects shift on scroll without changing the view's own bounds, so cursor
+    /// rects need an explicit nudge to recompute — they aren't invalidated for free.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let clipView = enclosingScrollView?.contentView else { return }
+        clipView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(invalidateCursorRects),
+            name: NSView.boundsDidChangeNotification, object: clipView)
+    }
+
+    @objc private func invalidateCursorRects() {
+        window?.invalidateCursorRects(for: self)
+    }
 }
 
 /// The connection organizer backed by NSOutlineView for reliable drag & drop.

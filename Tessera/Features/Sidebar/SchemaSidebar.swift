@@ -8,6 +8,17 @@ struct SchemaRevealTarget: Equatable {
     var column: String?
 }
 
+private extension View {
+    /// Pointing-hand cursor on hover — SwiftUI gives row content no cursor feedback
+    /// on macOS by default, so a double-clickable row looked no different from plain
+    /// text.
+    func pointerCursor() -> some View {
+        onHover { hovering in
+            if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        }
+    }
+}
+
 /// Column 2 — the schema of the active connection (Database → Schema → Table →
 /// Column), fetched live. Double-clicking a table/column runs `SELECT *`; a
 /// `reveal` target (from spotlight) expands and scrolls to the chosen item.
@@ -94,6 +105,7 @@ struct SchemaSidebar: View {
                                 Label(tree.databaseName, systemImage: "cylinder.split.1x2")
                                     .foregroundStyle(.tint)
                                     .contentShape(Rectangle())
+                                    .pointerCursor()
                                     .contextMenu {
                                         if databases.count > 1 {
                                             Menu("Switch Database") {
@@ -158,6 +170,7 @@ struct SchemaSidebar: View {
                 .id("s:\(namespace.name)")
                 .modifier(HighlightRow(active: highlightedID == "s:\(namespace.name)"))
                 .contentShape(Rectangle())
+                .pointerCursor()
                 .contextMenu {
                     Button("New Query Tab") { onNewQueryTab() }
                         .keyboardShortcut("t", modifiers: .command)
@@ -181,6 +194,7 @@ struct SchemaSidebar: View {
                         .id("c:\(namespace).\(table.name).\(column.name)")
                         .modifier(HighlightRow(active: highlightedID == "c:\(namespace).\(table.name).\(column.name)"))
                         .contentShape(Rectangle())
+                        .pointerCursor()
                         .simultaneousGesture(TapGesture(count: 2).onEnded {
                             onOpenColumn(namespace, table.name, column.name)
                         })
@@ -259,6 +273,7 @@ struct SchemaSidebar: View {
         Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
             .foregroundStyle(table.kind == .view ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
             .contentShape(Rectangle())
+            .pointerCursor()
             .simultaneousGesture(TapGesture(count: 2).onEnded { onOpenTable(namespace, table.name) })
             .help("Double-click to SELECT *")
             .contextMenu {
