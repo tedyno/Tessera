@@ -18,6 +18,9 @@ final class QueryConsoleModel {
     private(set) var history: [QueryHistoryEntry] = []
     private let historyStore: QueryHistoryStore
 
+    /// Diagnostics for connection attempts, shown from the status bar.
+    let connectionLog = ConnectionLog()
+
     /// User-bookmarked SQL snippets, newest first.
     private(set) var savedQueries: [SavedQuery] = []
     private let savedQueryStore: SavedQueryStore
@@ -90,6 +93,7 @@ final class QueryConsoleModel {
     func ensureSession(profile: ConnectionProfile) -> ConnectionSession {
         if let existing = session(for: profile.id) { return existing }
         let session = ConnectionSession(profile: profile)
+        session.log = connectionLog
         sessions.append(session)
         return session
     }

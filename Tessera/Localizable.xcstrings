@@ -740,6 +740,28 @@
         }
       }
     },
+    "Connection Log": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log připojení"
+          }
+        }
+      }
+    },
+    "Connection attempts appear here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tady se objeví pokusy o připojení."
+          }
+        }
+      }
+    },
     "Connection error": {
       "extractionState": "manual",
       "localizations": {
@@ -769,6 +791,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kopírovat"
+          }
+        }
+      }
+    },
+    "Copy All": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopírovat vše"
           }
         }
       }
@@ -1301,6 +1334,17 @@
         }
       }
     },
+    "Failures only": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jen chyby"
+          }
+        }
+      }
+    },
     "File": {
       "extractionState": "manual",
       "localizations": {
@@ -1385,6 +1429,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pojmenuj dotaz, ať ho příště najdeš."
+          }
+        }
+      }
+    },
+    "Hide details": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrýt podrobnosti"
           }
         }
       }
@@ -1983,6 +2038,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nepřipojeno."
+          }
+        }
+      }
+    },
+    "Nothing logged yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatím nic nezaznamenáno"
           }
         }
       }
@@ -2684,6 +2750,17 @@
         }
       }
     },
+    "Search…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hledat…"
+          }
+        }
+      }
+    },
     "Select a single cell to inspect its value.": {
       "extractionState": "manual",
       "localizations": {
@@ -2717,6 +2794,17 @@
         }
       }
     },
+    "Show details": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zobrazit podrobnosti"
+          }
+        }
+      }
+    },
     "Show the value inspector for the selected cell": {
       "extractionState": "manual",
       "localizations": {
@@ -2724,6 +2812,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Zobrazit inspektor hodnoty vybrané buňky"
+          }
+        }
+      }
+    },
+    "Show what happened while connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zobrazit, co se dělo při připojování"
           }
         }
       }

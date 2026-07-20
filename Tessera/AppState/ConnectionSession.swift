@@ -50,6 +50,9 @@ final class ConnectionSession: Identifiable {
 
     private(set) var driver: (any DatabaseDriver)?
     private var tunnel: SSHTunnel?
+    /// Diagnostics sink, injected by the console. Errors here are what the status
+    /// bar can't show: the raw text plus the settings that produced it.
+    @ObservationIgnored var log: ConnectionLog?
 
     init(profile: ConnectionProfile) {
         self.id = profile.id
@@ -77,6 +80,10 @@ final class ConnectionSession: Identifiable {
         do {
             let endpoint: NetworkEndpoint
             if let ssh = profile.ssh {
+                let via = ssh.configAlias.map { "alias \($0)" }
+                    ?? "\(ssh.username)@\(ssh.host):\(ssh.port)"
+                log?.record(profile.name, .tunnel, "Opening tunnel via \(via)",
+                            detail: Self.tunnelDetail(ssh, profile: profile))
                 let tunnel = SSHTunnel()
                 self.tunnel = tunnel   // stored first so a timeout can still tear it down
                 endpoint = try await withTimeout(Self.stageTimeout) {
@@ -84,6 +91,8 @@ final class ConnectionSession: Identifiable {
                         ssh: ssh, secrets: secrets,
                         remoteHost: profile.host, remotePort: profile.port)
                 }
+                log?.record(profile.name, .tunnel,
+                            "Tunnel open on \(endpoint.host):\(endpoint.port)")
             } else {
                 endpoint = NetworkEndpoint(host: profile.host, port: profile.port)
             }
@@ -102,15 +111,26 @@ final class ConnectionSession: Identifiable {
             }
             self.driver = driver
 
+            log?.record(profile.name, .connect,
+                        "Connecting to \(endpoint.host):\(endpoint.port)/\(effective.database)",
+                        detail: Self.connectDetail(effective, endpoint: endpoint, secrets: secrets))
             try await withTimeout(Self.stageTimeout) {
                 try await driver.connect(profile: effective, secrets: secrets, endpoint: endpoint)
             }
             status = .ready
             serverVersion = try? await driver.serverVersion()
+            log?.record(profile.name, .connect,
+                        "Connected\(serverVersion.map { " — \($0)" } ?? "")")
             schema = try? await driver.fetchSchema()
+            if schema == nil {
+                log?.record(profile.name, .introspect, "Could not read the schema", isError: true)
+            }
             databases = await fetchDatabases()
         } catch {
             status = .failed(Self.message(for: error))
+            // The status bar gets one line; the log gets everything.
+            log?.record(profile.name, .connect, Self.message(for: error), isError: true,
+                        detail: Self.failureDetail(error, profile: profile, endpoint: endpoint))
         }
     }
 
@@ -156,6 +176,46 @@ final class ConnectionSession: Identifiable {
     /// Marks the session failed without connecting (e.g. Keychain access denied).
     func reportFailure(_ message: String) {
         status = .failed(message)
+        log?.record(name, .connect, message, isError: true)
+    }
+
+    // MARK: Diagnostics detail
+
+    private static func tunnelDetail(_ ssh: SSHConfig, profile: ConnectionProfile) -> String {
+        var lines = ["SSH host: \(ssh.host):\(ssh.port)", "SSH user: \(ssh.username)"]
+        if let alias = ssh.configAlias { lines.append("Config alias: \(alias)") }
+        switch ssh.authMethod {
+        case .password: lines.append("Auth: password")
+        case .privateKey(let path): lines.append("Auth: key \(path.isEmpty ? "(from ssh config)" : path)")
+        }
+        lines.append("Forwarding to: \(profile.host):\(profile.port)")
+        return lines.joined(separator: "\n")
+    }
+
+    private static func connectDetail(_ profile: ConnectionProfile,
+                                      endpoint: NetworkEndpoint, secrets: Secrets) -> String {
+        [
+            "Engine: \(profile.kind.displayName)",
+            "Endpoint: \(endpoint.host):\(endpoint.port)",
+            "Database: \(profile.database)",
+            "User: \(profile.username)",
+            "TLS: \(profile.tlsMode.rawValue)",
+            "Password: \((secrets.databasePassword?.isEmpty == false) ? "supplied" : "none")",
+        ].joined(separator: "\n")
+    }
+
+    /// The raw error as well as the message — `DatabaseError` hides the underlying
+    /// driver text, which is usually the part that says what actually went wrong.
+    private static func failureDetail(_ error: Error, profile: ConnectionProfile,
+                                      endpoint: NetworkEndpoint?) -> String {
+        var lines = ["Raw error: \(String(reflecting: error))"]
+        if let endpoint { lines.append("Endpoint: \(endpoint.host):\(endpoint.port)") }
+        lines.append("Engine: \(profile.kind.displayName)")
+        lines.append("Database: \(profile.database)")
+        lines.append("User: \(profile.username)")
+        lines.append("TLS: \(profile.tlsMode.rawValue)")
+        if profile.ssh != nil { lines.append("Via SSH tunnel: yes") }
+        return lines.joined(separator: "\n")
     }
 
     /// Quotes an identifier for this engine so mixed-case / reserved names work.

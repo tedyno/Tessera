@@ -29,6 +29,7 @@ struct DetailView: View {
 
     /// Whether the value inspector panel is shown below the results grid.
     @State private var showInspector = false
+    @State private var showingConnectionLog = false
     @State private var showingSaveQuery = false
     @State private var saveQueryTitle = ""
 
@@ -62,6 +63,9 @@ struct DetailView: View {
                 }
             }
             statusBar
+        }
+        .sheet(isPresented: $showingConnectionLog) {
+            ConnectionLogView(log: model.connectionLog)
         }
         .sheet(isPresented: $showingHistory) {
             HistoryView(
@@ -691,6 +695,14 @@ struct DetailView: View {
             if let name = model.connectionName {
                 Text(name).foregroundStyle(model.status == .ready ? .green : .secondary)
             }
+            Button { showingConnectionLog = true } label: {
+                Label("Connection Log", systemImage: model.connectionLog.hasRecentFailure
+                      ? "exclamationmark.triangle.fill" : "text.alignleft")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(model.connectionLog.hasRecentFailure ? Color.red : .secondary)
+            .help("Show what happened while connecting")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
