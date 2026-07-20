@@ -170,7 +170,9 @@ public actor MySQLDriver: DatabaseDriver {
             ORDER BY table_name, ordinal_position
             """, maxRows: nil)
         let foreignKeysResult = try await execute("""
-            SELECT table_name, column_name FROM information_schema.key_column_usage
+            SELECT table_name, column_name, referenced_table_schema,
+                   referenced_table_name, referenced_column_name, constraint_name
+            FROM information_schema.key_column_usage
             WHERE table_schema = DATABASE() AND referenced_table_name IS NOT NULL
             """, maxRows: nil)
         let statistics = try await execute("""
@@ -181,8 +183,23 @@ public actor MySQLDriver: DatabaseDriver {
             """, maxRows: nil)
 
         var foreignKeys: Set<String> = []
+        var references: [String: ForeignKeyTarget] = [:]
+        // One row per column of a composite key; a single column of one filters to the
+        // wrong rows, so only single-column keys keep a target.
+        var constraintColumns: [String: Int] = [:]
+        var pathForConstraint: [String: [String]] = [:]
         for row in foreignKeysResult.rows where row.count >= 2 {
-            foreignKeys.insert("\(row[0].text ?? "").\(row[1].text ?? "")")
+            let path = "\(row[0].text ?? "").\(row[1].text ?? "")"
+            foreignKeys.insert(path)
+            guard row.count >= 6, let table = row[3].text, let column = row[4].text else { continue }
+            let constraint = "\(row[0].text ?? "").\(row[5].text ?? "")"
+            constraintColumns[constraint, default: 0] += 1
+            pathForConstraint[constraint, default: []].append(path)
+            references[path] = ForeignKeyTarget(schema: row[2].text ?? database,
+                                                table: table, column: column)
+        }
+        for (constraint, count) in constraintColumns where count > 1 {
+            for path in pathForConstraint[constraint] ?? [] { references[path] = nil }
         }
 
         var columnsByTable: [String: [SchemaColumn]] = [:]
@@ -196,7 +213,8 @@ public actor MySQLDriver: DatabaseDriver {
                     isPrimaryKey: (row[4].text ?? "") == "PRI",
                     isForeignKey: foreignKeys.contains("\(table).\(name)"),
                     isNullable: (row[3].text ?? "YES") == "YES",
-                    isAutoIncrement: (row[5].text ?? "").lowercased().contains("auto_increment")))
+                    isAutoIncrement: (row[5].text ?? "").lowercased().contains("auto_increment"),
+                    references: references["\(table).\(name)"]))
         }
 
         // Aggregate index columns (ordered by seq_in_index) per (table, index).

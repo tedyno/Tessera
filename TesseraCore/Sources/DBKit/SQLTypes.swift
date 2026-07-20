@@ -17,4 +17,13 @@ public enum SQLTypes {
     public static func isNumeric(_ typeName: String) -> Bool {
         numeric.contains(typeName.lowercased())
     }
+
+    /// A SQL literal for a cell value: `NULL`, an unquoted number for numeric columns,
+    /// or a single-quoted, quote-escaped string. Used for generated filters and for
+    /// "Copy as SQL INSERT".
+    public static func literal(_ value: String?, typeName: String) -> String {
+        guard let value else { return "NULL" }
+        if isNumeric(typeName) { return value }
+        return "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
+    }
 }

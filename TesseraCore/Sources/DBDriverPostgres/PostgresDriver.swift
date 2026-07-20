@@ -185,11 +185,16 @@ public actor PostgresDriver: DatabaseDriver {
             ORDER BY table_schema, table_name, ordinal_position
             """, maxRows: nil)
         let keyResult = try await execute("""
-            SELECT tc.table_schema, tc.table_name, kcu.column_name, tc.constraint_type
+            SELECT tc.table_schema, tc.table_name, kcu.column_name, tc.constraint_type,
+                   ccu.table_schema, ccu.table_name, ccu.column_name
             FROM information_schema.table_constraints tc
             JOIN information_schema.key_column_usage kcu
               ON tc.constraint_name = kcu.constraint_name
              AND tc.table_schema = kcu.table_schema
+            LEFT JOIN information_schema.constraint_column_usage ccu
+              ON tc.constraint_type = 'FOREIGN KEY'
+             AND tc.constraint_name = ccu.constraint_name
+             AND tc.table_schema = ccu.table_schema
             WHERE tc.constraint_type IN ('PRIMARY KEY', 'FOREIGN KEY')
             """, maxRows: nil)
         let indexResult = try await execute("""
@@ -201,11 +206,23 @@ public actor PostgresDriver: DatabaseDriver {
 
         var primaryKeys: Set<String> = []
         var foreignKeys: Set<String> = []
+        var references: [String: ForeignKeyTarget] = [:]
+        // A composite key yields one row per column; following a single column of one
+        // would filter to the wrong rows, so only single-column keys get a target.
+        var referenceColumnCount: [String: Int] = [:]
         for row in keyResult.rows where row.count >= 4 {
             let path = "\(row[0].text ?? "").\(row[1].text ?? "").\(row[2].text ?? "")"
             if row[3].text == "PRIMARY KEY" { primaryKeys.insert(path) }
-            else if row[3].text == "FOREIGN KEY" { foreignKeys.insert(path) }
+            else if row[3].text == "FOREIGN KEY" {
+                foreignKeys.insert(path)
+                referenceColumnCount[path, default: 0] += 1
+                if row.count >= 7, let schema = row[4].text, let table = row[5].text,
+                   let column = row[6].text {
+                    references[path] = ForeignKeyTarget(schema: schema, table: table, column: column)
+                }
+            }
         }
+        for (path, count) in referenceColumnCount where count > 1 { references[path] = nil }
 
         struct TableKey: Hashable { let schema: String; let table: String }
         var columnsByTable: [TableKey: [SchemaColumn]] = [:]
@@ -223,7 +240,8 @@ public actor PostgresDriver: DatabaseDriver {
                     isPrimaryKey: primaryKeys.contains("\(schema).\(table).\(name)"),
                     isForeignKey: foreignKeys.contains("\(schema).\(table).\(name)"),
                     isNullable: (row[4].text ?? "YES") == "YES",
-                    isAutoIncrement: hasSerialDefault || isIdentity))
+                    isAutoIncrement: hasSerialDefault || isIdentity,
+                    references: references["\(schema).\(table).\(name)"]))
         }
 
         var indexesByTable: [TableKey: [SchemaIndex]] = [:]

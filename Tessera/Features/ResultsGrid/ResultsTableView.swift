@@ -82,6 +82,11 @@ final class GridTableView: NSTableView {
     var onCopy: (() -> Void)?
     var onCopyAs: ((GridCopyFormat) -> Void)?
     var hasSelection: (() -> Bool)?
+    /// Menu title for following the foreign key in a cell, or nil when it isn't one.
+    var foreignKeyTitle: ((Int, Int) -> String?)?
+    var onFollowForeignKey: ((Int, Int) -> Void)?
+    /// ⌘↓ — follows the reference in the selected cell; false when it isn't one.
+    var onFollowSelectedForeignKey: (() -> Bool)?
     /// Only full-table results (`tab.editSource`) expose the row-editing menu.
     var canEditRows = false
     /// Number of fetched rows; rows at/after this index are pending inserts.
@@ -107,6 +112,14 @@ final class GridTableView: NSTableView {
             onDuplicateSelected?()
             return true
         }
+        // ⌘↓ follows a foreign key in the selected cell; falls through when the cell
+        // isn't one, so the key keeps its normal meaning everywhere else.
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.keyCode == 125,   // down arrow
+           window?.firstResponder === self,
+           onFollowSelectedForeignKey?() == true {
+            return true
+        }
         return super.performKeyEquivalent(with: event)
     }
 
@@ -114,6 +127,18 @@ final class GridTableView: NSTableView {
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
         let menu = NSMenu()
+
+        // Following a reference is the most contextual action, so it leads the menu.
+        let clickedColumn = self.column(at: point)
+        if row >= 0, clickedColumn >= 0, let title = foreignKeyTitle?(row, clickedColumn) {
+            let follow = NSMenuItem(title: title, action: #selector(followForeignKeyAction(_:)),
+                                    keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!))
+            follow.keyEquivalentModifierMask = .command
+            follow.target = self
+            follow.representedObject = CellPos(row: row, col: clickedColumn)
+            menu.addItem(follow)
+            menu.addItem(.separator())
+        }
 
         // Copy is available on any result, editable or not.
         if hasSelection?() == true {
@@ -153,6 +178,14 @@ final class GridTableView: NSTableView {
             duplicate.representedObject = row
             menu.addItem(duplicate)
         }
+        // Backspace already does this; without an item the gesture is undiscoverable.
+        if hasSelection?() == true {
+            let delete = NSMenuItem(title: String(localized: "Delete Rows"),
+                                    action: #selector(deleteRowsAction), keyEquivalent: "\u{8}")
+            delete.keyEquivalentModifierMask = []
+            delete.target = self
+            menu.addItem(delete)
+        }
         // Revert a single row's pending change (edit / delete / insert).
         if row >= 0, isRowPending?(row) == true {
             menu.addItem(.separator())
@@ -174,6 +207,10 @@ final class GridTableView: NSTableView {
     }
     @objc private func copyAsAction(_ sender: NSMenuItem) {
         if let format = sender.representedObject as? GridCopyFormat { onCopyAs?(format) }
+    }
+    @objc private func deleteRowsAction() { onDeleteRows?() }
+    @objc private func followForeignKeyAction(_ sender: NSMenuItem) {
+        if let cell = sender.representedObject as? CellPos { onFollowForeignKey?(cell.row, cell.col) }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -207,6 +244,8 @@ struct ResultsTableView: NSViewRepresentable {
     let tab: QueryTab
     /// Called when a column header is clicked (full-table view sorting).
     var onSort: (String) -> Void = { _ in }
+    /// Opens the table a foreign key points at, filtered to the referenced row.
+    var onFollowForeignKey: (ForeignKeyTarget, String) -> Void = { _, _ in }
 
     func makeNSView(context: Context) -> NSScrollView {
         let tableView = GridTableView()
@@ -235,6 +274,15 @@ struct ResultsTableView: NSViewRepresentable {
         tableView.onCopy = { [c = context.coordinator] in c.copySelection() }
         tableView.onCopyAs = { [c = context.coordinator] format in c.copySelection(as: format) }
         tableView.hasSelection = { [c = context.coordinator] in c.hasSelection }
+        tableView.foreignKeyTitle = { [c = context.coordinator] row, col in
+            c.foreignKeyTitle(row: row, col: col)
+        }
+        tableView.onFollowForeignKey = { [c = context.coordinator] row, col in
+            c.followForeignKey(row: row, col: col)
+        }
+        tableView.onFollowSelectedForeignKey = { [c = context.coordinator] in
+            c.followSelectedForeignKey()
+        }
 
         let scrollView = NSScrollView()
         scrollView.documentView = tableView
@@ -244,12 +292,14 @@ struct ResultsTableView: NSViewRepresentable {
 
         context.coordinator.tableView = tableView
         context.coordinator.onSort = onSort
+        context.coordinator.onFollowForeignKey = onFollowForeignKey
         context.coordinator.configure(for: tab)
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         context.coordinator.onSort = onSort
+        context.coordinator.onFollowForeignKey = onFollowForeignKey
         context.coordinator.configure(for: tab)
     }
 
@@ -260,6 +310,7 @@ struct ResultsTableView: NSViewRepresentable {
         private var tab: QueryTab
         weak var tableView: NSTableView?
         var onSort: (String) -> Void = { _ in }
+        var onFollowForeignKey: (ForeignKeyTarget, String) -> Void = { _, _ in }
         static let mono = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         static let monoItalic = NSFontManager.shared.convert(mono, toHaveTrait: .italicFontMask)
         private var columnsSignature: [String] = []
@@ -485,6 +536,51 @@ struct ResultsTableView: NSViewRepresentable {
 
         var hasSelection: Bool { !selected.isEmpty }
 
+        // MARK: Foreign keys
+
+        /// Where a grid column points, when the rows come from a known table and the
+        /// schema records a single-column foreign key on it.
+        private func foreignKey(forColumn col: Int) -> ForeignKeyTarget? {
+            guard let result = tab.result, col < result.columns.count,
+                  let schemaName = tab.editSource?.schema ?? tab.dataSchema,
+                  let tableName = tab.editSource?.table ?? tab.dataTable,
+                  let tree = tab.session?.schema else { return nil }
+            let columnName = result.columns[col].name
+            return tree.schemas.first { $0.name == schemaName }?
+                .tables.first { $0.name == tableName }?
+                .columns.first { $0.name == columnName }?
+                .references
+        }
+
+        /// Title for the "follow this reference" item, or nil when the cell isn't a
+        /// foreign key or holds NULL (nothing to look up).
+        func foreignKeyTitle(row: Int, col: Int) -> String? {
+            guard let target = foreignKey(forColumn: col),
+                  let value = cellString(row: row, col: col) else { return nil }
+            let shown = value.count > 30 ? value.prefix(30) + "…" : value[...]
+            return String(localized: "Open \(target.table) where \(target.column) = \(String(shown))")
+        }
+
+        /// ⌘↓ — follows the reference in the one selected cell. Returns false when
+        /// there is no single selection or it isn't a foreign key, so the key event
+        /// falls through to its normal handling.
+        func followSelectedForeignKey() -> Bool {
+            guard selected.count == 1, let cell = selected.first,
+                  foreignKey(forColumn: cell.col) != nil,
+                  cellString(row: cell.row, col: cell.col) != nil else { return false }
+            followForeignKey(row: cell.row, col: cell.col)
+            return true
+        }
+
+        /// Opens the referenced table filtered to the row this cell points at.
+        func followForeignKey(row: Int, col: Int) {
+            guard let target = foreignKey(forColumn: col), let result = tab.result,
+                  col < result.columns.count, let session = tab.session,
+                  let value = cellString(row: row, col: col) else { return }
+            let literal = SQLTypes.literal(value, typeName: result.columns[col].typeName)
+            onFollowForeignKey(target, "\(session.quote(target.column)) = \(literal)")
+        }
+
         /// The raw value of a cell (nil = SQL NULL), preferring a pending edit/insert.
         private func cellString(row: Int, col: Int) -> String? {
             guard let result = tab.result, col < result.columns.count else { return nil }
@@ -571,13 +667,9 @@ struct ResultsTableView: NSViewRepresentable {
             return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
 
-        /// A SQL literal for a value: `NULL`, an unquoted number for numeric columns,
-        /// or a single-quoted, quote-escaped string otherwise.
         private func sqlLiteral(_ value: String?, col: Int) -> String {
-            guard let value else { return "NULL" }
-            if let result = tab.result, col < result.columns.count,
-               isNumericColumnType(result.columns[col].typeName) { return value }
-            return "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
+            let typeName = tab.result.map { col < $0.columns.count ? $0.columns[col].typeName : "" } ?? ""
+            return SQLTypes.literal(value, typeName: typeName)
         }
 
         private var result: QueryResult? { tab.result }
