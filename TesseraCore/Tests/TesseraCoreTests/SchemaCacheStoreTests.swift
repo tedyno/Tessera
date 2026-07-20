@@ -47,3 +47,29 @@ final class SchemaCacheStoreTests: XCTestCase {
         XCTAssertTrue(store.load().isEmpty)
     }
 }
+
+final class PrivateFilePermissionTests: XCTestCase {
+
+    /// The data files hold connection parameters, query history and schema names —
+    /// none of it needs to be world-readable, and `644` is the Foundation default.
+    func testStoresWriteOwnerOnlyFiles() throws {
+        let directory = FileManager.default.temporaryDirectory
+        let cache = SchemaCacheStore(fileURL: directory
+            .appendingPathComponent("perm-cache-\(UUID().uuidString).json"))
+        let history = QueryHistoryStore(fileURL: directory
+            .appendingPathComponent("perm-history-\(UUID().uuidString).json"))
+        let saved = SavedQueryStore(fileURL: directory
+            .appendingPathComponent("perm-saved-\(UUID().uuidString).json"))
+
+        cache.save([:])
+        history.save([])
+        saved.save([])
+
+        for url in [cache.fileURL, history.fileURL, saved.fileURL] {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            let mode = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber)
+            XCTAssertEqual(mode.int16Value, 0o600, "world/group readable: \(url.lastPathComponent)")
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+}

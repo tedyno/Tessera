@@ -45,6 +45,7 @@ public struct SavedQueryStore: Sendable {
     public func save(_ entries: [SavedQuery]) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        try? encoder.encode(entries).write(to: fileURL, options: [.atomic])
+        guard let data = try? encoder.encode(entries) else { return }
+        try? PrivateFile.write(data, to: fileURL)
     }
 }

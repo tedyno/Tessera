@@ -40,6 +40,6 @@ public struct ProfileStore: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(profiles)
-        try data.write(to: fileURL, options: [.atomic])
+        try PrivateFile.write(data, to: fileURL)
     }
 }

@@ -49,6 +49,7 @@ public struct SchemaCacheStore: Sendable {
         let raw = Dictionary(uniqueKeysWithValues: cache.map { ($0.key.uuidString, $0.value) })
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        try? encoder.encode(raw).write(to: fileURL, options: [.atomic])
+        guard let data = try? encoder.encode(raw) else { return }
+        try? PrivateFile.write(data, to: fileURL)
     }
 }

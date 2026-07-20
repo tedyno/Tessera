@@ -76,7 +76,8 @@ public struct QueryHistoryStore: Sendable {
         let capped = entries.count > limit ? Array(entries.prefix(limit)) : entries
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        try? encoder.encode(capped).write(to: fileURL, options: [.atomic])
+        guard let data = try? encoder.encode(capped) else { return }
+        try? PrivateFile.write(data, to: fileURL)
     }
 
     /// Prepends an entry (newest first), caps to `limit`, and persists.
