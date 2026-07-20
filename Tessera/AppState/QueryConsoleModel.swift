@@ -13,13 +13,7 @@ final class QueryConsoleModel {
     var sessions: [ConnectionSession] = []
 
     var tabs: [QueryTab] = []
-    var activeTabID: UUID? {
-        didSet {
-            // Switching tabs moves the sidebar with it, so the schema on screen always
-            // belongs to whatever you are looking at.
-            if let session = activeTab?.session { currentSession = session }
-        }
-    }
+    var activeTabID: UUID?
 
     private(set) var history: [QueryHistoryEntry] = []
     private let historyStore: QueryHistoryStore
@@ -69,6 +63,15 @@ final class QueryConsoleModel {
 
     /// Makes a connection current without opening anything.
     func selectSession(_ session: ConnectionSession) { currentSession = session }
+
+    /// Switches to a tab and moves the connection focus with it, so the schema tree
+    /// always belongs to what you are looking at. Set explicitly rather than through
+    /// a `didSet` on `activeTabID`: property observers inside `@Observable` are a
+    /// trap, and every internal caller here needs the focus updated anyway.
+    func activate(_ tab: QueryTab) {
+        activeTabID = tab.id
+        if let session = tab.session { currentSession = session }
+    }
 
     /// Drops a connection that no longer exists: closes it, closes its tabs, and
     /// clears it as the current one so nothing keeps pointing at a deleted profile.
@@ -131,7 +134,7 @@ final class QueryConsoleModel {
             tab.sql = source.sql
         }
         tabs.append(tab)
-        activeTabID = tab.id
+        activate(tab)
     }
 
     func closeTab(_ id: UUID) {
@@ -586,7 +589,7 @@ final class QueryConsoleModel {
         if let existing = tabs.first(where: {
             $0.session === session && $0.kind == .data && $0.dataSchema == schema && $0.dataTable == table
         }) {
-            activeTabID = existing.id
+            activate(existing)
             return
         }
         let tab = QueryTab(title: table)
@@ -596,7 +599,7 @@ final class QueryConsoleModel {
         tab.dataTable = table
         tab.pageLimit = QueryTab.pageSize
         tabs.append(tab)
-        activeTabID = tab.id
+        activate(tab)
         await reloadData(tab, refreshCount: true)
     }
 

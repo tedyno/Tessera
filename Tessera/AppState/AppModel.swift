@@ -571,7 +571,7 @@ final class AppModel {
 
     func selectTab(_ index: Int) {
         guard console.tabs.indices.contains(index) else { return }
-        console.activeTabID = console.tabs[index].id
+        console.activate(console.tabs[index])
     }
 
     func refreshSchema() {

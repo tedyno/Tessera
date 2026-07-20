@@ -15,6 +15,9 @@ struct SchemaSidebar: View {
     let tree: DatabaseTree?
     var hiddenSchemas: Set<String> = []
     var reveal: SchemaRevealTarget?
+    /// Which connection this tree belongs to. Two connections often share a database
+    /// name (a local and a tunnelled `enelink`), so the name alone is ambiguous.
+    var connectionName: String?
     /// Databases on the server, for the database-switcher menu.
     var databases: [String] = []
     var onSwitchDatabase: (String) -> Void = { _ in }
@@ -74,7 +77,7 @@ struct SchemaSidebar: View {
             if let tree {
                 ScrollViewReader { proxy in
                     List {
-                        Section("Schema") {
+                        Section(connectionName ?? String(localized: "Schema")) {
                             DisclosureGroup(isExpanded: binding("db")) {
                                 ForEach(tree.schemas.filter {
                                     !hiddenSchemas.contains($0.name) && namespaceMatches($0)
