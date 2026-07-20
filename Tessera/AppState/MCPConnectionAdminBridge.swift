@@ -56,8 +56,9 @@ extension MCPBridge {
         // A password is accepted only here, on the way to the Keychain.
         let secrets = Secrets(databasePassword: spec.password)
         app.connections.addConnection(profile, secrets: secrets, into: parent)
+        let tunnel = profile.ssh.map { " via SSH \($0.configAlias ?? $0.host)" } ?? ""
         audit("create_connection", profile.name,
-              "\(profile.kind.rawValue) \(profile.username)@\(profile.host):\(profile.port)/\(profile.database)")
+              "\(profile.kind.rawValue) \(profile.username)@\(profile.host):\(profile.port)/\(profile.database)\(tunnel)")
         return summary(profile, note: spec.password == nil
                        ? String(localized: "No password stored — Tessera will ask on first connect.")
                        : nil)

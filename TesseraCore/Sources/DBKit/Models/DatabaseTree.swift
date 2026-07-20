@@ -1,6 +1,19 @@
 import Foundation
 
 /// A table column in the schema browser.
+/// The column a foreign key points at, so the UI can follow the reference.
+public struct ForeignKeyTarget: Sendable, Hashable {
+    public var schema: String
+    public var table: String
+    public var column: String
+
+    public init(schema: String, table: String, column: String) {
+        self.schema = schema
+        self.table = table
+        self.column = column
+    }
+}
+
 public struct SchemaColumn: Sendable, Hashable, Identifiable {
     public var name: String
     public var dataType: String
@@ -10,18 +23,22 @@ public struct SchemaColumn: Sendable, Hashable, Identifiable {
     /// True for serial/identity (Postgres) or AUTO_INCREMENT (MySQL) columns —
     /// the database supplies the value, so inserts should omit it.
     public var isAutoIncrement: Bool
+    /// Where this foreign key points, when known. Only set for single-column keys;
+    /// following one composite column alone would filter to the wrong rows.
+    public var references: ForeignKeyTarget?
 
     public var id: String { name }
 
     public init(name: String, dataType: String, isPrimaryKey: Bool = false,
                 isForeignKey: Bool = false, isNullable: Bool = true,
-                isAutoIncrement: Bool = false) {
+                isAutoIncrement: Bool = false, references: ForeignKeyTarget? = nil) {
         self.name = name
         self.dataType = dataType
         self.isPrimaryKey = isPrimaryKey
         self.isForeignKey = isForeignKey
         self.isNullable = isNullable
         self.isAutoIncrement = isAutoIncrement
+        self.references = references
     }
 }
 

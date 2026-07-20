@@ -190,7 +190,12 @@ public struct MCPService: Sendable {
                 password: arguments["password"]?.stringValue,
                 tls: arguments["tls"]?.stringValue,
                 parentID: arguments["parent_id"]?.stringValue,
-                readOnly: arguments["read_only"]?.boolValue)
+                readOnly: arguments["read_only"]?.boolValue,
+                sshAlias: arguments["ssh_alias"]?.stringValue,
+                sshHost: arguments["ssh_host"]?.stringValue,
+                sshPort: arguments["ssh_port"]?.intValue,
+                sshUser: arguments["ssh_user"]?.stringValue,
+                sshKeyPath: arguments["ssh_key_path"]?.stringValue)
             return try encodeJSON(await source.createConnection(spec))
 
         case "update_connection":

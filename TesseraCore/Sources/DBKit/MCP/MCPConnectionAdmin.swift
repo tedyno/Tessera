@@ -13,10 +13,36 @@ public struct MCPConnectionSpec: Codable, Sendable, Equatable {
     public var tls: String?
     public var parentID: String?
     public var readOnly: Bool?
+    /// A `Host` alias from `~/.ssh/config` to tunnel through. Everything else about
+    /// the tunnel (hostname, user, port, key) is resolved from that file at connect
+    /// time, so this is all a client needs for a host the user already has set up.
+    public var sshAlias: String?
+    /// Explicit tunnel details, for a host that isn't in `~/.ssh/config`.
+    public var sshHost: String?
+    public var sshPort: Int?
+    public var sshUser: String?
+    public var sshKeyPath: String?
+
+    /// The tunnel this spec describes, or nil when it asks for a direct connection.
+    public var sshConfig: SSHConfig? {
+        let alias = sshAlias?.trimmingCharacters(in: .whitespaces)
+        let hasAlias = !(alias ?? "").isEmpty
+        guard hasAlias || !(sshHost ?? "").isEmpty else { return nil }
+        return SSHConfig(
+            host: sshHost ?? "",
+            port: sshPort ?? 22,
+            username: sshUser ?? "",
+            // A key path is the norm here; without one the tunnel falls back to a
+            // password the user is asked for, exactly as a manually made profile would.
+            authMethod: sshKeyPath.map { SSHAuthMethod.privateKey(path: $0) } ?? .privateKey(path: ""),
+            configAlias: hasAlias ? alias : nil)
+    }
 
     public init(name: String, engine: String, host: String, port: Int? = nil, database: String,
                 user: String, password: String? = nil, tls: String? = nil,
-                parentID: String? = nil, readOnly: Bool? = nil) {
+                parentID: String? = nil, readOnly: Bool? = nil,
+                sshAlias: String? = nil, sshHost: String? = nil, sshPort: Int? = nil,
+                sshUser: String? = nil, sshKeyPath: String? = nil) {
         self.name = name
         self.engine = engine
         self.host = host
@@ -27,6 +53,11 @@ public struct MCPConnectionSpec: Codable, Sendable, Equatable {
         self.tls = tls
         self.parentID = parentID
         self.readOnly = readOnly
+        self.sshAlias = sshAlias
+        self.sshHost = sshHost
+        self.sshPort = sshPort
+        self.sshUser = sshUser
+        self.sshKeyPath = sshKeyPath
     }
 }
 
@@ -127,7 +158,7 @@ public enum MCPConnectionPolicy {
 
         return ConnectionProfile(
             name: name, kind: kind, host: host, port: spec.port, database: spec.database,
-            username: spec.user, tlsMode: tlsMode(spec.tls), ssh: nil,
+            username: spec.user, tlsMode: tlsMode(spec.tls), ssh: spec.sshConfig,
             readOnly: spec.readOnly ?? false)
         // mcpRead / mcpWrite / mcpWriteWithoutApproval deliberately left at their
         // defaults (off) — only the user turns those on, in the app.

@@ -106,7 +106,14 @@ enum MCPTools {
                           "password": stringSchema("Optional password, stored in the Keychain."),
                           "tls": stringSchema("disable, prefer, require, verify-ca or verify-full."),
                           "parent_id": stringSchema("Workspace/project/folder id to file it under."),
-                          "read_only": booleanSchema("Mark the connection read-only.")],
+                          "read_only": booleanSchema("Mark the connection read-only."),
+                          "ssh_alias": stringSchema("Tunnel through this Host alias from "
+                                                    + "~/.ssh/config; hostname, user, port and key "
+                                                    + "are read from there at connect time."),
+                          "ssh_host": stringSchema("SSH host, for a tunnel not in ~/.ssh/config."),
+                          "ssh_port": integerSchema("SSH port (default 22)."),
+                          "ssh_user": stringSchema("SSH user."),
+                          "ssh_key_path": stringSchema("Path to the SSH private key.")],
              required: ["name", "engine", "host", "database", "user"]),
 
         tool(name: "update_connection",
