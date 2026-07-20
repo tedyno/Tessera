@@ -123,6 +123,9 @@ final class GridTableView: NSTableView {
     var onRedo: (() -> Bool)?
     var hasUndo: (() -> Bool)?
     var hasRedo: (() -> Bool)?
+    /// Typing a printable character on a cell starts editing it, spreadsheet-style,
+    /// with the typed text replacing the value; false = not applicable, keep the beep.
+    var onTypeToEdit: ((String) -> Bool)?
 
     override func keyDown(with event: NSEvent) {
         let shift = event.modifierFlags.contains(.shift)
@@ -141,8 +144,19 @@ final class GridTableView: NSTableView {
         case 51, 117: // delete / forward-delete
             onDeleteRows?()
         default:
+            if isTypedText(event), let text = event.characters, onTypeToEdit?(text) == true { return }
             super.keyDown(with: event)
         }
+    }
+
+    /// Whether the event is a plain printable keystroke (no ⌘/⌃, not a function or
+    /// control key) — the kind that should start a spreadsheet-style cell edit.
+    private func isTypedText(_ event: NSEvent) -> Bool {
+        guard !event.modifierFlags.contains(.command),
+              !event.modifierFlags.contains(.control),
+              !event.modifierFlags.contains(.function),
+              let scalar = event.characters?.unicodeScalars.first else { return false }
+        return !CharacterSet.controlCharacters.contains(scalar)
     }
 
     /// ⌘D duplicates the selected row(s) — only when the grid is focused so it doesn't
@@ -361,6 +375,7 @@ struct ResultsTableView: NSViewRepresentable {
             c.moveSelection(dRow: dRow, dCol: dCol, extend: extend)
         }
         tableView.onEditSelected = { [c = context.coordinator] in c.editSelectedCell() }
+        tableView.onTypeToEdit = { [c = context.coordinator] text in c.typeToEdit(text) }
         tableView.onSetNull = { [c = context.coordinator] in c.setSelectedToNull() }
         tableView.onUndo = { [c = context.coordinator] in c.undoEdits() }
         tableView.onRedo = { [c = context.coordinator] in c.redoEdits() }
@@ -580,11 +595,36 @@ struct ResultsTableView: NSViewRepresentable {
             let old = selectionRows
             selected = [CellPos(row: row, col: col)]
             anchor = CellPos(row: row, col: col)
+            focus = CellPos(row: row, col: col)
             reload(rows: old.union(selectionRows))
             if let field = tableView.view(atColumn: col, row: row, makeIfNecessary: true) as? GridTextField {
                 field.isEditable = true
+                // editColumn requires the row to be part of the table's own selection;
+                // with selectionHighlightStyle == .none this stays invisible.
+                tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
                 tableView.editColumn(col, row: row, with: nil, select: true)
             }
+        }
+
+        /// Cells a multi-selection edit session will write into on commit.
+        private var bulkEditTargets: Set<CellPos>?
+
+        /// Typing a printable character on the selection starts editing with that
+        /// character replacing the content (spreadsheet-style). With several cells
+        /// selected, the value typed into the focused cell lands in all of them.
+        func typeToEdit(_ text: String) -> Bool {
+            guard tab.isEditable, visibleRowMap == nil, !selected.isEmpty, let tableView else { return false }
+            let targets = selected
+            let cell = focus ?? anchor ?? selected.min { ($0.row, $0.col) < ($1.row, $1.col) }!
+            beginEdit(row: cell.row, col: cell.col)
+            guard let editor = tableView.currentEditor() else {
+                bulkEditTargets = nil
+                return false
+            }
+            bulkEditTargets = targets.count > 1 ? targets : nil
+            editor.string = text
+            editor.selectedRange = NSRange(location: (text as NSString).length, length: 0)
+            return true
         }
 
         private func reload(rows: IndexSet) {
@@ -703,29 +743,68 @@ struct ResultsTableView: NSViewRepresentable {
             return values
         }
 
-        /// ⌘V — writes the clipboard string into every selected cell.
+        /// Writes one value into one cell, mirroring how a manual edit is recorded:
+        /// insert rows update their pending values (auto-increment stays untouched),
+        /// fetched rows record an edit — or drop it when the value matches the original.
+        private func setCell(_ cell: CellPos, to value: String) {
+            guard let result = tab.result, cell.col < result.columns.count else { return }
+            let columnName = result.columns[cell.col].name
+            guard tab.editSource?.autoIncrementColumns.contains(columnName) != true else { return }
+            if isInsertRow(cell.row) {
+                let index = cell.row - fetchedRowCount
+                guard index < tab.pendingInserts.count else { return }
+                tab.pendingInserts[index].values[columnName] = value
+                return
+            }
+            guard cell.row < result.rows.count else { return }
+            let original = cell.col < result.rows[cell.row].count ? result.rows[cell.row][cell.col].text : nil
+            if value == (original ?? "") {
+                tab.edits[cell.row]?[columnName] = nil
+                if tab.edits[cell.row]?.isEmpty == true { tab.edits[cell.row] = nil }
+            } else {
+                tab.edits[cell.row, default: [:]][columnName] = value
+            }
+        }
+
+        /// ⌘V — a single clipboard value fills every selected cell; a multi-cell TSV
+        /// block (what ⌘C produces) spreads row-by-row, column-by-column from the
+        /// selection's top-left corner, so copy 4 rows → paste 4 rows.
         func pasteIntoSelection() {
             guard tab.isEditable, visibleRowMap == nil, let result = tab.result, !selected.isEmpty,
                   let value = NSPasteboard.general.string(forType: .string) else { return }
+            var matrix = value.components(separatedBy: "\n").map { $0.components(separatedBy: "\t") }
+            if matrix.last == [""] { matrix.removeLast() }   // trailing newline
+            guard !matrix.isEmpty else { return }
             tab.captureEditSnapshot()
-            for cell in selected where cell.col < result.columns.count {
-                let columnName = result.columns[cell.col].name
-                if isInsertRow(cell.row) {
-                    let index = cell.row - fetchedRowCount
-                    guard index < tab.pendingInserts.count,
-                          tab.editSource?.autoIncrementColumns.contains(columnName) != true else { continue }
-                    tab.pendingInserts[index].values[columnName] = value
-                    continue
-                }
-                let original = cell.col < result.rows[cell.row].count ? result.rows[cell.row][cell.col].text : nil
-                if value == (original ?? "") {
-                    tab.edits[cell.row]?[columnName] = nil
-                    if tab.edits[cell.row]?.isEmpty == true { tab.edits[cell.row] = nil }
-                } else {
-                    tab.edits[cell.row, default: [:]][columnName] = value
+
+            if matrix.count == 1, matrix[0].count == 1 {
+                for cell in selected { setCell(cell, to: matrix[0][0]) }
+                reload(rows: selectionRows)
+                return
+            }
+
+            let startRow = selected.map(\.row).min() ?? 0
+            let startCol = selected.map(\.col).min() ?? 0
+            let rowCount = result.rows.count + tab.pendingInserts.count
+            var pasted: Set<CellPos> = []
+            for (rowOffset, rowValues) in matrix.enumerated() {
+                let row = startRow + rowOffset
+                guard row < rowCount else { break }
+                for (colOffset, cellValue) in rowValues.enumerated() {
+                    let col = startCol + colOffset
+                    guard col < result.columns.count else { break }
+                    let cell = CellPos(row: row, col: col)
+                    setCell(cell, to: cellValue)
+                    pasted.insert(cell)
                 }
             }
-            reload(rows: selectionRows)
+            // Select the pasted block so what just changed is visible at a glance.
+            let old = selectionRows
+            selected = pasted
+            anchor = pasted.min { ($0.row, $0.col) < ($1.row, $1.col) }
+            focus = anchor
+            reload(rows: old.union(selectionRows))
+            updateInspector()
         }
 
         var hasSelection: Bool { !selected.isEmpty }
@@ -1073,6 +1152,25 @@ struct ResultsTableView: NSViewRepresentable {
             let row = field.rowIndex
             let columnName = result.columns[field.columnIndex].name
             let newValue = field.stringValue
+
+            // A multi-selection typing session: the committed value lands in every
+            // cell that was selected when typing started. A value identical to what
+            // the focused cell already showed means the edit was cancelled (Escape
+            // restores the original) — apply nothing.
+            if let targets = bulkEditTargets {
+                bulkEditTargets = nil
+                let editedCell = CellPos(row: row, col: field.columnIndex)
+                let shown = cellString(row: row, col: field.columnIndex) ?? "NULL"
+                if newValue != shown {
+                    tab.captureEditSnapshot()
+                    for cell in targets { setCell(cell, to: newValue) }
+                }
+                let old = selectionRows
+                selected = targets.union([editedCell])
+                reload(rows: old.union(selectionRows))
+                DispatchQueue.main.async { [weak self] in self?.updateInspector() }
+                return
+            }
 
             if isInsertRow(row) {
                 let insertIndex = row - fetchedRowCount
