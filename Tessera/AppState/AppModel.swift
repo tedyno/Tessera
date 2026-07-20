@@ -408,11 +408,13 @@ final class AppModel {
 
     /// Sidebar status dot for a connection.
     func connectionDot(profileID: UUID) -> ConnectionDot {
-        switch console.session(for: profileID)?.status {
+        guard let session = console.session(for: profileID) else { return .none }
+        if session.isDisconnecting { return .disconnecting }
+        return switch session.status {
         case .ready: .connected
         case .connecting: .connecting
         case .failed: .failed
-        case .idle, nil: .none
+        case .idle: .none
         }
     }
 
@@ -422,6 +424,7 @@ final class AppModel {
         for session in console.sessions {
             hasher.combine(session.id)
             hasher.combine(session.status)
+            hasher.combine(session.isDisconnecting)
         }
         return hasher.finalize()
     }

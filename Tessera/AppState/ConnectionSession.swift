@@ -53,6 +53,10 @@ final class ConnectionSession: Identifiable {
     /// Last time a query actually ran against this session — the auto-disconnect
     /// idle sweep compares against this, not against when a tab merely sits open.
     private(set) var lastActivityAt = Date()
+    /// True while `close()` is tearing the connection down — `status` itself only
+    /// flips to `.idle` once that's finished, so the sidebar dot needs this to show
+    /// a spinner during the teardown instead of sitting frozen on the old state.
+    private(set) var isDisconnecting = false
     /// Diagnostics sink, injected by the console. Errors here are what the status
     /// bar can't show: the raw text plus the settings that produced it.
     @ObservationIgnored var log: ConnectionLog?
@@ -147,6 +151,7 @@ final class ConnectionSession: Identifiable {
     /// down yet.
     func close(reason: String = "Disconnected") async {
         let wasLive = driver != nil || tunnel != nil
+        if wasLive { isDisconnecting = true }
         await driver?.close()
         await tunnel?.stop()
         driver = nil
@@ -157,6 +162,7 @@ final class ConnectionSession: Identifiable {
         database = nil
         databases = []
         status = .idle
+        isDisconnecting = false
         if wasLive { log?.record(name, .disconnect, reason) }
     }
 

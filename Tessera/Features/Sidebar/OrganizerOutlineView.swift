@@ -31,7 +31,7 @@ final class OrganizerItem: NSObject {
 }
 
 /// Live-connection indicator drawn on a connection row.
-enum ConnectionDot: Equatable { case none, connecting, connected, failed }
+enum ConnectionDot: Equatable { case none, connecting, disconnecting, connected, failed }
 
 /// NSOutlineView subclass that builds a context menu for the right-clicked row.
 final class ContextualOutlineView: NSOutlineView {
@@ -302,14 +302,23 @@ struct OrganizerOutlineView: NSViewRepresentable {
             cell.textField?.stringValue = title(for: orgItem)
             let custom = currentColorName(for: orgItem)
 
-            // Live-connection dot (green connected / yellow connecting / red failed).
+            // Live-connection dot (green connected / red failed) — connecting and
+            // disconnecting show a small spinner instead, since a static dot gave no
+            // sense that anything was actually happening during either.
             let statusDot = cell.subviews.first { $0.identifier?.rawValue == "statusDot" }
+            let statusSpinner = cell.subviews.first { $0.identifier?.rawValue == "statusSpinner" }
+                as? NSProgressIndicator
             if orgItem.category == .connection, let profileID = model.organizer.profileID(forNode: orgItem.id) {
                 let dotStatus = connectionDot(profileID)
-                statusDot?.isHidden = dotStatus == .none
+                let isBusy = dotStatus == .connecting || dotStatus == .disconnecting
+                statusDot?.isHidden = dotStatus == .none || isBusy
                 statusDot?.layer?.backgroundColor = Self.dotColor(dotStatus)?.cgColor
+                statusSpinner?.isHidden = !isBusy
+                if isBusy { statusSpinner?.startAnimation(nil) } else { statusSpinner?.stopAnimation(nil) }
             } else {
                 statusDot?.isHidden = true
+                statusSpinner?.isHidden = true
+                statusSpinner?.stopAnimation(nil)
             }
 
             // Connections show the database mascot (elephant / dolphin). A custom
@@ -359,9 +368,19 @@ struct OrganizerOutlineView: NSViewRepresentable {
             dot.wantsLayer = true
             dot.layer?.cornerRadius = 4
             dot.isHidden = true
+            // Shown instead of the dot while connecting/disconnecting, so there's some
+            // sign of life during what can otherwise look like a stuck, silent wait.
+            let spinner = NSProgressIndicator()
+            spinner.identifier = NSUserInterfaceItemIdentifier("statusSpinner")
+            spinner.translatesAutoresizingMaskIntoConstraints = false
+            spinner.style = .spinning
+            spinner.controlSize = .mini
+            spinner.isIndeterminate = true
+            spinner.isHidden = true
             cell.addSubview(imageView)
             cell.addSubview(textField)
             cell.addSubview(dot)
+            cell.addSubview(spinner)
             cell.imageView = imageView
             cell.textField = textField
             NSLayoutConstraint.activate([
@@ -376,6 +395,10 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 dot.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
                 dot.widthAnchor.constraint(equalToConstant: 8),
                 dot.heightAnchor.constraint(equalToConstant: 8),
+                spinner.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                spinner.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                spinner.widthAnchor.constraint(equalToConstant: 12),
+                spinner.heightAnchor.constraint(equalToConstant: 12),
             ])
             return cell
         }
@@ -383,9 +406,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
         private static func dotColor(_ status: ConnectionDot) -> NSColor? {
             switch status {
             case .connected: .systemGreen
-            case .connecting: .systemYellow
             case .failed: .systemRed
-            case .none: nil
+            case .connecting, .disconnecting, .none: nil
             }
         }
 
@@ -479,6 +501,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
                     add(menu, String(localized: "Refresh Schema"), #selector(actionIntrospect), item)
                 case .connecting:
                     add(menu, String(localized: "Disconnect"), #selector(actionDisconnect), item)
+                case .disconnecting:
+                    break   // already tearing down — nothing useful to offer
                 case .failed, .none:
                     add(menu, String(localized: "Connect"), #selector(actionConnect), item)
                 }
@@ -587,7 +611,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
                   item.category == .connection,
                   let profileID = model.organizer.profileID(forNode: item.id) else { return }
             let dot = connectionDot(profileID)
-            guard dot != .connected, dot != .connecting else { return }
+            guard dot != .connected, dot != .connecting, dot != .disconnecting else { return }
             onConnectProfile(profileID)
         }
 
