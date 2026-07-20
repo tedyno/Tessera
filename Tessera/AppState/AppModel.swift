@@ -266,10 +266,24 @@ final class AppModel {
     var hasPendingChanges: Bool { console.activeTab?.hasEdits ?? false }
 
     /// Selecting a connection: activate (or create) its session + a tab; connect only
-    /// if it isn't already live.
+    /// if it isn't already live. Used for an explicit connect action (double-click,
+    /// ⌘↩) — never for a plain click, which must stay a side-effect-free selection
+    /// so building a multi-selection (⌘/⇧-click, to drag several items into a
+    /// folder) doesn't fire off a connection attempt on every row it touches.
     func connect(nodeID: UUID?) {
         guard let nodeID, let profileID = connections.profileID(forNode: nodeID) else { return }
         connectProfile(profileID: profileID)
+    }
+
+    /// A plain click on a connection: makes it "current" (so the schema sidebar
+    /// follows it) without connecting — safe to call on every click, including ones
+    /// that are just extending a multi-selection, since it never touches the network.
+    /// Switching to an already-connected session this way still works exactly like
+    /// before; only a genuinely new connection attempt is deferred to `connect`.
+    func viewConnection(nodeID: UUID?) {
+        guard let nodeID, let profileID = connections.profileID(forNode: nodeID),
+              let profile = connections.profile(id: profileID) else { return }
+        console.selectSession(ensureSession(profile: profile))
     }
 
     func connectProfile(profileID: UUID) {

@@ -36,10 +36,22 @@ enum ConnectionDot: Equatable { case none, connecting, disconnecting, connected,
 /// NSOutlineView subclass that builds a context menu for the right-clicked row.
 final class ContextualOutlineView: NSOutlineView {
     var contextMenuProvider: (@MainActor (Int) -> NSMenu?)?
+    /// ⌘↩ — connects every selected connection, the keyboard equivalent of
+    /// double-clicking one (a plain click never connects; see the Coordinator).
+    var onCommandReturn: (() -> Void)?
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         return contextMenuProvider?(row(at: point))
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if modifiers == .command, event.keyCode == 36, window?.firstResponder === self {
+            onCommandReturn?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     /// A pointing-hand cursor over each row — AppKit gives list rows no cursor
@@ -122,11 +134,12 @@ struct OrganizerOutlineView: NSViewRepresentable {
         outline.contextMenuProvider = { [coordinator = context.coordinator] row in
             coordinator.menu(forRow: row)
         }
-        // Selecting a connection already connects it (see the outer view's
-        // `onChange(of: selection)`) — this only helps when it's already selected,
-        // where a single click doesn't re-fire that: double-click retries it.
+        // A click only ever selects — connecting is always an explicit action
+        // (double-click here, ⌘↩ below), so building a multi-selection to drag
+        // several items into a folder never fires off a connection attempt.
         outline.target = context.coordinator
         outline.doubleAction = #selector(Coordinator.doubleClick(_:))
+        outline.onCommandReturn = { [coordinator = context.coordinator] in coordinator.connectSelection() }
 
         let scrollView = NSScrollView()
         scrollView.documentView = outline
@@ -480,30 +493,39 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo,
                          proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
-            guard let draggedID = draggedID(from: info) else { return [] }
+            let ids = draggedIDs(from: info)
+            guard !ids.isEmpty else { return [] }
             // Dropping on empty space (no item) means the loose level, which holds
             // connections only — a folder or workspace has nowhere to go there.
             guard let target = item as? OrganizerItem else {
-                return model.organizer.node(id: draggedID)?.isContainer == false ? .move : []
+                let allConnections = ids.allSatisfy { model.organizer.node(id: $0)?.isContainer == false }
+                return allConnections ? .move : []
             }
-            guard target.isContainer, target.id != draggedID,
-                  !model.organizer.descendants(of: draggedID).contains(target.id)
-            else { return [] }
-            return .move
+            // All-or-nothing at hover time: if any one dragged item can't legally land
+            // here, reject the whole drop rather than silently dropping just some of it.
+            let allValid = ids.allSatisfy { id in
+                target.id != id && !model.organizer.descendants(of: id).contains(target.id)
+            }
+            return target.isContainer && allValid ? .move : []
         }
 
         func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo,
                          item: Any?, childIndex index: Int) -> Bool {
-            guard let draggedID = draggedID(from: info) else { return false }
+            let ids = draggedIDs(from: info)
+            guard !ids.isEmpty else { return false }
             let parentID = (item as? OrganizerItem)?.id ?? OrganizerDocument.looseParentID
-            let ok = model.move(nodeID: draggedID, toParent: parentID, at: index >= 0 ? index : nil)
-            if ok { rebuild(expandingAll: false) }
+            let ok = model.moveBatch(nodeIDs: ids, toParent: parentID, at: index >= 0 ? index : nil)
+            rebuild(expandingAll: false)   // the tree may have changed even when `ok` is false
             return ok
         }
 
-        private func draggedID(from info: NSDraggingInfo) -> UUID? {
-            guard let string = info.draggingPasteboard.string(forType: pasteboardType) else { return nil }
-            return UUID(uuidString: string)
+        /// The ids of every row participating in the drag — AppKit calls
+        /// `pasteboardWriterForItem` once per selected row when a drag starts from a
+        /// row that's part of the current (possibly multi-row) selection, so a drag
+        /// carries one pasteboard item per dragged row, not just the one clicked.
+        private func draggedIDs(from info: NSDraggingInfo) -> [UUID] {
+            guard let items = info.draggingPasteboard.pasteboardItems else { return [] }
+            return items.compactMap { $0.string(forType: pasteboardType).flatMap(UUID.init(uuidString:)) }
         }
 
         // MARK: Context menu
@@ -638,9 +660,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
         @objc private func actionRename(_ sender: NSMenuItem) {
             if let item = sender.representedObject as? OrganizerItem { onRename(item.id, title(for: item)) }
         }
-        /// Double-clicking a connection (re)connects it, unless it's already ready
-        /// or mid-connect — the only case a click alone can't trigger is retrying a
-        /// failed/idle connection that was already the selection.
+        /// Double-clicking a connection connects it (or retries a failed/idle one),
+        /// unless it's already ready or mid-connect — a plain click never connects.
         @objc func doubleClick(_ sender: Any?) {
             guard let outlineView, outlineView.clickedRow >= 0,
                   let item = outlineView.item(atRow: outlineView.clickedRow) as? OrganizerItem,
@@ -649,6 +670,20 @@ struct OrganizerOutlineView: NSViewRepresentable {
             let dot = connectionDot(profileID)
             guard dot != .connected, dot != .connecting, dot != .disconnecting else { return }
             onConnectProfile(profileID)
+        }
+
+        /// ⌘↩ — connects every selected connection row (skipping folders/projects/
+        /// workspaces and anything already connected/connecting), the keyboard
+        /// equivalent of double-clicking each one.
+        func connectSelection() {
+            guard let outlineView else { return }
+            for row in outlineView.selectedRowIndexes {
+                guard let item = outlineView.item(atRow: row) as? OrganizerItem, item.category == .connection,
+                      let profileID = model.organizer.profileID(forNode: item.id) else { continue }
+                let dot = connectionDot(profileID)
+                guard dot != .connected, dot != .connecting, dot != .disconnecting else { continue }
+                onConnectProfile(profileID)
+            }
         }
 
         @objc private func actionConnect(_ sender: NSMenuItem) {

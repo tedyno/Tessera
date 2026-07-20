@@ -86,15 +86,17 @@ struct ContentView: View {
                        connectionOptions: app.connectionOptions,
                        onSelectConnection: { app.selectConnection($0) })
         }
-        // Nothing connects on launch — no Keychain access until the user picks a
-        // connection, which then connects it.
+        // Nothing connects on launch — no Keychain access until the user actually
+        // connects something (double-click / ⌘↩ in the organizer). A plain click
+        // only switches the schema sidebar to that connection's session.
         .onChange(of: app.selection) { _, newValue in
-            app.connect(nodeID: newValue)
+            app.viewConnection(nodeID: newValue)
         }
         .sheet(isPresented: $app.showingNewConnection) {
             NewConnectionView { profile, secrets in
                 let nodeID = app.connections.addConnection(profile, secrets: secrets, into: app.newConnectionParent)
                 app.selection = nodeID
+                app.connect(nodeID: nodeID)
             }
         }
         .sheet(isPresented: $app.showingEditConnection) {
