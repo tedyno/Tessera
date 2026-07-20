@@ -91,6 +91,53 @@ final class QueryTab: Identifiable {
     var hasEdits: Bool { !edits.isEmpty || !pendingDeletes.isEmpty || !pendingInserts.isEmpty }
     var isEditable: Bool { editSource != nil }
 
+    /// One undoable step of the grid's pending-change state. Row indices inside are
+    /// only valid against the result they were captured on, so the history is
+    /// cleared whenever a fresh result replaces it.
+    private struct GridEditState {
+        var edits: [Int: [String: String?]]
+        var pendingDeletes: Set<Int>
+        var pendingInserts: [PendingInsert]
+    }
+    private var undoStack: [GridEditState] = []
+    private var redoStack: [GridEditState] = []
+
+    var canUndoEdits: Bool { !undoStack.isEmpty }
+    var canRedoEdits: Bool { !redoStack.isEmpty }
+
+    /// Call before any mutation of edits/deletes/inserts.
+    func captureEditSnapshot() {
+        undoStack.append(GridEditState(edits: edits, pendingDeletes: pendingDeletes,
+                                       pendingInserts: pendingInserts))
+        if undoStack.count > 100 { undoStack.removeFirst() }
+        redoStack.removeAll()
+    }
+
+    func undoEdits() {
+        guard let previous = undoStack.popLast() else { return }
+        redoStack.append(GridEditState(edits: edits, pendingDeletes: pendingDeletes,
+                                       pendingInserts: pendingInserts))
+        apply(previous)
+    }
+
+    func redoEdits() {
+        guard let next = redoStack.popLast() else { return }
+        undoStack.append(GridEditState(edits: edits, pendingDeletes: pendingDeletes,
+                                       pendingInserts: pendingInserts))
+        apply(next)
+    }
+
+    func clearEditHistory() {
+        undoStack.removeAll()
+        redoStack.removeAll()
+    }
+
+    private func apply(_ state: GridEditState) {
+        edits = state.edits
+        pendingDeletes = state.pendingDeletes
+        pendingInserts = state.pendingInserts
+    }
+
     /// Active header sort on a full-table view (nil = unsorted). Clicking a header
     /// cycles ascending → descending → off.
     var sortColumn: String?

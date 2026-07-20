@@ -64,6 +64,10 @@ struct SchemaSidebar: View {
     /// those have their own distinct actions that don't generalize into a batch.
     @State private var selectedTables: Set<TableRef> = []
     @State private var selectionAnchor: TableRef?
+    /// The single highlighted container row ("db" or "s:<name>") — schemas and the
+    /// database don't join the table multi-selection, but a click should still
+    /// visibly land on them.
+    @State private var selectedNode: String?
 
     /// Lowercased, trimmed name filter; empty means "show everything".
     private var query: String {
@@ -116,8 +120,10 @@ struct SchemaSidebar: View {
                             } label: {
                                 Label(tree.databaseName, systemImage: "cylinder.split.1x2")
                                     .foregroundStyle(.tint)
+                                    .listRowBackground(nodeBackground("db"))
                                     .contentShape(Rectangle())
                                     .pointerCursor()
+                                    .simultaneousGesture(TapGesture(count: 1).onEnded { selectNode("db") })
                                     .contextMenu {
                                         if databases.count > 1 {
                                             Menu("Switch Database") {
@@ -185,9 +191,10 @@ struct SchemaSidebar: View {
         } label: {
             Label(namespace.name, systemImage: "circle.grid.2x2")
                 .id("s:\(namespace.name)")
-                .modifier(HighlightRow(active: highlightedID == "s:\(namespace.name)"))
+                .listRowBackground(nodeBackground("s:\(namespace.name)"))
                 .contentShape(Rectangle())
                 .pointerCursor()
+                .simultaneousGesture(TapGesture(count: 1).onEnded { selectNode("s:\(namespace.name)") })
                 .contextMenu {
                     Button("New Query Tab") { onNewQueryTab() }
                         .keyboardShortcut("t", modifiers: .command)
@@ -352,6 +359,21 @@ struct SchemaSidebar: View {
     private func clearTableSelection() {
         selectedTables = []
         selectionAnchor = nil
+        selectedNode = nil
+    }
+
+    /// Click on the database or a schema row: one highlighted container at a time,
+    /// mutually exclusive with the table selection.
+    private func selectNode(_ key: String) {
+        clearTableSelection()
+        selectedNode = key
+    }
+
+    /// The reveal-from-spotlight flash takes priority over the click highlight.
+    private func nodeBackground(_ key: String) -> Color {
+        if highlightedID == key { return Color.accentColor.opacity(0.25) }
+        if selectedNode == key { return Color.accentColor.opacity(0.15) }
+        return Color.clear
     }
 
     /// ⌘ toggles a table in/out of the selection; ⇧ extends it as a contiguous
@@ -359,6 +381,7 @@ struct SchemaSidebar: View {
     /// replaces the selection with just this one table.
     private func handleTableClick(namespace: String, table: String) {
         let ref = TableRef(schema: namespace, table: table)
+        selectedNode = nil   // a table click takes the highlight from any container row
         let modifiers = NSEvent.modifierFlags
         if modifiers.contains(.command) {
             if selectedTables.contains(ref) { selectedTables.remove(ref) } else { selectedTables.insert(ref) }

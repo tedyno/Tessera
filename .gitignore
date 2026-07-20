@@ -27,3 +27,6 @@ Packages/
 *.log
 Config/Local.xcconfig
 dist/
+
+# Personal working notes, not part of the project
+NEXT-STEPS.md

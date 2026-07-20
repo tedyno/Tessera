@@ -2633,6 +2633,28 @@
         }
       }
     },
+    "Redo Edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opakovat úpravu"
+          }
+        }
+      }
+    },
+    "Undo Edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrátit úpravu"
+          }
+        }
+      }
+    },
     "Re-run this query automatically": {
       "extractionState": "manual",
       "localizations": {

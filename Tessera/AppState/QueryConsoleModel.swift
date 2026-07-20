@@ -130,9 +130,16 @@ final class QueryConsoleModel {
     /// deliberately isn't run, so nothing hits the database until you ask.
     func addTab(boundTo session: ConnectionSession? = nil) {
         let tab = QueryTab(title: "Query \(tabs.count + 1)")
-        let target = session ?? activeSession ?? sessions.last
+        let source = activeTab
+        // A new tab opened over a data view belongs to that view's connection and
+        // starts from its generated query — regardless of which connection the
+        // organizer happens to have highlighted at the moment (a mere click there
+        // moves `currentSession` without the data view changing at all).
+        let target = session
+            ?? (source?.kind == .data ? source?.session : nil)
+            ?? activeSession ?? sessions.last
         tab.session = target
-        if let source = activeTab, source.kind == .data, source.session === target,
+        if let source, source.kind == .data, source.session === target,
            !source.sql.isEmpty {
             tab.sql = source.sql
         }
@@ -235,6 +242,7 @@ final class QueryConsoleModel {
             tab.edits = [:]
             tab.pendingDeletes = []
             tab.pendingInserts = []
+            tab.clearEditHistory()   // snapshots index into the replaced result
             if !preserveSearch {
                 tab.clearSearch()   // a stale ⌘F filter over the old result would
                                     // otherwise silently block editing on the new one
@@ -288,6 +296,7 @@ final class QueryConsoleModel {
             tab.result = lastResult ?? QueryResult()
             tab.resultVersion &+= 1
             tab.edits = [:]; tab.pendingDeletes = []; tab.pendingInserts = []
+            tab.clearEditHistory()
             tab.clearSearch()
             tab.editSource = nil   // a script isn't a single editable table view
             tab.scriptSummary = "Executed \(executed) statement\(executed == 1 ? "" : "s")"
@@ -317,6 +326,7 @@ final class QueryConsoleModel {
             tab.edits = [:]
             tab.pendingDeletes = []
             tab.pendingInserts = []
+            tab.clearEditHistory()   // undo must not resurrect already-committed changes
             tab.isRunning = false   // clear before re-running, else run()'s guard bails
             await run(tab, sqlToRun: tab.sql, preserveSort: true)
         } catch {
@@ -378,11 +388,14 @@ final class QueryConsoleModel {
     /// Appends a blank row queued for insertion (from the grid's "Add Row").
     func addInsertRow(_ tab: QueryTab) {
         guard tab.isEditable else { return }
+        tab.captureEditSnapshot()
         tab.pendingInserts.append(PendingInsert())
     }
 
     /// Drops every pending edit, delete, and insert without touching the database.
+    /// Undoable — Discard All shouldn't be able to eat a batch of edits for good.
     func discardPending(_ tab: QueryTab) {
+        tab.captureEditSnapshot()
         tab.edits = [:]
         tab.pendingDeletes = []
         tab.pendingInserts = []
@@ -550,6 +563,7 @@ final class QueryConsoleModel {
 
     /// Discards a single pending change (from the panel's per-row × button).
     func revert(_ tab: QueryTab, _ target: PendingChange.Target) {
+        tab.captureEditSnapshot()
         switch target {
         case .update(let row): tab.edits[row] = nil
         case .delete(let row): tab.pendingDeletes.remove(row)
