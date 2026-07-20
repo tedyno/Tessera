@@ -686,6 +686,14 @@ struct DetailView: View {
                 .fixedSize()
                 .help("Export these results to a file")
             }
+            Button { showingConnectionLog = true } label: {
+                Label("Log", systemImage: model.connectionLog.hasRecentFailure
+                      ? "exclamationmark.triangle.fill" : "text.alignleft")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(model.connectionLog.hasRecentFailure ? Color.red : .secondary)
+            .help("Show what happened while connecting")
+
             if isReadOnly {
                 Label("read-only", systemImage: "lock.fill").foregroundStyle(.orange)
             }
@@ -695,14 +703,6 @@ struct DetailView: View {
             if let name = model.connectionName {
                 Text(name).foregroundStyle(model.status == .ready ? .green : .secondary)
             }
-            Button { showingConnectionLog = true } label: {
-                Label("Connection Log", systemImage: model.connectionLog.hasRecentFailure
-                      ? "exclamationmark.triangle.fill" : "text.alignleft")
-                    .labelStyle(.iconOnly)
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(model.connectionLog.hasRecentFailure ? Color.red : .secondary)
-            .help("Show what happened while connecting")
         }
         .font(.caption)
         .foregroundStyle(.secondary)

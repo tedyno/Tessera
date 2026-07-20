@@ -45,6 +45,7 @@ public actor MySQLDriver: DatabaseDriver {
                 database: profile.database,
                 password: secrets.databasePassword ?? "",
                 tlsConfiguration: Self.makeTLS(profile.tlsMode),
+                logger: Self.driverLogger,
                 on: MultiThreadedEventLoopGroup.singleton.next()
             ).get()
             self.connection = connection
@@ -261,6 +262,16 @@ public actor MySQLDriver: DatabaseDriver {
     }
 
     // MARK: - Helpers
+
+    /// MySQLNIO traces every step of the handshake, which is the only way to see
+    /// where a connection stalls. Off unless `TESSERA_DB_TRACE` is set, so normal
+    /// runs stay quiet.
+    private static let driverLogger: Logger = {
+        var logger = Logger(label: "tessera.mysql")
+        logger.logLevel = ProcessInfo.processInfo.environment["TESSERA_DB_TRACE"] == nil
+            ? .critical : .trace
+        return logger
+    }()
 
     private static func makeTLS(_ mode: TLSMode) -> TLSConfiguration? {
         switch mode {

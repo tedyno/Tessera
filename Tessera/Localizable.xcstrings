@@ -1679,6 +1679,17 @@
         }
       }
     },
+    "Log": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log"
+          }
+        }
+      }
+    },
     "MCP Activity": {
       "extractionState": "manual",
       "localizations": {

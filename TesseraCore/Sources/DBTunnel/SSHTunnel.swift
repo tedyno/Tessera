@@ -67,14 +67,15 @@ public actor SSHTunnel {
                             targetPort: remotePort,
                             originatorAddress: originator)
                     ) { sshChannel in
-                        // Citadel already installs DataToBufferCodec, so the direct
-                        // channel speaks plain ByteBuffer — no extra wrapper needed.
-                        sshChannel.eventLoop.makeSucceededVoidFuture()
+                        // The forwarder must be in place *before* the channel goes
+                        // active: a server that speaks first (MySQL sends its greeting
+                        // immediately) would otherwise have those bytes arrive at an
+                        // empty pipeline and be dropped. Citadel already installs
+                        // DataToBufferCodec, so this channel speaks plain ByteBuffer.
+                        sshChannel.pipeline.addHandler(ForwardHandler(peer: localChannel))
                     }
-                    // Cross-wire the two channels. Use the future-based addHandler
-                    // (hops to the channel's own event loop) since we're off-loop here.
+                    // Only the local side is left to wire; the remote side is done above.
                     try await localChannel.pipeline.addHandler(ForwardHandler(peer: remoteChannel)).get()
-                    try await remoteChannel.pipeline.addHandler(ForwardHandler(peer: localChannel)).get()
                 }
             }
 
