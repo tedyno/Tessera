@@ -78,7 +78,7 @@ final class ConnectionTester {
             let created = SSHTunnel()
             tunnel = created
             do {
-                let local = try await attempt(.tunnel, describing: "Connecting to \(target)…") {
+                let local = try await attempt(.tunnel, describing: String(localized: "Connecting to \(target)…")) {
                     try await created.start(ssh: ssh, secrets: secrets,
                                             remoteHost: profile.host, remotePort: profile.port)
                 }
@@ -99,7 +99,7 @@ final class ConnectionTester {
             : String(localized: "the tunnel")
         let target = endpoint
         do {
-            let version = try await attempt(.database, describing: "Connecting to \(via)…") {
+            let version = try await attempt(.database, describing: String(localized: "Connecting to \(via)…")) {
                 let driver: any DatabaseDriver = profile.kind == .postgres ? PostgresDriver() : MySQLDriver()
                 try await driver.connect(profile: profile, secrets: secrets, endpoint: target)
                 let version = (try? await driver.serverVersion()) ?? ""

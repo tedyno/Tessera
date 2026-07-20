@@ -94,6 +94,35 @@
         }
       }
     },
+    "%lld connections inside.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Uvnitř je %lld připojení."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Uvnitř jsou %lld připojení."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Uvnitř je %lld připojení."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%lld ms": {
       "extractionState": "manual",
       "localizations": {
@@ -513,6 +542,28 @@
         }
       }
     },
+    "Close All Tabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zavřít všechny panely"
+          }
+        }
+      }
+    },
+    "Close Other Tabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zavřít ostatní panely"
+          }
+        }
+      }
+    },
     "Close Tab": {
       "extractionState": "manual",
       "localizations": {
@@ -524,6 +575,28 @@
         }
       }
     },
+    "Close Tabs to the Left": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zavřít panely vlevo"
+          }
+        }
+      }
+    },
+    "Close Tabs to the Right": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zavřít panely vpravo"
+          }
+        }
+      }
+    },
     "Close tab": {
       "extractionState": "manual",
       "localizations": {
@@ -531,6 +604,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Zavřít panel"
+          }
+        }
+      }
+    },
+    "Colour": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barva"
           }
         }
       }
@@ -795,6 +879,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Smazat"
+          }
+        }
+      }
+    },
+    "Delete Rows": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smazat řádky"
+          }
+        }
+      }
+    },
+    "Delete “%@”?": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smazat „%@“?"
           }
         }
       }
@@ -1639,6 +1745,17 @@
         }
       }
     },
+    "No colour": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bez barvy"
+          }
+        }
+      }
+    },
     "No connections": {
       "extractionState": "manual",
       "localizations": {
@@ -1778,6 +1895,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Otevřít"
+          }
+        }
+      }
+    },
+    "Open %@ where %@ = %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otevřít %1$@, kde %2$@ = %3$@"
           }
         }
       }
@@ -2020,6 +2148,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Restartovat"
+          }
+        }
+      }
+    },
+    "Remove nested folders and connections": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smazat i vnořené složky a připojení"
           }
         }
       }
@@ -2677,6 +2816,17 @@
         }
       }
     },
+    "This is the last workspace, so its contents go too.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tohle je poslední workspace, takže se smaže i jeho obsah."
+          }
+        }
+      }
+    },
     "Timed out connecting to the database. The tunnel is up, so check the database host, port, and that it is listening.": {
       "extractionState": "manual",
       "localizations": {
@@ -2772,6 +2922,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Unikátní"
+          }
+        }
+      }
+    },
+    "Unless you remove them, its contents move to “%@”.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokud je nesmažeš, obsah se přesune do „%@“."
+          }
+        }
+      }
+    },
+    "Unless you remove them, its contents move up one level.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokud je nesmažeš, obsah se přesune o úroveň výš."
           }
         }
       }

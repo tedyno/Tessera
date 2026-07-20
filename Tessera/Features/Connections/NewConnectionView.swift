@@ -21,6 +21,7 @@ struct NewConnectionView: View {
     @State private var password = ""
     @State private var tlsMode: TLSMode = .prefer
     @State private var readOnly = false
+    @State private var color: String?
     @State private var mcpRead = false
     @State private var mcpWrite = false
     @State private var mcpWriteNoApproval = false
@@ -57,6 +58,7 @@ struct NewConnectionView: View {
         _password = State(initialValue: secrets.databasePassword ?? "")
         _tlsMode = State(initialValue: editing?.tlsMode ?? .prefer)
         _readOnly = State(initialValue: editing?.isReadOnly ?? false)
+        _color = State(initialValue: editing?.color)
         _mcpRead = State(initialValue: editing?.allowsMCPRead ?? false)
         _mcpWrite = State(initialValue: editing?.mcpWrite ?? false)
         _mcpWriteNoApproval = State(initialValue: editing?.mcpWriteWithoutApproval ?? false)
@@ -105,6 +107,7 @@ struct NewConnectionView: View {
                     Picker("TLS", selection: $tlsMode) {
                         ForEach(TLSMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
+                    LabeledContent("Colour") { colorPicker }
                     Toggle("Read-only (warn before writing)", isOn: $readOnly)
                     Toggle("MCP: allow reading (let a connected AI client query this connection)", isOn: $mcpRead)
                     Toggle("MCP: allow writing (asks you first)", isOn: $mcpWrite)
@@ -196,7 +199,9 @@ struct NewConnectionView: View {
             testStatus
             footer
         }
-        .frame(width: 540, height: 640)
+        // minHeight, not a fixed height: the sheet grows when the test results appear
+        // rather than cramming them into the leftover pixels.
+        .frame(minWidth: 560, maxWidth: 560, minHeight: 640)
         .onAppear {
             sshConfigBlocks = SSHConfigFile.loadDefault()
             // A brand-new connection defaults to the config when the user has one.
@@ -226,7 +231,10 @@ struct NewConnectionView: View {
     @ViewBuilder
     private var testStatus: some View {
         if !tester.states.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
+            // A failed stage can carry a long server message; let it wrap and scroll
+            // instead of squeezing the stages into a couple of clipped lines.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
                 ForEach(ConnectionTester.Stage.allCases) { stage in
                     if case .skipped = tester.state(stage) {
                         EmptyView()
@@ -243,7 +251,10 @@ struct NewConnectionView: View {
                         }
                     }
                 }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxHeight: 160)
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
         }
@@ -293,6 +304,35 @@ struct NewConnectionView: View {
         return SSHConfigFile.resolve(sshAlias, in: sshConfigBlocks)
     }
 
+    /// Swatches tagging the connection; the crossed-out one clears the colour.
+    private var colorPicker: some View {
+        HStack(spacing: 6) {
+            Button {
+                color = nil
+            } label: {
+                Image(systemName: "slash.circle")
+                    .foregroundStyle(color == nil ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+            }
+            .buttonStyle(.borderless)
+            .help("No colour")
+
+            ForEach(ConnectionPalette.names, id: \.self) { name in
+                Button {
+                    color = name
+                } label: {
+                    Circle()
+                        .fill(ConnectionPalette.color(name) ?? .gray)
+                        .frame(width: 14, height: 14)
+                        .overlay {
+                            Circle().strokeBorder(.primary, lineWidth: color == name ? 2 : 0)
+                        }
+                }
+                .buttonStyle(.borderless)
+            }
+            Spacer()
+        }
+    }
+
     private func makeProfile() -> ConnectionProfile {
         // With an alias the host/user/port/key are resolved at connect time; the
         // typed fields are kept as fallbacks for anything the config omits.
@@ -306,6 +346,7 @@ struct NewConnectionView: View {
             id: editing?.id ?? UUID(),
             name: name, kind: kind, host: host, port: Int(port),
             database: database, username: username, tlsMode: tlsMode, ssh: ssh, readOnly: readOnly,
+            color: color,
             mcpRead: mcpRead, mcpWrite: mcpWrite,
             mcpWriteWithoutApproval: mcpWriteNoApproval)
     }

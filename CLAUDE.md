@@ -25,8 +25,12 @@ open-source build (no App Store → no App Sandbox).
   the `.stringsdata` emitted by the build (`SWIFT_EMIT_LOC_STRINGS = YES`), under
   `~/Library/Developer/Xcode/DerivedData/Tessera-*/Build/Intermediates.noindex/Tessera.build/**/Objects-normal/*/`.
   Read them with `plutil -convert json` and compare against the catalog; every key must
-  either have a `cs` localization or `shouldTranslate: false`. Prune keys the code no
-  longer uses.
+  either have a `cs` localization or `shouldTranslate: false`.
+- **Never prune the catalog from an incremental build.** Only recompiled files emit
+  `.stringsdata`, so a key whose file wasn't rebuilt looks unused and deleting it throws
+  away a real translation. Before removing anything, force a full rebuild of the app
+  target (`find Tessera -name '*.swift' -exec touch {} +` then build) so the extraction
+  covers every file; missing keys are safe to add either way.
 
 ## Architecture
 
