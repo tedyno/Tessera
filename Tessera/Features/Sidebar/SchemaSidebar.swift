@@ -91,7 +91,6 @@ struct SchemaSidebar: View {
                                 Label(tree.databaseName, systemImage: "cylinder.split.1x2")
                                     .foregroundStyle(.tint)
                                     .contentShape(Rectangle())
-                                    .simultaneousGesture(TapGesture(count: 2).onEnded { toggle("db") })
                                     .contextMenu {
                                         if databases.count > 1 {
                                             Menu("Switch Database") {
@@ -148,7 +147,6 @@ struct SchemaSidebar: View {
                 .id("s:\(namespace.name)")
                 .modifier(HighlightRow(active: highlightedID == "s:\(namespace.name)"))
                 .contentShape(Rectangle())
-                .simultaneousGesture(TapGesture(count: 2).onEnded { toggle("s:\(namespace.name)") })
                 .contextMenu {
                     Button("New Query Tab") { onNewQueryTab() }
                         .keyboardShortcut("t", modifiers: .command)
@@ -287,11 +285,6 @@ struct SchemaSidebar: View {
         // While filtering, force every branch open so matches are visible.
         Binding(get: { expanded.contains(key) || !query.isEmpty },
                 set: { if $0 { expanded.insert(key) } else { expanded.remove(key) } })
-    }
-
-    /// Double-click on a container node (database or schema) expands/collapses it.
-    private func toggle(_ key: String) {
-        if expanded.contains(key) { expanded.remove(key) } else { expanded.insert(key) }
     }
 
     private func applyReveal(_ target: SchemaRevealTarget, proxy: ScrollViewProxy) {
