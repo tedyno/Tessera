@@ -100,6 +100,42 @@ final class QueryConsoleModel {
         if activeTabID == id { activeTabID = tabs.last?.id }
     }
 
+    /// Closes every tab whose id is in `ids`, cancelling anything they were running.
+    private func closeTabs(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        for tab in tabs where ids.contains(tab.id) { tab.task?.cancel() }
+        tabs.removeAll { ids.contains($0.id) }
+        if let active = activeTabID, ids.contains(active) { activeTabID = tabs.last?.id }
+    }
+
+    func closeOtherTabs(_ id: UUID) {
+        closeTabs(Set(tabs.map(\.id).filter { $0 != id }))
+    }
+
+    func closeAllTabs() {
+        closeTabs(Set(tabs.map(\.id)))
+    }
+
+    func closeTabsToLeft(of id: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        closeTabs(Set(tabs[..<index].map(\.id)))
+    }
+
+    func closeTabsToRight(of id: UUID) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        closeTabs(Set(tabs[(index + 1)...].map(\.id)))
+    }
+
+    /// Whether there is anything to close on that side / elsewhere, so the tab menu
+    /// can grey out items that would do nothing.
+    func hasTabs(toLeftOf id: UUID) -> Bool {
+        (tabs.firstIndex { $0.id == id }).map { $0 > 0 } ?? false
+    }
+
+    func hasTabs(toRightOf id: UUID) -> Bool {
+        (tabs.firstIndex { $0.id == id }).map { $0 < tabs.count - 1 } ?? false
+    }
+
     // MARK: Running queries
 
     /// ⌘↩ target: persist pending cell edits if any, otherwise run the SQL.
@@ -527,6 +563,18 @@ final class QueryConsoleModel {
         tab.pageLimit = QueryTab.pageSize
         tabs.append(tab)
         activeTabID = tab.id
+        await reloadData(tab, refreshCount: true)
+    }
+
+    /// Opens the table a foreign key points at, filtered to the referenced row —
+    /// "follow this reference". Reuses an existing view of that table, replacing its
+    /// filter so the same tab doesn't keep a stale one.
+    func openReferencedTable(schema: String, table: String, where clause: String) async {
+        await openTable(schema: schema, table: table)
+        guard let tab = activeTab, tab.kind == .data else { return }
+        tab.filterWhere = clause
+        tab.sortColumn = nil
+        tab.pageLimit = QueryTab.pageSize
         await reloadData(tab, refreshCount: true)
     }
 

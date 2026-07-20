@@ -160,6 +160,21 @@ struct DetailView: View {
         .contentShape(Rectangle())
         .onTapGesture { model.activeTabID = tab.id }
         .overlay { MiddleClickCatcher { model.closeTab(tab.id) } }
+        .contextMenu { tabMenu(tab) }
+    }
+
+    @ViewBuilder
+    private func tabMenu(_ tab: QueryTab) -> some View {
+        Button("Close") { model.closeTab(tab.id) }
+            .keyboardShortcut("w", modifiers: .command)
+        Button("Close Other Tabs") { model.closeOtherTabs(tab.id) }
+            .disabled(model.tabs.count < 2)
+        Button("Close All Tabs") { model.closeAllTabs() }
+        Divider()
+        Button("Close Tabs to the Left") { model.closeTabsToLeft(of: tab.id) }
+            .disabled(!model.hasTabs(toLeftOf: tab.id))
+        Button("Close Tabs to the Right") { model.closeTabsToRight(of: tab.id) }
+            .disabled(!model.hasTabs(toRightOf: tab.id))
     }
 
     // MARK: Editor
@@ -488,9 +503,18 @@ struct DetailView: View {
                     Divider()
                 }
                 if let result = tab.result, !result.columns.isEmpty {
-                    ResultsTableView(tab: tab) { column in
-                        Task { await model.sortByColumn(tab, column: column) }
-                    }
+                    ResultsTableView(
+                        tab: tab,
+                        onSort: { column in
+                            Task { await model.sortByColumn(tab, column: column) }
+                        },
+                        onFollowForeignKey: { target, clause in
+                            Task {
+                                await model.openReferencedTable(schema: target.schema,
+                                                                table: target.table,
+                                                                where: clause)
+                            }
+                        })
                 } else {
                     Spacer(minLength: 0)
                 }
