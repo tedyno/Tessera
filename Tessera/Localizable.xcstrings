@@ -971,6 +971,40 @@
         }
       }
     },
+    "Delete %lld Items": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Delete %1$lld Items"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smazat %lld položek"
+          }
+        }
+      }
+    },
+    "Delete %lld items?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Delete %1$lld items?"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smazat %lld položek?"
+          }
+        }
+      }
+    },
     "Delete Rows": {
       "extractionState": "manual",
       "localizations": {
@@ -1451,6 +1485,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Přejít do editoru"
+          }
+        }
+      }
+    },
+    "Folders and everything nested inside them go too.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Složky a vše uvnitř nich zmizí také."
           }
         }
       }

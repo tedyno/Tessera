@@ -539,6 +539,13 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 add(menu, String(localized: "New Workspace"), #selector(actionNewWorkspace), nil)
                 return menu
             }
+            // Right-clicking a row that's already part of a multi-selection operates
+            // on the whole selection — only delete gets a batch form; every other
+            // per-item action (rename, color, connect…) doesn't generalize across a
+            // mixed selection, so it stays scoped to just the clicked row below.
+            if outlineView.selectedRowIndexes.count > 1, outlineView.selectedRowIndexes.contains(row) {
+                return batchMenu(for: outlineView.selectedRowIndexes)
+            }
             if item.isContainer {
                 add(menu, String(localized: "New Connection"), #selector(actionNewConnection), item)
                 add(menu, String(localized: "New Folder"), #selector(actionNewFolder), item)
@@ -575,6 +582,15 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 menu.addItem(colorMenuItem(for: item))
             }
             add(menu, String(localized: "Delete"), #selector(actionDelete), item)
+            return menu
+        }
+
+        private func batchMenu(for rows: IndexSet) -> NSMenu {
+            let menu = NSMenu()
+            let item = NSMenuItem(title: String(localized: "Delete \(rows.count) Items"),
+                                  action: #selector(actionDeleteSelection), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
             return menu
         }
 
@@ -726,6 +742,42 @@ struct OrganizerOutlineView: NSViewRepresentable {
                                              connections: summary.connections) else { return }
             model.deleteContainer(item.id, removingContents: remove)
             rebuild(expandingAll: false)
+        }
+
+        /// Deletes every selected item. Simpler than the single-item flow above: a
+        /// mixed multi-selection has no single sensible "move contents up a level"
+        /// answer, so a non-empty container in the batch always takes its contents
+        /// with it — no per-item nuance, just one confirmation for the whole batch.
+        @objc private func actionDeleteSelection() {
+            guard let outlineView else { return }
+            let ids = outlineView.selectedRowIndexes.compactMap { outlineView.item(atRow: $0) as? OrganizerItem }.map(\.id)
+            // A folder already takes its nested contents with it — drop any id that's
+            // nested under another id in the same selection so it isn't deleted twice.
+            let roots = ids.filter { id in
+                !ids.contains { other in other != id && model.organizer.descendants(of: other).contains(id) }
+            }
+            guard !roots.isEmpty else { return }
+
+            let hasNonEmptyContainer = roots.contains { id in
+                let isWorkspace = model.organizer.workspaces.contains { $0.id == id }
+                let isContainer = isWorkspace || model.organizer.node(id: id)?.children != nil
+                return isContainer && !model.deletionSummary(id).isEmpty
+            }
+            if hasNonEmptyContainer {
+                guard confirmBatchDelete(count: roots.count) else { return }
+            }
+            for id in roots { model.delete(id: id) }
+            rebuild(expandingAll: false)
+        }
+
+        private func confirmBatchDelete(count: Int) -> Bool {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(localized: "Delete \(count) items?")
+            alert.informativeText = String(localized: "Folders and everything nested inside them go too.")
+            alert.addButton(withTitle: String(localized: "Delete"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
+            return alert.runModal() == .alertFirstButtonReturn
         }
 
         /// Asks what to do with a non-empty container. Returns whether to delete the
