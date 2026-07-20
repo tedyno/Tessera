@@ -94,6 +94,11 @@ struct OrganizerOutlineView: NSViewRepresentable {
         outline.contextMenuProvider = { [coordinator = context.coordinator] row in
             coordinator.menu(forRow: row)
         }
+        // Selecting a connection already connects it (see the outer view's
+        // `onChange(of: selection)`) — this only helps when it's already selected,
+        // where a single click doesn't re-fire that: double-click retries it.
+        outline.target = context.coordinator
+        outline.doubleAction = #selector(Coordinator.doubleClick(_:))
 
         let scrollView = NSScrollView()
         scrollView.documentView = outline
@@ -573,6 +578,19 @@ struct OrganizerOutlineView: NSViewRepresentable {
         @objc private func actionRename(_ sender: NSMenuItem) {
             if let item = sender.representedObject as? OrganizerItem { onRename(item.id, title(for: item)) }
         }
+        /// Double-clicking a connection (re)connects it, unless it's already ready
+        /// or mid-connect — the only case a click alone can't trigger is retrying a
+        /// failed/idle connection that was already the selection.
+        @objc func doubleClick(_ sender: Any?) {
+            guard let outlineView, outlineView.clickedRow >= 0,
+                  let item = outlineView.item(atRow: outlineView.clickedRow) as? OrganizerItem,
+                  item.category == .connection,
+                  let profileID = model.organizer.profileID(forNode: item.id) else { return }
+            let dot = connectionDot(profileID)
+            guard dot != .connected, dot != .connecting else { return }
+            onConnectProfile(profileID)
+        }
+
         @objc private func actionConnect(_ sender: NSMenuItem) {
             guard let item = sender.representedObject as? OrganizerItem else { return }
             selection.wrappedValue = item.id
