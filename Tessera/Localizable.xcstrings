@@ -296,6 +296,17 @@
         }
       }
     },
+    "All": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vše"
+          }
+        }
+      }
+    },
     "Allow": {
       "extractionState": "manual",
       "localizations": {
@@ -641,6 +652,17 @@
         }
       }
     },
+    "Columns": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sloupce"
+          }
+        }
+      }
+    },
     "Columns (comma-separated)": {
       "extractionState": "manual",
       "localizations": {
@@ -780,6 +802,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Připojení, na kterém tento panel běží"
+          }
+        }
+      }
+    },
+    "Connections": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Připojení"
           }
         }
       }

@@ -433,10 +433,44 @@ final class AppModel {
                                                        connectionName: profile.name, path: path,
                                                        schema: namespace.name, table: table.name, column: column.name))
                     }
+                    for index in table.indexes where index.name.lowercased().contains(needle) {
+                        results.append(SpotlightResult(kind: .index, profileID: profile.id,
+                                                       connectionName: profile.name, path: path,
+                                                       schema: namespace.name, table: table.name,
+                                                       column: nil, indexName: index.name))
+                    }
                 }
             }
         }
-        return Array(results.prefix(80))
+        return Array(Self.ranked(results, needle: needle).prefix(80))
+    }
+
+    /// Exact matches first, then names that start with the term, then the rest —
+    /// typing a full table name should not bury it under columns that merely
+    /// contain it. Ties keep a stable kind order and sort by name.
+    private static func ranked(_ results: [SpotlightResult], needle: String) -> [SpotlightResult] {
+        func rank(_ title: String) -> Int {
+            let name = title.lowercased()
+            if name == needle { return 0 }
+            if name.hasPrefix(needle) { return 1 }
+            return 2
+        }
+        func kindOrder(_ kind: SpotlightResult.Kind) -> Int {
+            switch kind {
+            case .connection: 0
+            case .schema: 1
+            case .table: 2
+            case .column: 3
+            case .index: 4
+            }
+        }
+        return results.sorted { left, right in
+            let (l, r) = (rank(left.title), rank(right.title))
+            if l != r { return l < r }
+            let (lk, rk) = (kindOrder(left.kind), kindOrder(right.kind))
+            if lk != rk { return lk < rk }
+            return left.title.localizedCaseInsensitiveCompare(right.title) == .orderedAscending
+        }
     }
 
     /// Opens the connection for a spotlight result and navigates to its context.
