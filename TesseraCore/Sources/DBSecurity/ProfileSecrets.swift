@@ -86,6 +86,29 @@ public final class ProfileSecretsStore: @unchecked Sendable {
         }
     }
 
+    /// Drops every stored secret not backed by a current connection: vault entries
+    /// and stray pre-vault items alike. Deletes never read the secret, so this runs
+    /// at launch without an access prompt. Pass the `keychainAccount` of every
+    /// profile that still exists.
+    public func purgeOrphans(keeping accounts: Set<String>) {
+        lock.withLock {
+            // Vault entries first.
+            if var vault = try? loadVault() {
+                let stale = vault.entries.keys.filter { !accounts.contains($0) }
+                if !stale.isEmpty {
+                    for account in stale { vault.remove(account) }
+                    try? saveVault(vault)
+                }
+            }
+            // Then any leftover per-item accounts (base UUID, or its .ssh.* children).
+            guard let stored = try? keychain.allAccounts() else { return }
+            for account in stored where account != vaultAccount {
+                let base = account.components(separatedBy: ".ssh.").first ?? account
+                if !accounts.contains(base) { try? keychain.delete(account: account) }
+            }
+        }
+    }
+
     // MARK: Pre-vault storage
 
     private func dbAccount(_ p: ConnectionProfile) -> String { p.keychainAccount }

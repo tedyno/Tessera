@@ -60,4 +60,22 @@ public struct KeychainStore: Sendable {
             throw KeychainError.unexpectedStatus(status)
         }
     }
+
+    /// Every account this service stores. Returns attributes only, not the secret
+    /// data, so it never triggers an access prompt — safe to call at launch.
+    public func allAccounts() throws -> [String] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnAttributes as String: true,
+        ]
+        query[kSecReturnData as String] = false
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return [] }
+        guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
+        let items = result as? [[String: Any]] ?? []
+        return items.compactMap { $0[kSecAttrAccount as String] as? String }
+    }
 }

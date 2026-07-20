@@ -31,6 +31,9 @@ final class ConnectionsModel {
             ?? dir.appendingPathComponent("tessera-schema-visibility.json")
         loadAll()
         loadVisibility()
+        // Drop any Keychain secret left behind by a connection that no longer exists
+        // (e.g. deleted by an older build). Enumerating attributes doesn't prompt.
+        secretsStore.purgeOrphans(keeping: Set(profiles.map(\.keychainAccount)))
     }
 
     // MARK: Schema visibility

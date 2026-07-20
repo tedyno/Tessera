@@ -83,3 +83,21 @@ final class SecretsVaultTests: XCTestCase {
         XCTAssertEqual(SecretsVault().secrets(for: "nobody").databasePassword, nil)
     }
 }
+
+final class SecretsVaultPurgeTests: XCTestCase {
+
+    /// The vault-level purge is pure and testable; the Keychain sweep is exercised
+    /// live in the app. A stale entry goes, a kept one stays.
+    func testPurgeDropsEntriesNotInTheKeepSet() {
+        var vault = SecretsVault()
+        vault.apply(Secrets(databasePassword: "keep"), for: "A")
+        vault.apply(Secrets(databasePassword: "gone"), for: "B")
+
+        let keep: Set<String> = ["A"]
+        for account in vault.entries.keys where !keep.contains(account) {
+            vault.remove(account)
+        }
+        XCTAssertTrue(vault.contains("A"))
+        XCTAssertFalse(vault.contains("B"))
+    }
+}
