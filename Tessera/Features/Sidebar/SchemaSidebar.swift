@@ -50,6 +50,10 @@ struct SchemaSidebar: View {
     /// Dumps several tables into one file — only offered when they all share a
     /// schema, since a dump target is scoped to a single schema.
     var onDumpTables: (_ schema: String, _ tables: [String]) -> Void = { _, _ in }
+    /// Dumps several schemas into one file. All schemas in the sidebar belong to
+    /// the one database shown, so the same-database constraint holds by
+    /// construction (one dump = one database connection).
+    var onDumpSchemas: (_ schemas: [String]) -> Void = { _ in }
 
     @State private var expanded: Set<String> = ["db"]
     /// Schemas are expanded by default, so this tracks the ones a user explicitly
@@ -64,10 +68,12 @@ struct SchemaSidebar: View {
     /// those have their own distinct actions that don't generalize into a batch.
     @State private var selectedTables: Set<TableRef> = []
     @State private var selectionAnchor: TableRef?
-    /// The single highlighted container row ("db" or "s:<name>") — schemas and the
-    /// database don't join the table multi-selection, but a click should still
-    /// visibly land on them.
-    @State private var selectedNode: String?
+    /// Multi-selected schemas (⌘-click), mutually exclusive with the table
+    /// selection — the batch action ("Dump N Schemas…") only makes sense within
+    /// the one database the sidebar shows.
+    @State private var selectedSchemas: Set<String> = []
+    /// Whether the database row itself is highlighted (single, no batch actions).
+    @State private var dbSelected = false
 
     /// Lowercased, trimmed name filter; empty means "show everything".
     private var query: String {
@@ -123,7 +129,7 @@ struct SchemaSidebar: View {
                                     .listRowBackground(nodeBackground("db"))
                                     .contentShape(Rectangle())
                                     .pointerCursor()
-                                    .simultaneousGesture(TapGesture(count: 1).onEnded { selectNode("db") })
+                                    .simultaneousGesture(TapGesture(count: 1).onEnded { selectDatabase() })
                                     .contextMenu {
                                         if databases.count > 1 {
                                             Menu("Switch Database") {
@@ -160,12 +166,14 @@ struct SchemaSidebar: View {
                     .onChange(of: connectionName) { _, _ in clearTableSelection() }
                 }
                 .safeAreaInset(edge: .bottom) { filterBar(tree) }
+                .transition(.opacity)
             } else if status == .connecting {
                 VStack(spacing: 8) {
                     ProgressView()
                     Text("Connecting…").foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
             } else if status == .ready {
                 // Connected, but the schema fetch (a separate round trip after the
                 // driver connects) hasn't come back yet.
@@ -174,11 +182,16 @@ struct SchemaSidebar: View {
                     Text("Loading schema…").foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
             } else {
                 ContentUnavailableView("No schema", systemImage: "cylinder.split.1x2",
                                        description: Text("Connect to a database to browse its schema."))
+                    .transition(.opacity)
             }
         }
+        // Connecting → loading schema → tree cross-fades instead of hard-swapping.
+        .animation(.easeInOut(duration: 0.25), value: status)
+        .animation(.easeInOut(duration: 0.25), value: tree == nil)
     }
 
     // MARK: Nodes
@@ -194,14 +207,22 @@ struct SchemaSidebar: View {
                 .listRowBackground(nodeBackground("s:\(namespace.name)"))
                 .contentShape(Rectangle())
                 .pointerCursor()
-                .simultaneousGesture(TapGesture(count: 1).onEnded { selectNode("s:\(namespace.name)") })
+                .simultaneousGesture(TapGesture(count: 1).onEnded { handleSchemaClick(namespace.name) })
                 .contextMenu {
-                    Button("New Query Tab") { onNewQueryTab() }
-                        .keyboardShortcut("t", modifiers: .command)
-                    Divider()
-                    Button("Create Table…") { onDDL(.createTable(schema: namespace.name)) }
-                    Divider()
-                    Button("Dump Schema…") { onDumpSchema(namespace.name) }
+                    // Same rule as tables: right-clicking a schema that's part of a
+                    // multi-selection acts on the whole selection.
+                    let targets = selectedSchemas.contains(namespace.name) && selectedSchemas.count > 1
+                        ? Array(selectedSchemas) : [namespace.name]
+                    if targets.count > 1 {
+                        Button("Dump \(targets.count) Schemas…") { onDumpSchemas(targets) }
+                    } else {
+                        Button("New Query Tab") { onNewQueryTab() }
+                            .keyboardShortcut("t", modifiers: .command)
+                        Divider()
+                        Button("Create Table…") { onDDL(.createTable(schema: namespace.name)) }
+                        Divider()
+                        Button("Dump Schema…") { onDumpSchema(namespace.name) }
+                    }
                 }
         }
     }
@@ -357,22 +378,42 @@ struct SchemaSidebar: View {
     }
 
     private func clearTableSelection() {
-        selectedTables = []
-        selectionAnchor = nil
-        selectedNode = nil
+        withAnimation(.easeOut(duration: 0.15)) {
+            selectedTables = []
+            selectionAnchor = nil
+            selectedSchemas = []
+            dbSelected = false
+        }
     }
 
-    /// Click on the database or a schema row: one highlighted container at a time,
-    /// mutually exclusive with the table selection.
-    private func selectNode(_ key: String) {
+    /// Click on the database row: single highlight, exclusive with everything else.
+    private func selectDatabase() {
         clearTableSelection()
-        selectedNode = key
+        withAnimation(.easeOut(duration: 0.15)) { dbSelected = true }
+    }
+
+    /// Click on a schema row: ⌘ toggles it in/out of the schema selection, a plain
+    /// click replaces it — mirroring how table clicks behave.
+    private func handleSchemaClick(_ name: String) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            selectedTables = []
+            selectionAnchor = nil
+            dbSelected = false
+            if NSEvent.modifierFlags.contains(.command) {
+                if selectedSchemas.contains(name) { selectedSchemas.remove(name) }
+                else { selectedSchemas.insert(name) }
+            } else {
+                selectedSchemas = [name]
+            }
+        }
     }
 
     /// The reveal-from-spotlight flash takes priority over the click highlight.
     private func nodeBackground(_ key: String) -> Color {
         if highlightedID == key { return Color.accentColor.opacity(0.25) }
-        if selectedNode == key { return Color.accentColor.opacity(0.15) }
+        if key == "db" ? dbSelected : selectedSchemas.contains(String(key.dropFirst(2))) {
+            return Color.accentColor.opacity(0.15)
+        }
         return Color.clear
     }
 
@@ -381,23 +422,27 @@ struct SchemaSidebar: View {
     /// replaces the selection with just this one table.
     private func handleTableClick(namespace: String, table: String) {
         let ref = TableRef(schema: namespace, table: table)
-        selectedNode = nil   // a table click takes the highlight from any container row
         let modifiers = NSEvent.modifierFlags
-        if modifiers.contains(.command) {
-            if selectedTables.contains(ref) { selectedTables.remove(ref) } else { selectedTables.insert(ref) }
-            selectionAnchor = ref
-        } else if modifiers.contains(.shift), let anchor = selectionAnchor {
-            let order = visibleTableOrder()
-            if let from = order.firstIndex(of: anchor), let to = order.firstIndex(of: ref) {
-                let range = from <= to ? from...to : to...from
-                selectedTables = Set(order[range])
+        withAnimation(.easeOut(duration: 0.15)) {
+            // A table click takes the highlight from any container row.
+            selectedSchemas = []
+            dbSelected = false
+            if modifiers.contains(.command) {
+                if selectedTables.contains(ref) { selectedTables.remove(ref) } else { selectedTables.insert(ref) }
+                selectionAnchor = ref
+            } else if modifiers.contains(.shift), let anchor = selectionAnchor {
+                let order = visibleTableOrder()
+                if let from = order.firstIndex(of: anchor), let to = order.firstIndex(of: ref) {
+                    let range = from <= to ? from...to : to...from
+                    selectedTables = Set(order[range])
+                } else {
+                    selectedTables = [ref]
+                    selectionAnchor = ref
+                }
             } else {
                 selectedTables = [ref]
                 selectionAnchor = ref
             }
-        } else {
-            selectedTables = [ref]
-            selectionAnchor = ref
         }
     }
 

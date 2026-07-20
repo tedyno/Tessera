@@ -1272,6 +1272,41 @@
         }
       }
     },
+    "Dump %lld Schemas…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Dump %1$lld Schemas…"
+          }
+        },
+        "cs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dump %lld schématu…"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dump %lld schémat…"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dump %lld schémat…"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "Dump %lld Tables…": {
       "extractionState": "manual",
       "localizations": {

@@ -59,14 +59,19 @@ struct DetailView: View {
                 if showInspector, let tab = model.activeTab, tab.result != nil {
                     Divider()
                     inspectorPanel(tab)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
                 if let tab = model.activeTab, tab.hasEdits {
                     Divider()
                     pendingPanel(tab)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
             statusBar
         }
+        // The bottom panels slide in rather than snapping the layout around.
+        .animation(.snappy(duration: 0.25), value: showInspector)
+        .animation(.snappy(duration: 0.25), value: model.activeTab?.hasEdits ?? false)
         .sheet(isPresented: $showingConnectionLog) {
             ConnectionLogView(log: model.connectionLog)
         }
@@ -104,6 +109,7 @@ struct DetailView: View {
             HStack(spacing: 0) {
                 ForEach(model.tabs) { tab in
                     tabChip(tab)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
                 Button {
                     model.addTab()
@@ -113,10 +119,14 @@ struct DetailView: View {
                 .buttonStyle(.borderless)
                 Spacer()
             }
+            // Opening/closing a tab slides its neighbours over instead of snapping.
+            .animation(.snappy(duration: 0.2), value: model.tabs.map(\.id))
         }
         .frame(height: 30)
         .background(.bar)
     }
+
+    @State private var hoveredTabID: UUID?
 
     private func tabChip(_ tab: QueryTab) -> some View {
         let isActive = tab.id == model.activeTabID
@@ -156,18 +166,29 @@ struct DetailView: View {
         }
         .padding(.horizontal, 12)
         .frame(maxHeight: .infinity)
-        .background(isActive
-                    ? (isData ? AnyShapeStyle(Color.teal.opacity(0.12)) : AnyShapeStyle(.background))
-                    : AnyShapeStyle(.clear))
+        .background(tabChipBackground(isActive: isActive, isData: isData, isHovered: hoveredTabID == tab.id))
         // A teal top-stripe marks data views apart from SQL console tabs.
         .overlay(alignment: .top) {
             if isData { Rectangle().fill(.teal).frame(height: 2) }
         }
         .overlay(alignment: .trailing) { Divider() }
         .contentShape(Rectangle())
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                if hovering { hoveredTabID = tab.id }
+                else if hoveredTabID == tab.id { hoveredTabID = nil }
+            }
+        }
         .onTapGesture { model.activate(tab) }
         .overlay { MiddleClickCatcher { model.closeTab(tab.id) } }
         .contextMenu { tabMenu(tab) }
+    }
+
+    private func tabChipBackground(isActive: Bool, isData: Bool, isHovered: Bool) -> AnyShapeStyle {
+        if isActive {
+            return isData ? AnyShapeStyle(Color.teal.opacity(0.12)) : AnyShapeStyle(.background)
+        }
+        return isHovered ? AnyShapeStyle(Color.primary.opacity(0.06)) : AnyShapeStyle(.clear)
     }
 
     @ViewBuilder
@@ -560,9 +581,11 @@ struct DetailView: View {
             VStack(spacing: 0) {
                 if let message = tab.errorMessage {
                     feedbackBanner(message, isError: true)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     Divider()
                 } else if let result = tab.result, result.columns.isEmpty {
                     feedbackBanner(successText(tab, result), isError: false)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     Divider()
                 }
                 if let result = tab.result, !result.columns.isEmpty {
@@ -579,12 +602,17 @@ struct DetailView: View {
                             }
                         })
                     .overlay(alignment: .topTrailing) {
-                        if tab.isSearchBarVisible { findBar(tab, result: result) }
+                        if tab.isSearchBarVisible {
+                            findBar(tab, result: result)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
                     }
+                    .animation(.snappy(duration: 0.2), value: tab.isSearchBarVisible)
                 } else {
                     Spacer(minLength: 0)
                 }
             }
+            .animation(.snappy(duration: 0.2), value: tab.errorMessage != nil)
         } else {
             ContentUnavailableView("No results", systemImage: "tablecells",
                                    description: Text("Press Run to execute the query."))

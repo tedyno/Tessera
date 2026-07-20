@@ -224,6 +224,11 @@ struct ContentView: View {
                 if let profileID = app.console.currentProfileID {
                     app.exportTables(profileID: profileID, schema: schema, tables: tables)
                 }
+            },
+            onDumpSchemas: { schemas in
+                if let profileID = app.console.currentProfileID {
+                    app.exportSchemas(profileID: profileID, schemas: schemas)
+                }
             })
     }
 }

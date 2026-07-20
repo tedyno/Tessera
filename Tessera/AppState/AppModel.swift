@@ -805,6 +805,12 @@ final class AppModel {
         exportTarget = ExportTarget(profileID: profileID, schemas: [schema])
     }
 
+    /// Dumps several schemas (all in the connection's current database) into one
+    /// file — pg_dump takes a --schema flag per schema in a single invocation.
+    func exportSchemas(profileID: UUID, schemas: [String]) {
+        exportTarget = ExportTarget(profileID: profileID, schemas: schemas)
+    }
+
     func exportTable(profileID: UUID, schema: String, table: String) {
         exportTarget = ExportTarget(profileID: profileID, schemas: [schema], tables: [table])
     }
