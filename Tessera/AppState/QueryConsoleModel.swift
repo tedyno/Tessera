@@ -209,13 +209,26 @@ final class QueryConsoleModel {
         }
         do {
             let cap = ExportSettings.maxRows
-            let result = try await driver.execute(sql, maxRows: cap > 0 ? cap : nil)
+            var result = try await driver.execute(sql, maxRows: cap > 0 ? cap : nil)
+            // Both drivers derive column info from the fetched rows, so a query that
+            // legitimately matches zero rows comes back with no columns at all — no
+            // grid, no headers, and (for an editable table) `detectEditSource` below
+            // would wrongly see it as uneditable too. A data-view tab already knows
+            // its table's columns from the introspected schema; fall back to those.
+            if result.columns.isEmpty, result.rows.isEmpty, tab.kind == .data,
+               let schemaName = tab.dataSchema, let tableName = tab.dataTable,
+               let table = session.schema?.schemas.first(where: { $0.name == schemaName })?
+                   .tables.first(where: { $0.name == tableName }) {
+                result.columns = table.columns.map { ColumnDescriptor(name: $0.name, typeName: $0.dataType) }
+            }
             tab.result = result
             tab.resultVersion &+= 1
             tab.scriptSummary = nil
             tab.edits = [:]
             tab.pendingDeletes = []
             tab.pendingInserts = []
+            tab.clearSearch()   // a stale ⌘F filter over the old result would otherwise
+                                // silently block editing on every row of the new one
             tab.editSource = detectEditSource(sql: sql, columns: result.columns, schema: session.schema)
             let ms = result.elapsed.map(Self.milliseconds)
             tab.elapsedMS = ms
@@ -255,6 +268,7 @@ final class QueryConsoleModel {
             tab.result = lastResult ?? QueryResult()
             tab.resultVersion &+= 1
             tab.edits = [:]; tab.pendingDeletes = []; tab.pendingInserts = []
+            tab.clearSearch()
             tab.editSource = nil   // a script isn't a single editable table view
             tab.scriptSummary = "Executed \(executed) statement\(executed == 1 ? "" : "s")"
         } catch {
