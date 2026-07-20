@@ -588,11 +588,63 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         private func batchMenu(for rows: IndexSet) -> NSMenu {
             let menu = NSMenu()
+            menu.addItem(batchColorMenuItem())
+            menu.addItem(.separator())
             let item = NSMenuItem(title: String(localized: "Delete \(rows.count) Items"),
                                   action: #selector(actionDeleteSelection), keyEquivalent: "")
             item.target = self
             menu.addItem(item)
             return menu
+        }
+
+        /// Color submenu for a multi-selection — applies to every selected item at
+        /// once (folders and connections directly; a selected project or workspace
+        /// colors everything nested inside it).
+        private func batchColorMenuItem() -> NSMenuItem {
+            let parent = NSMenuItem(title: String(localized: "Color"), action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            for (name, color) in Self.palette {
+                let entry = NSMenuItem(title: name.capitalized,
+                                       action: #selector(actionSetColorSelection(_:)), keyEquivalent: "")
+                entry.target = self
+                entry.representedObject = name
+                entry.image = Self.swatch(color)
+                submenu.addItem(entry)
+            }
+            submenu.addItem(.separator())
+            let none = NSMenuItem(title: String(localized: "None"),
+                                  action: #selector(actionSetColorSelection(_:)), keyEquivalent: "")
+            none.target = self
+            submenu.addItem(none)
+            parent.submenu = submenu
+            return parent
+        }
+
+        @objc private func actionSetColorSelection(_ sender: NSMenuItem) {
+            guard let outlineView else { return }
+            let color = sender.representedObject as? String   // nil = None
+            let ids = outlineView.selectedRowIndexes
+                .compactMap { outlineView.item(atRow: $0) as? OrganizerItem }.map(\.id)
+            for id in ids { applyColor(color, to: id) }
+            rebuild(expandingAll: false)
+        }
+
+        /// Folders and connections take the colour themselves; containers without a
+        /// colour of their own (projects, workspaces) pass it down to their contents.
+        private func applyColor(_ color: String?, to id: UUID) {
+            if let profileID = model.organizer.profileID(forNode: id) {
+                onSetConnectionColor(profileID, color)
+                return
+            }
+            if case .folder = model.organizer.node(id: id) {
+                onSetColor(id, color)
+                // A folder's contents keep their own colours — the folder itself is
+                // the visual unit, matching the single-item behaviour.
+                return
+            }
+            let children = model.organizer.workspaces.first { $0.id == id }?.children
+                ?? model.organizer.node(id: id)?.children ?? []
+            for child in children { applyColor(color, to: child.id) }
         }
 
         @discardableResult
