@@ -43,6 +43,8 @@ struct SpotlightResult: Identifiable, Hashable {
     let table: String?
     let column: String?
     var indexName: String? = nil
+    /// True when this came from the on-disk cache rather than a live connection.
+    var isCached: Bool = false
 
     var title: String {
         switch kind {
@@ -209,6 +211,12 @@ struct SpotlightView: View {
                 Text(result.subtitle).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            if result.isCached, result.kind != .connection {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .help("From the cached schema — this connection isn't open")
+            }
         }
     }
 

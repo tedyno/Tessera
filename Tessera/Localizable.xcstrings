@@ -1433,6 +1433,17 @@
         }
       }
     },
+    "From the cached schema — this connection isn't open": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Z uložené kopie schématu — toto připojení není otevřené"
+          }
+        }
+      }
+    },
     "From ~/.ssh/config": {
       "extractionState": "manual",
       "localizations": {

@@ -1,8 +1,7 @@
 import Foundation
 
-/// A table column in the schema browser.
 /// The column a foreign key points at, so the UI can follow the reference.
-public struct ForeignKeyTarget: Sendable, Hashable {
+public struct ForeignKeyTarget: Codable, Sendable, Hashable {
     public var schema: String
     public var table: String
     public var column: String
@@ -14,7 +13,7 @@ public struct ForeignKeyTarget: Sendable, Hashable {
     }
 }
 
-public struct SchemaColumn: Sendable, Hashable, Identifiable {
+public struct SchemaColumn: Codable, Sendable, Hashable, Identifiable {
     public var name: String
     public var dataType: String
     public var isPrimaryKey: Bool
@@ -43,7 +42,7 @@ public struct SchemaColumn: Sendable, Hashable, Identifiable {
 }
 
 /// An index on a table.
-public struct SchemaIndex: Sendable, Hashable, Identifiable {
+public struct SchemaIndex: Codable, Sendable, Hashable, Identifiable {
     public var name: String
     public var columns: [String]
     public var isUnique: Bool
@@ -58,8 +57,8 @@ public struct SchemaIndex: Sendable, Hashable, Identifiable {
 }
 
 /// A table or view within a schema.
-public struct SchemaTable: Sendable, Hashable, Identifiable {
-    public enum Kind: String, Sendable, Hashable {
+public struct SchemaTable: Codable, Sendable, Hashable, Identifiable {
+    public enum Kind: String, Codable, Sendable, Hashable {
         case table
         case view
     }
@@ -81,7 +80,7 @@ public struct SchemaTable: Sendable, Hashable, Identifiable {
 }
 
 /// A namespace / schema (e.g. `public`, `audit`).
-public struct SchemaNamespace: Sendable, Hashable, Identifiable {
+public struct SchemaNamespace: Codable, Sendable, Hashable, Identifiable {
     public var name: String
     public var tables: [SchemaTable]
 
@@ -94,8 +93,9 @@ public struct SchemaNamespace: Sendable, Hashable, Identifiable {
 }
 
 /// Schema tree of a single database (Database → Schema → Table → Column).
-/// A runtime structure produced after connecting — **never persisted**.
-public struct DatabaseTree: Sendable, Hashable {
+/// Produced by introspection after connecting, and cached on disk so search can
+/// reach connections that aren't open. Holds names only — never any row data.
+public struct DatabaseTree: Codable, Sendable, Hashable {
     public var databaseName: String
     public var schemas: [SchemaNamespace]
 

@@ -37,10 +37,18 @@ final class AppModel {
             guard let self, let profile = self.connections.profile(id: session.id) else { return }
             await self.openSession(session, profile: profile)
         }
+        schemaCache = schemaCacheStore.load()
+
         // Deleting a connection must take its live session and tabs with it.
         connections.onProfilesRemoved = { [weak self] profileIDs in
             guard let self else { return }
-            for profileID in profileIDs { self.console.forgetSession(profileID: profileID) }
+            for profileID in profileIDs {
+                self.console.forgetSession(profileID: profileID)
+                self.schemaCache[profileID] = nil
+            }
+            let snapshot = self.schemaCache
+            let store = self.schemaCacheStore
+            Task.detached { store.save(snapshot) }
         }
         NotificationCenter.default.addObserver(forName: .mcpSettingsChanged, object: nil,
                                                queue: .main) { [weak self] _ in
@@ -204,9 +212,23 @@ final class AppModel {
     var showingSpotlight = false
     /// A schema-tree item to expand/scroll to after a spotlight selection.
     var schemaReveal: SchemaRevealTarget?
-    /// Cached schema per profile, populated as connections are opened, so search
-    /// can span every connection visited this session.
-    private var schemaCache: [UUID: DatabaseTree] = [:]
+    /// Cached schema per profile. Persisted, so search reaches connections that
+    /// aren't open — including across launches. Names only, no row data.
+    private var schemaCache: [UUID: CachedSchema] = [:]
+    @ObservationIgnored private let schemaCacheStore = SchemaCacheStore(
+        fileURL: (try? SchemaCacheStore.defaultURL())
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("tessera-schema-cache.json"))
+
+    /// Records a freshly introspected schema and writes the cache out.
+    private func cacheSchema(_ tree: DatabaseTree, for profileID: UUID) {
+        schemaCache[profileID] = CachedSchema(tree: tree, updatedAt: Date())
+        let snapshot = schemaCache
+        let store = schemaCacheStore
+        Task.detached { store.save(snapshot) }
+    }
+
+    /// When a connection's cached schema was last read, for the search UI.
+    func cachedSchemaDate(for profileID: UUID) -> Date? { schemaCache[profileID]?.updatedAt }
 
     @ObservationIgnored private var lastShiftTap: TimeInterval = 0
     @ObservationIgnored private var shiftWasDown = false
@@ -337,7 +359,7 @@ final class AppModel {
         guard let session = console.session(for: profileID) else { return }
         Task {
             await session.refreshSchema()
-            if let schema = session.schema { schemaCache[profileID] = schema }
+            if let schema = session.schema { cacheSchema(schema, for: profileID) }
         }
     }
 
@@ -374,7 +396,7 @@ final class AppModel {
             return
         }
         await session.open(profile: profile, secrets: secrets)
-        if let schema = session.schema { schemaCache[profile.id] = schema }
+        if let schema = session.schema { cacheSchema(schema, for: profile.id) }
     }
 
     // MARK: Spotlight
@@ -410,34 +432,41 @@ final class AppModel {
 
         for profile in connections.profiles {
             let path = connections.path(forProfile: profile.id)
+            // Anything not backed by a live session came from the on-disk cache and
+            // may be out of date; the row says so.
+            let cached = !(console.session(for: profile.id)?.isReady ?? false)
             if profile.name.lowercased().contains(needle) {
                 results.append(SpotlightResult(kind: .connection, profileID: profile.id,
                                                connectionName: profile.name, path: path,
                                                schema: nil, table: nil, column: nil))
             }
-            guard let tree = schemaCache[profile.id] else { continue }
+            guard let tree = schemaCache[profile.id]?.tree else { continue }
             for namespace in tree.schemas {
                 if namespace.name.lowercased().contains(needle) {
                     results.append(SpotlightResult(kind: .schema, profileID: profile.id,
                                                    connectionName: profile.name, path: path,
-                                                   schema: namespace.name, table: nil, column: nil))
+                                                   schema: namespace.name, table: nil, column: nil,
+                                                   isCached: cached))
                 }
                 for table in namespace.tables {
                     if table.name.lowercased().contains(needle) {
                         results.append(SpotlightResult(kind: .table, profileID: profile.id,
                                                        connectionName: profile.name, path: path,
-                                                       schema: namespace.name, table: table.name, column: nil))
+                                                       schema: namespace.name, table: table.name, column: nil,
+                                                   isCached: cached))
                     }
                     for column in table.columns where column.name.lowercased().contains(needle) {
                         results.append(SpotlightResult(kind: .column, profileID: profile.id,
                                                        connectionName: profile.name, path: path,
-                                                       schema: namespace.name, table: table.name, column: column.name))
+                                                       schema: namespace.name, table: table.name, column: column.name,
+                                                   isCached: cached))
                     }
                     for index in table.indexes where index.name.lowercased().contains(needle) {
                         results.append(SpotlightResult(kind: .index, profileID: profile.id,
                                                        connectionName: profile.name, path: path,
                                                        schema: namespace.name, table: table.name,
-                                                       column: nil, indexName: index.name))
+                                                       column: nil, indexName: index.name,
+                                                       isCached: cached))
                     }
                 }
             }
@@ -545,7 +574,14 @@ final class AppModel {
         console.activeTabID = console.tabs[index].id
     }
 
-    func refreshSchema() { Task { await console.refreshSchema() } }
+    func refreshSchema() {
+        Task {
+            await console.refreshSchema()
+            if let session = console.activeSession, let schema = session.schema {
+                cacheSchema(schema, for: session.id)
+            }
+        }
+    }
     func showHistory() { showingHistory = true }
 
     /// A tab bound to the connection a history entry came from: reuses the active
