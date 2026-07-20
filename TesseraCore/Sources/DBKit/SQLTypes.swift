@@ -10,8 +10,12 @@ public enum SQLTypes {
         "int2", "int4", "int8", "smallint", "integer", "bigint",
         "serial", "bigserial", "smallserial", "serial2", "serial4", "serial8",
         "numeric", "decimal", "real", "double precision", "float4", "float8", "money", "oid",
-        // MySQL
+        // MySQL wire-protocol names (what the driver reports on query results)
         "tiny", "short", "int24", "long", "longlong", "float", "double", "newdecimal", "year",
+        // MySQL information_schema names (what introspection reports — used when an
+        // empty result falls back to schema-derived columns). `bit` is deliberately
+        // absent: its values render as binary strings, not bare numbers.
+        "int", "tinyint", "mediumint",
     ]
 
     public static func isNumeric(_ typeName: String) -> Bool {

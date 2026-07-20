@@ -36,10 +36,13 @@ final class TypedHeaderCell: NSTableHeaderCell {
         stringValue = ""
         super.draw(withFrame: cellFrame, in: controlView)
         stringValue = title
+        drawTitle(in: cellFrame)
+    }
 
+    private func drawTitle(in cellFrame: NSRect) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
-        let text = NSMutableAttributedString(string: title, attributes: [
+        let text = NSMutableAttributedString(string: stringValue, attributes: [
             .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle: paragraph])
@@ -58,9 +61,15 @@ final class TypedHeaderCell: NSTableHeaderCell {
 
     /// The sorted column is drawn via `highlight(_:withFrame:in:)`, not `draw(withFrame:in:)`
     /// — without this override, AppKit's own default implementation takes over for
-    /// that one column and shows only the plain name, dropping the type.
+    /// that one column and shows only the plain name, dropping the type. Chrome
+    /// (including the pressed-state background, per `flag`) still comes from super,
+    /// with the title blanked out the same way `draw` does it.
     override func highlight(_ flag: Bool, withFrame cellFrame: NSRect, in controlView: NSView) {
-        draw(withFrame: cellFrame, in: controlView)
+        let title = stringValue
+        stringValue = ""
+        super.highlight(flag, withFrame: cellFrame, in: controlView)
+        stringValue = title
+        drawTitle(in: cellFrame)
     }
 }
 

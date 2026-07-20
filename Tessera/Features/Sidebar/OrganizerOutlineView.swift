@@ -295,12 +295,13 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         private func applySelection() {
             guard let outlineView, let id = selection.wrappedValue else { return }
+            // Never touch a live multi-selection: `sync()` calls this on every
+            // organizer/status tick, and the binding only tracks the single "primary"
+            // row — it may even point at a row the user has since ⌘-deselected, so
+            // any forced re-select here would stomp what they're building.
+            guard outlineView.selectedRowIndexes.count <= 1 else { return }
             guard let item = find(id, in: roots) else { return }
             let row = outlineView.row(forItem: item)
-            // Only force a single-row selection when the primary id isn't already
-            // part of the current one — `sync()` calls this on every organizer/status
-            // tick, and a live multi-selection (mid-drag setup, about to be bulk
-            // deleted, …) would otherwise get collapsed back to one row underneath it.
             guard row >= 0, !outlineView.selectedRowIndexes.contains(row) else { return }
             isSyncingSelection = true
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)

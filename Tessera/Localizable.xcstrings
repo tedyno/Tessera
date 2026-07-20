@@ -981,9 +981,27 @@
           }
         },
         "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Smazat %lld položek"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Smazat %lld položku"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Smazat %lld položky"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Smazat %lld položek"
+                }
+              }
+            }
           }
         }
       }
@@ -998,9 +1016,27 @@
           }
         },
         "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Smazat %lld položek?"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Smazat %lld položku?"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Smazat %lld položky?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Smazat %lld položek?"
+                }
+              }
+            }
           }
         }
       }
@@ -1235,9 +1271,27 @@
           }
         },
         "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dump %lld tabulek…"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dump %lld tabulky…"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dump %lld tabulek…"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dump %lld tabulek…"
+                }
+              }
+            }
           }
         }
       }
@@ -2246,9 +2300,27 @@
           }
         },
         "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otevřít %lld tabulek"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Otevřít %lld tabulku"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Otevřít %lld tabulky"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Otevřít %lld tabulek"
+                }
+              }
+            }
           }
         }
       }

@@ -147,10 +147,11 @@ struct SchemaSidebar: View {
                     .onChange(of: reveal) { _, target in
                         if let target { applyReveal(target, proxy: proxy) }
                     }
-                    .onChange(of: tree.databaseName) { _, _ in
-                        selectedTables = []
-                        selectionAnchor = nil
-                    }
+                    // Both, not just the database name: two connections often serve a
+                    // database of the same name, and a selection built on one must not
+                    // leak into "Open N Tables" against the other.
+                    .onChange(of: tree.databaseName) { _, _ in clearTableSelection() }
+                    .onChange(of: connectionName) { _, _ in clearTableSelection() }
                 }
                 .safeAreaInset(edge: .bottom) { filterBar(tree) }
             } else if status == .connecting {
@@ -346,6 +347,11 @@ struct SchemaSidebar: View {
                     Button("Dump Table…") { onDumpTable(namespace, table.name) }
                 }
             }
+    }
+
+    private func clearTableSelection() {
+        selectedTables = []
+        selectionAnchor = nil
     }
 
     /// ⌘ toggles a table in/out of the selection; ⇧ extends it as a contiguous
