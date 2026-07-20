@@ -20,6 +20,10 @@
         }
       }
     },
+    "%@ → 127.0.0.1:%@": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
     "%@.%@": {
       "extractionState": "manual",
       "shouldTranslate": false
@@ -366,6 +370,17 @@
         }
       }
     },
+    "Cancelled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrušeno."
+          }
+        }
+      }
+    },
     "Cannot export this connection.": {
       "extractionState": "manual",
       "localizations": {
@@ -582,6 +597,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Připojte se k databázi a prohlédněte si její schéma."
+          }
+        }
+      }
+    },
+    "Connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Připojeno"
+          }
+        }
+      }
+    },
+    "Connecting to %@…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Připojuji k %@…"
           }
         }
       }
@@ -1679,6 +1716,17 @@
         }
       }
     },
+    "Not connected.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepřipojeno."
+          }
+        }
+      }
+    },
     "Nothing matches “%@”.": {
       "extractionState": "manual",
       "localizations": {
@@ -1906,6 +1954,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Připraveno"
+          }
+        }
+      }
+    },
+    "Reconnecting… (attempt %@ of %@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Připojuji znovu… (pokus %1$@ z %2$@)"
           }
         }
       }
@@ -2420,6 +2479,17 @@
         }
       }
     },
+    "Stop test": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zastavit test"
+          }
+        }
+      }
+    },
     "Structure": {
       "extractionState": "manual",
       "localizations": {
@@ -2574,6 +2644,39 @@
         }
       }
     },
+    "Timed out connecting to the database. The tunnel is up, so check the database host, port, and that it is listening.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vypršel čas při připojování k databázi. Tunel funguje, zkontroluj tedy hostitele a port databáze a jestli naslouchá."
+          }
+        }
+      }
+    },
+    "Timed out reaching the SSH server. Check the host, port, and that you can reach it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vypršel čas při spojení s SSH serverem. Zkontroluj hostitele, port a jestli je server dostupný."
+          }
+        }
+      }
+    },
+    "Timed out while connecting. Use “Test connection” in the connection’s settings to see whether the tunnel or the database is at fault.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vypršel čas při připojování. V nastavení připojení použij „Test connection“ a zjistíš, jestli je problém v tunelu, nebo v databázi."
+          }
+        }
+      }
+    },
     "Toggle Sidebar": {
       "extractionState": "manual",
       "localizations": {
@@ -2702,6 +2805,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "WHERE …"
+          }
+        }
+      }
+    },
+    "Waiting…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čeká…"
           }
         }
       }
@@ -2848,6 +2962,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "řádků ovlivněno"
+          }
+        }
+      }
+    },
+    "the tunnel": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tunel"
           }
         }
       }

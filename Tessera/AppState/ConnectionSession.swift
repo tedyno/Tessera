@@ -58,6 +58,10 @@ final class ConnectionSession: Identifiable {
         self.engine = profile.kind
     }
 
+    /// Cap on each connect stage (tunnel, then driver) so a silent network never
+    /// leaves the session spinning on "Connecting…" forever.
+    static let stageTimeout: Duration = .seconds(15)
+
     var isReady: Bool { status == .ready }
     var isConnecting: Bool { status == .connecting }
     var errorMessage: String? { if case .failed(let m) = status { return m }; return nil }
@@ -74,10 +78,12 @@ final class ConnectionSession: Identifiable {
             let endpoint: NetworkEndpoint
             if let ssh = profile.ssh {
                 let tunnel = SSHTunnel()
-                endpoint = try await tunnel.start(
-                    ssh: ssh, secrets: secrets,
-                    remoteHost: profile.host, remotePort: profile.port)
-                self.tunnel = tunnel
+                self.tunnel = tunnel   // stored first so a timeout can still tear it down
+                endpoint = try await withTimeout(Self.stageTimeout) {
+                    try await tunnel.start(
+                        ssh: ssh, secrets: secrets,
+                        remoteHost: profile.host, remotePort: profile.port)
+                }
             } else {
                 endpoint = NetworkEndpoint(host: profile.host, port: profile.port)
             }
@@ -85,9 +91,10 @@ final class ConnectionSession: Identifiable {
 
             // Reconnect to the chosen database when the user switched away from the
             // profile default (Postgres can't change database on a live connection).
-            var effective = profile
-            if let preferred = preferredDatabase, !preferred.isEmpty { effective.database = preferred }
-            self.database = effective.database
+            var target = profile
+            if let preferred = preferredDatabase, !preferred.isEmpty { target.database = preferred }
+            self.database = target.database
+            let effective = target
 
             let driver: any DatabaseDriver = switch profile.kind {
             case .postgres: PostgresDriver()
@@ -95,7 +102,9 @@ final class ConnectionSession: Identifiable {
             }
             self.driver = driver
 
-            try await driver.connect(profile: effective, secrets: secrets, endpoint: endpoint)
+            try await withTimeout(Self.stageTimeout) {
+                try await driver.connect(profile: effective, secrets: secrets, endpoint: endpoint)
+            }
             status = .ready
             serverVersion = try? await driver.serverVersion()
             schema = try? await driver.fetchSchema()
@@ -160,6 +169,9 @@ final class ConnectionSession: Identifiable {
     }
 
     static func message(for error: Error) -> String {
+        if error is OperationTimeout {
+            return String(localized: "Timed out while connecting. Use “Test connection” in the connection’s settings to see whether the tunnel or the database is at fault.")
+        }
         guard let dbError = error as? DatabaseError else { return String(describing: error) }
         switch dbError {
         case .notConnected: return "Not connected"

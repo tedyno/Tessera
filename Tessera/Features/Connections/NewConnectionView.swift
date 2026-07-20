@@ -42,8 +42,7 @@ struct NewConnectionView: View {
 
     private enum SSHAuthKind: Hashable { case password, privateKey }
 
-    private enum TestState: Equatable { case none, testing, ok(String), failed(String) }
-    @State private var testState: TestState = .none
+    @State private var tester = ConnectionTester()
 
     init(editing: ConnectionProfile? = nil, secrets: Secrets = Secrets(),
          onSave: @escaping (ConnectionProfile, Secrets) -> Void) {
@@ -194,6 +193,7 @@ struct NewConnectionView: View {
             .formStyle(.grouped)
 
             Divider()
+            testStatus
             footer
         }
         .frame(width: 540, height: 640)
@@ -206,9 +206,10 @@ struct NewConnectionView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Button("Test connection") { runTest() }
-                .disabled(!canSave || testState == .testing)
-            testStatus
+            Button(tester.isRunning ? "Stop test" : "Test connection") {
+                tester.isRunning ? tester.cancel() : tester.start(profile: makeProfile(), secrets: makeSecrets())
+            }
+            .disabled(!canSave)
             Spacer()
             Button("Cancel") { dismiss() }
             Button("Save") {
@@ -221,17 +222,49 @@ struct NewConnectionView: View {
         .padding(12)
     }
 
+    /// Stage-by-stage result, so a failure names the stage that broke.
     @ViewBuilder
     private var testStatus: some View {
-        switch testState {
-        case .none: EmptyView()
-        case .testing: ProgressView().controlSize(.small)
-        case .ok(let m):
-            Label(m, systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green).font(.caption)
-        case .failed(let m):
-            Label(m, systemImage: "xmark.circle.fill")
-                .foregroundStyle(.red).font(.caption).lineLimit(1)
+        if !tester.states.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(ConnectionTester.Stage.allCases) { stage in
+                    if case .skipped = tester.state(stage) {
+                        EmptyView()
+                    } else {
+                        HStack(spacing: 6) {
+                            stageIcon(tester.state(stage))
+                            Text(stage.title).font(.caption.weight(.medium))
+                            Text(stageDetail(tester.state(stage)))
+                                .font(.caption)
+                                .foregroundStyle(tester.state(stage).isFailure ? Color.red : .secondary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+        }
+    }
+
+    @ViewBuilder
+    private func stageIcon(_ state: ConnectionTester.State) -> some View {
+        switch state {
+        case .pending: Image(systemName: "circle").foregroundStyle(.tertiary).font(.caption)
+        case .skipped: Image(systemName: "minus.circle").foregroundStyle(.tertiary).font(.caption)
+        case .running: ProgressView().controlSize(.mini)
+        case .ok: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+        case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(.red).font(.caption)
+        }
+    }
+
+    private func stageDetail(_ state: ConnectionTester.State) -> String {
+        switch state {
+        case .pending: String(localized: "Waiting…")
+        case .skipped: ""
+        case .running(let m), .ok(let m), .failed(let m): m
         }
     }
 
@@ -305,22 +338,4 @@ struct NewConnectionView: View {
         }
     }
 
-    private func runTest() {
-        testState = .testing
-        let profile = makeProfile()
-        let secrets = makeSecrets()
-        Task {
-            let driver: any DatabaseDriver = profile.kind == .postgres ? PostgresDriver() : MySQLDriver()
-            do {
-                try await driver.connect(
-                    profile: profile, secrets: secrets,
-                    endpoint: NetworkEndpoint(host: profile.host, port: profile.port))
-                let version = (try? await driver.serverVersion()) ?? ""
-                await driver.close()
-                testState = .ok(version.isEmpty ? "Connection OK" : "\(profile.kind.displayName) \(version)")
-            } catch {
-                testState = .failed(String(describing: error).prefix(80).description)
-            }
-        }
-    }
 }
