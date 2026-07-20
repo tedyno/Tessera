@@ -779,6 +779,12 @@ final class AppModel {
         exportTarget = ExportTarget(profileID: profileID, schemas: [schema], tables: [table])
     }
 
+    /// Dumps several tables (all in the same schema) into one file — pg_dump/mysqldump
+    /// both already accept a list of tables in a single invocation.
+    func exportTables(profileID: UUID, schema: String, tables: [String]) {
+        exportTarget = ExportTarget(profileID: profileID, schemas: [schema], tables: tables)
+    }
+
     /// Everything the export sheet needs, resolved from the live session when possible
     /// (so an SSH-tunnelled connection dumps through the local tunnel endpoint).
     func exportContext(for target: ExportTarget) -> ExportContext? {

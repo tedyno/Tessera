@@ -44,6 +44,12 @@ struct SchemaSidebar: View {
     var onDumpSchema: (_ schema: String) -> Void = { _ in }
     var onDumpDatabase: () -> Void = { }
     var onDDL: (DDLOperation) -> Void = { _ in }
+    /// Opens every table in the list at once (⌘/⇧-click to build the selection,
+    /// then double-click or the context menu's "Open N Tables").
+    var onOpenTables: (_ tables: [(schema: String, table: String)]) -> Void = { _ in }
+    /// Dumps several tables into one file — only offered when they all share a
+    /// schema, since a dump target is scoped to a single schema.
+    var onDumpTables: (_ schema: String, _ tables: [String]) -> Void = { _, _ in }
 
     @State private var expanded: Set<String> = ["db"]
     /// Schemas are expanded by default, so this tracks the ones a user explicitly
@@ -52,6 +58,12 @@ struct SchemaSidebar: View {
     @State private var highlightedID: String?
     @State private var showingFilter = false
     @State private var searchText = ""
+
+    private struct TableRef: Hashable { let schema: String; let table: String }
+    /// Multi-selected tables (⌘/⇧-click) — scoped to tables only, not schemas/columns:
+    /// those have their own distinct actions that don't generalize into a batch.
+    @State private var selectedTables: Set<TableRef> = []
+    @State private var selectionAnchor: TableRef?
 
     /// Lowercased, trimmed name filter; empty means "show everything".
     private var query: String {
@@ -135,6 +147,10 @@ struct SchemaSidebar: View {
                     .onChange(of: reveal) { _, target in
                         if let target { applyReveal(target, proxy: proxy) }
                     }
+                    .onChange(of: tree.databaseName) { _, _ in
+                        selectedTables = []
+                        selectionAnchor = nil
+                    }
                 }
                 .safeAreaInset(edge: .bottom) { filterBar(tree) }
             } else if status == .connecting {
@@ -186,7 +202,9 @@ struct SchemaSidebar: View {
     private func tableNode(namespace: String, table: SchemaTable) -> some View {
         let tableKey = "t:\(namespace).\(table.name)"
         if table.columns.isEmpty && table.indexes.isEmpty {
-            tableLabel(namespace: namespace, table: table).id(tableKey)
+            tableLabel(namespace: namespace, table: table)
+                .id(tableKey)
+                .listRowBackground(tableBackground(tableKey, namespace: namespace, table: table.name))
         } else {
             DisclosureGroup(isExpanded: binding(tableKey)) {
                 ForEach(table.columns) { column in
@@ -234,9 +252,17 @@ struct SchemaSidebar: View {
             } label: {
                 tableLabel(namespace: namespace, table: table)
                     .id(tableKey)
-                    .modifier(HighlightRow(active: highlightedID == tableKey))
+                    .listRowBackground(tableBackground(tableKey, namespace: namespace, table: table.name))
             }
         }
+    }
+
+    /// The revealed-from-spotlight flash takes priority over the persistent
+    /// multi-selection tint — the two would otherwise fight over `listRowBackground`.
+    private func tableBackground(_ key: String, namespace: String, table: String) -> Color {
+        if highlightedID == key { return Color.accentColor.opacity(0.25) }
+        if selectedTables.contains(TableRef(schema: namespace, table: table)) { return Color.accentColor.opacity(0.15) }
+        return Color.clear
     }
 
     private func columnRow(_ column: SchemaColumn) -> some View {
@@ -270,30 +296,94 @@ struct SchemaSidebar: View {
     }
 
     private func tableLabel(namespace: String, table: SchemaTable) -> some View {
-        Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
+        let ref = TableRef(schema: namespace, table: table.name)
+        return Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
             .foregroundStyle(table.kind == .view ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
             .contentShape(Rectangle())
             .pointerCursor()
-            .simultaneousGesture(TapGesture(count: 2).onEnded { onOpenTable(namespace, table.name) })
+            // A plain click only selects (⌘/⇧ extend the selection); double-click
+            // still opens immediately and collapses the selection to just this table.
+            .simultaneousGesture(TapGesture(count: 1).onEnded {
+                handleTableClick(namespace: namespace, table: table.name)
+            })
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                selectedTables = [ref]
+                selectionAnchor = ref
+                onOpenTable(namespace, table.name)
+            })
             .help("Double-click to SELECT *")
             .contextMenu {
-                Button("Open") { onOpenTable(namespace, table.name) }
-                Divider()
-                Button("Add Column…") { onDDL(.addColumn(schema: namespace, table: table.name)) }
-                Button("Create Index…") {
-                    onDDL(.createIndex(schema: namespace, table: table.name, columns: []))
+                // Right-clicking a table that's already part of a multi-selection
+                // operates on the whole selection — matching the organizer's rule.
+                let targets = selectedTables.contains(ref) && selectedTables.count > 1
+                    ? Array(selectedTables) : [ref]
+                if targets.count > 1 {
+                    Button("Open \(targets.count) Tables") {
+                        onOpenTables(targets.map { (schema: $0.schema, table: $0.table) })
+                    }
+                    let schemas = Set(targets.map(\.schema))
+                    if schemas.count == 1, let schema = schemas.first {
+                        Button("Dump \(targets.count) Tables…") {
+                            onDumpTables(schema, targets.map(\.table))
+                        }
+                    }
+                } else {
+                    Button("Open") { onOpenTable(namespace, table.name) }
+                    Divider()
+                    Button("Add Column…") { onDDL(.addColumn(schema: namespace, table: table.name)) }
+                    Button("Create Index…") {
+                        onDDL(.createIndex(schema: namespace, table: table.name, columns: []))
+                    }
+                    Button("Rename Table…") { onDDL(.renameTable(schema: namespace, table: table.name)) }
+                    Divider()
+                    Button("Truncate Table…", role: .destructive) {
+                        onDDL(.truncateTable(schema: namespace, table: table.name))
+                    }
+                    Button("Drop Table…", role: .destructive) {
+                        onDDL(.dropTable(schema: namespace, table: table.name))
+                    }
+                    Divider()
+                    Button("Dump Table…") { onDumpTable(namespace, table.name) }
                 }
-                Button("Rename Table…") { onDDL(.renameTable(schema: namespace, table: table.name)) }
-                Divider()
-                Button("Truncate Table…", role: .destructive) {
-                    onDDL(.truncateTable(schema: namespace, table: table.name))
-                }
-                Button("Drop Table…", role: .destructive) {
-                    onDDL(.dropTable(schema: namespace, table: table.name))
-                }
-                Divider()
-                Button("Dump Table…") { onDumpTable(namespace, table.name) }
             }
+    }
+
+    /// ⌘ toggles a table in/out of the selection; ⇧ extends it as a contiguous
+    /// range (within the currently expanded/filter-matching tables); a plain click
+    /// replaces the selection with just this one table.
+    private func handleTableClick(namespace: String, table: String) {
+        let ref = TableRef(schema: namespace, table: table)
+        let modifiers = NSEvent.modifierFlags
+        if modifiers.contains(.command) {
+            if selectedTables.contains(ref) { selectedTables.remove(ref) } else { selectedTables.insert(ref) }
+            selectionAnchor = ref
+        } else if modifiers.contains(.shift), let anchor = selectionAnchor {
+            let order = visibleTableOrder()
+            if let from = order.firstIndex(of: anchor), let to = order.firstIndex(of: ref) {
+                let range = from <= to ? from...to : to...from
+                selectedTables = Set(order[range])
+            } else {
+                selectedTables = [ref]
+                selectionAnchor = ref
+            }
+        } else {
+            selectedTables = [ref]
+            selectionAnchor = ref
+        }
+    }
+
+    /// Tables in display order, restricted to expanded schemas and the current
+    /// filter — the range a ⇧-click extends across.
+    private func visibleTableOrder() -> [TableRef] {
+        guard let tree else { return [] }
+        var order: [TableRef] = []
+        for namespace in tree.schemas where !hiddenSchemas.contains(namespace.name) && namespaceMatches(namespace) {
+            guard !collapsedSchemas.contains("s:\(namespace.name)") || !query.isEmpty else { continue }
+            for table in namespace.tables where tableMatches(table) {
+                order.append(TableRef(schema: namespace.name, table: table.name))
+            }
+        }
+        return order
     }
 
     private func badge(_ text: String, _ color: Color) -> some View {

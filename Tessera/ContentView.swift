@@ -31,46 +31,8 @@ struct ContentView: View {
                     hasActiveConnections: app.hasActiveConnections)
                 .frame(minHeight: 120, idealHeight: 320, maxHeight: .infinity)
 
-                SchemaSidebar(
-                    tree: app.console.schema,
-                    hiddenSchemas: app.currentHiddenSchemas,
-                    reveal: app.schemaReveal,
-                    connectionName: app.console.connectionName,
-                    status: app.console.status,
-                    databases: app.console.activeSession?.databases ?? [],
-                    onSwitchDatabase: { database in
-                        if let profileID = app.console.currentProfileID {
-                            app.switchDatabase(profileID: profileID, to: database)
-                        }
-                    },
-                    onNewQueryTab: { app.newQueryTabForCurrentConnection() },
-                    onToggleSchema: { app.toggleSchema($0) },
-                    onOpenTable: { schema, table in
-                        Task { await app.console.openTable(schema: schema, table: table) }
-                    },
-                    onOpenColumn: { schema, table, column in
-                        Task {
-                            await app.console.openTable(schema: schema, table: table)
-                            app.console.activeTab?.scrollToColumn = column
-                        }
-                    },
-                    onDumpTable: { schema, table in
-                        if let profileID = app.console.currentProfileID {
-                            app.exportTable(profileID: profileID, schema: schema, table: table)
-                        }
-                    },
-                    onDumpSchema: { schema in
-                        if let profileID = app.console.currentProfileID {
-                            app.exportSchema(profileID: profileID, schema: schema)
-                        }
-                    },
-                    onDumpDatabase: {
-                        if let profileID = app.console.currentProfileID {
-                            app.exportConnection(profileID: profileID)
-                        }
-                    },
-                    onDDL: { app.startDDL($0) })
-                .frame(minHeight: 120, maxHeight: .infinity)
+                schemaSidebar
+                    .frame(minHeight: 120, maxHeight: .infinity)
             }
             .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
         } detail: {
@@ -203,5 +165,64 @@ struct ContentView: View {
     private var cursorBinding: Binding<Int> {
         Binding(get: { app.console.activeTab?.cursorPosition ?? 0 },
                 set: { app.console.activeTab?.cursorPosition = $0 })
+    }
+
+    // Pulled out of `body`: with this many parameters/closures inline, the whole
+    // NavigationSplitView expression stopped type-checking in reasonable time.
+    private var schemaSidebar: some View {
+        SchemaSidebar(
+            tree: app.console.schema,
+            hiddenSchemas: app.currentHiddenSchemas,
+            reveal: app.schemaReveal,
+            connectionName: app.console.connectionName,
+            status: app.console.status,
+            databases: app.console.activeSession?.databases ?? [],
+            onSwitchDatabase: { database in
+                if let profileID = app.console.currentProfileID {
+                    app.switchDatabase(profileID: profileID, to: database)
+                }
+            },
+            onNewQueryTab: { app.newQueryTabForCurrentConnection() },
+            onToggleSchema: { app.toggleSchema($0) },
+            onOpenTable: { schema, table in
+                Task { await app.console.openTable(schema: schema, table: table) }
+            },
+            onOpenColumn: { schema, table, column in
+                Task {
+                    await app.console.openTable(schema: schema, table: table)
+                    app.console.activeTab?.scrollToColumn = column
+                }
+            },
+            onDumpTable: { schema, table in
+                if let profileID = app.console.currentProfileID {
+                    app.exportTable(profileID: profileID, schema: schema, table: table)
+                }
+            },
+            onDumpSchema: { schema in
+                if let profileID = app.console.currentProfileID {
+                    app.exportSchema(profileID: profileID, schema: schema)
+                }
+            },
+            onDumpDatabase: {
+                if let profileID = app.console.currentProfileID {
+                    app.exportConnection(profileID: profileID)
+                }
+            },
+            onDDL: { app.startDDL($0) },
+            onOpenTables: { tables in
+                // One sequential Task, not one per table — looping the plain
+                // per-table open() would spawn independent unstructured Tasks
+                // whose activate() calls could land out of order.
+                Task {
+                    for (schema, table) in tables {
+                        await app.console.openTable(schema: schema, table: table)
+                    }
+                }
+            },
+            onDumpTables: { schema, tables in
+                if let profileID = app.console.currentProfileID {
+                    app.exportTables(profileID: profileID, schema: schema, tables: tables)
+                }
+            })
     }
 }
