@@ -190,13 +190,14 @@ struct DetailView: View {
         ConnectionPalette.color(tab.session?.colorName)
     }
 
-    /// Active tabs fill with their connection's colour (falling back to a neutral
-    /// elevation when the connection has none); hover gets a faint wash.
+    /// Every tab wears its connection's colour; the active one noticeably stronger
+    /// (plus a stroke), inactive ones dimmed — so the colour identifies the
+    /// connection everywhere, and intensity identifies the active tab.
     private func tabChipFill(isActive: Bool, tint: Color?, isHovered: Bool) -> AnyShapeStyle {
-        if isActive {
-            return AnyShapeStyle((tint ?? Color.primary).opacity(tint == nil ? 0.10 : 0.22))
-        }
-        return isHovered ? AnyShapeStyle(Color.primary.opacity(0.06)) : AnyShapeStyle(.clear)
+        let base = tint ?? Color.primary
+        if isActive { return AnyShapeStyle(base.opacity(tint == nil ? 0.12 : 0.30)) }
+        if isHovered { return AnyShapeStyle(base.opacity(tint == nil ? 0.06 : 0.16)) }
+        return AnyShapeStyle(tint == nil ? Color.clear.opacity(0) : base.opacity(0.09))
     }
 
     @ViewBuilder

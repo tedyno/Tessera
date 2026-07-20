@@ -587,23 +587,29 @@ struct ResultsTableView: NSViewRepresentable {
             return set
         }
 
-        func beginEdit(row: Int, col: Int) {
-            guard tab.isEditable, visibleRowMap == nil, let tableView, let result, col < result.columns.count else { return }
+        /// Returns the field editor when editing actually started — `NSControl.currentEditor()`
+        /// on the *table* is always nil (the editor belongs to the text field), which is
+        /// why callers get it from here instead of asking the table afterwards.
+        @discardableResult
+        func beginEdit(row: Int, col: Int) -> NSText? {
+            guard tab.isEditable, visibleRowMap == nil, let tableView, let result, col < result.columns.count
+            else { return nil }
             // Auto-increment cells on insert rows are DB-generated — not editable.
             if isInsertRow(row),
-               tab.editSource?.autoIncrementColumns.contains(result.columns[col].name) == true { return }
+               tab.editSource?.autoIncrementColumns.contains(result.columns[col].name) == true { return nil }
             let old = selectionRows
             selected = [CellPos(row: row, col: col)]
             anchor = CellPos(row: row, col: col)
             focus = CellPos(row: row, col: col)
             reload(rows: old.union(selectionRows))
-            if let field = tableView.view(atColumn: col, row: row, makeIfNecessary: true) as? GridTextField {
-                field.isEditable = true
-                // editColumn requires the row to be part of the table's own selection;
-                // with selectionHighlightStyle == .none this stays invisible.
-                tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                tableView.editColumn(col, row: row, with: nil, select: true)
-            }
+            guard let field = tableView.view(atColumn: col, row: row, makeIfNecessary: true) as? GridTextField
+            else { return nil }
+            field.isEditable = true
+            // editColumn requires the row to be part of the table's own selection;
+            // with selectionHighlightStyle == .none this stays invisible.
+            tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            tableView.editColumn(col, row: row, with: nil, select: true)
+            return field.currentEditor()
         }
 
         /// Cells a multi-selection edit session will write into on commit.
@@ -613,17 +619,16 @@ struct ResultsTableView: NSViewRepresentable {
         /// character replacing the content (spreadsheet-style). With several cells
         /// selected, the value typed into the focused cell lands in all of them.
         func typeToEdit(_ text: String) -> Bool {
-            guard tab.isEditable, visibleRowMap == nil, !selected.isEmpty, let tableView else { return false }
+            guard tab.isEditable, visibleRowMap == nil, !selected.isEmpty else { return false }
             let targets = selected
             let cell = focus ?? anchor ?? selected.min { ($0.row, $0.col) < ($1.row, $1.col) }!
-            beginEdit(row: cell.row, col: cell.col)
-            guard let editor = tableView.currentEditor() else {
+            guard let editor = beginEdit(row: cell.row, col: cell.col) as? NSTextView else {
                 bulkEditTargets = nil
                 return false
             }
             bulkEditTargets = targets.count > 1 ? targets : nil
             editor.string = text
-            editor.selectedRange = NSRange(location: (text as NSString).length, length: 0)
+            editor.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
             return true
         }
 
