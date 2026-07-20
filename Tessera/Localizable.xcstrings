@@ -24,6 +24,10 @@
       "extractionState": "manual",
       "shouldTranslate": false
     },
+    "%@@%@:%@": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
     "%lld": {
       "extractionState": "manual",
       "shouldTranslate": false
@@ -967,6 +971,17 @@
         }
       }
     },
+    "Enter manually": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadat ručně"
+          }
+        }
+      }
+    },
     "Executed": {
       "extractionState": "manual",
       "localizations": {
@@ -1106,6 +1121,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Formát"
+          }
+        }
+      }
+    },
+    "From ~/.ssh/config": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Z ~/.ssh/config"
           }
         }
       }
@@ -1543,6 +1569,17 @@
         }
       }
     },
+    "No IdentityFile — a password will be used.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bez IdentityFile — použije se heslo."
+          }
+        }
+      }
+    },
     "No MCP activity": {
       "extractionState": "manual",
       "localizations": {
@@ -1572,6 +1609,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Žádná historie"
+          }
+        }
+      }
+    },
+    "No hosts found in ~/.ssh/config.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "V ~/.ssh/config nejsou žádní hosti."
           }
         }
       }
@@ -2284,6 +2332,17 @@
         }
       }
     },
+    "Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavení"
+          }
+        }
+      }
+    },
     "Show the value inspector for the selected cell": {
       "extractionState": "manual",
       "localizations": {
@@ -2816,6 +2875,10 @@
       }
     },
     "· %@": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "—": {
       "extractionState": "manual",
       "shouldTranslate": false
     },

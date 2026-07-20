@@ -28,6 +28,10 @@ public actor SSHTunnel {
     ) async throws -> NetworkEndpoint {
         await stop()
 
+        // A profile may name a ~/.ssh/config alias instead of spelling everything out;
+        // resolve it now so later edits to that file are picked up.
+        let ssh = Self.applyingConfigAlias(ssh)
+
         let auth: SSHAuthenticationMethod
         switch ssh.authMethod {
         case .password:
@@ -96,6 +100,22 @@ public actor SSHTunnel {
 
     /// Loads an OpenSSH private key from disk and builds the matching auth method.
     /// Supports ed25519 and RSA keys, encrypted ones via the stored passphrase.
+    /// Fills a config-alias tunnel from `~/.ssh/config`. Anything the file doesn't
+    /// specify falls back to the profile's own fields, then to ssh's own defaults
+    /// (the login user, port 22), so a bare `Host` entry is enough.
+    static func applyingConfigAlias(_ ssh: SSHConfig) -> SSHConfig {
+        guard let alias = ssh.configAlias, !alias.isEmpty else { return ssh }
+        let resolved = SSHConfigFile.resolve(alias, in: SSHConfigFile.loadDefault())
+        var result = ssh
+        result.host = resolved.hostName
+        result.port = resolved.port ?? (ssh.port > 0 ? ssh.port : 22)
+        result.username = resolved.user ?? (ssh.username.isEmpty ? NSUserName() : ssh.username)
+        if let identityFile = resolved.identityFile {
+            result.authMethod = .privateKey(path: identityFile)
+        }
+        return result
+    }
+
     private static func privateKeyAuth(username: String, path: String,
                                        passphrase: String?) throws -> SSHAuthenticationMethod {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)

@@ -41,13 +41,22 @@ public struct SSHConfig: Codable, Sendable, Hashable {
     public var port: Int
     public var username: String
     public var authMethod: SSHAuthMethod
+    /// A `Host` alias from `~/.ssh/config`. When set, the hostname, user, port, and
+    /// key are read from that file at connect time and the fields above are only
+    /// fallbacks — so editing `~/.ssh/config` takes effect without touching Tessera.
+    public var configAlias: String?
 
-    public init(host: String, port: Int = 22, username: String, authMethod: SSHAuthMethod) {
+    public init(host: String, port: Int = 22, username: String, authMethod: SSHAuthMethod,
+                configAlias: String? = nil) {
         self.host = host
         self.port = port
         self.username = username
         self.authMethod = authMethod
+        self.configAlias = configAlias
     }
+
+    /// True when this tunnel is driven by a `~/.ssh/config` alias.
+    public var usesConfigAlias: Bool { !(configAlias ?? "").isEmpty }
 }
 
 /// Persisted connection profile. Holds **no secrets** — the password and SSH
