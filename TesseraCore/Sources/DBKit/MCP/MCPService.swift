@@ -171,6 +171,61 @@ public struct MCPService: Sendable {
             return try encodeJSON(await source.importDump(connection: connection,
                                                           filePath: try string(arguments, "file")))
 
+        // MARK: Connection management
+        //
+        // No approval and no `requireConnection`: these manage the organizer itself
+        // and deliberately see connections that aren't exposed for querying.
+
+        case "list_organizer":
+            return try encodeJSON(await source.organizer())
+
+        case "create_connection":
+            let spec = MCPConnectionSpec(
+                name: try string(arguments, "name"),
+                engine: try string(arguments, "engine"),
+                host: try string(arguments, "host"),
+                port: arguments["port"]?.intValue,
+                database: try string(arguments, "database"),
+                user: try string(arguments, "user"),
+                password: arguments["password"]?.stringValue,
+                tls: arguments["tls"]?.stringValue,
+                parentID: arguments["parent_id"]?.stringValue,
+                readOnly: arguments["read_only"]?.boolValue)
+            return try encodeJSON(await source.createConnection(spec))
+
+        case "update_connection":
+            let changes = MCPConnectionChanges(
+                name: arguments["name"]?.stringValue,
+                host: arguments["host"]?.stringValue,
+                port: arguments["port"]?.intValue,
+                database: arguments["database"]?.stringValue,
+                user: arguments["user"]?.stringValue,
+                tls: arguments["tls"]?.stringValue,
+                readOnly: arguments["read_only"]?.boolValue,
+                color: arguments["color"]?.stringValue)
+            return try encodeJSON(await source.updateConnection(
+                id: try string(arguments, "connection_id"), changes: changes))
+
+        case "delete_connection":
+            return try encodeJSON(await source.deleteConnection(
+                id: try string(arguments, "connection_id")))
+
+        case "restore_connection":
+            return try encodeJSON(await source.restoreConnection(
+                id: try string(arguments, "connection_id")))
+
+        case "move_connection":
+            return try encodeJSON(await source.moveConnection(
+                id: try string(arguments, "connection_id"),
+                parentID: try string(arguments, "parent_id"),
+                index: arguments["index"]?.intValue))
+
+        case "create_container":
+            return try encodeJSON(await source.createContainer(
+                name: try string(arguments, "name"),
+                kind: try string(arguments, "kind"),
+                parentID: arguments["parent_id"]?.stringValue))
+
         default:
             throw MCPToolError("Unknown tool: \(tool)")
         }

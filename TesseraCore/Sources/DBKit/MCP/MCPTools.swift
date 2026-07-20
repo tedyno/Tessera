@@ -84,6 +84,71 @@ enum MCPTools {
              properties: ["connection": stringSchema("Connection name."),
                           "file": stringSchema("Absolute path of the dump file to restore.")],
              required: ["connection", "file"]),
+
+        // MARK: Connection management (no approval; sees every connection)
+
+        tool(name: "list_organizer",
+             description: "The full connection tree — workspaces, projects, folders and every "
+                        + "connection, including ones not exposed to MCP. Use the ids from here "
+                        + "with the other management tools.",
+             properties: [:], required: []),
+
+        tool(name: "create_connection",
+             description: "Create a connection. MCP access is always off on a new connection — "
+                        + "the user turns that on in Tessera. A password may be given here and "
+                        + "nowhere else; it goes straight to the Keychain.",
+             properties: ["name": stringSchema("Display name."),
+                          "engine": stringSchema("postgres or mysql."),
+                          "host": stringSchema("Database host."),
+                          "port": integerSchema("Port; defaults to the engine's standard port."),
+                          "database": stringSchema("Database name."),
+                          "user": stringSchema("Database user."),
+                          "password": stringSchema("Optional password, stored in the Keychain."),
+                          "tls": stringSchema("disable, prefer, require, verify-ca or verify-full."),
+                          "parent_id": stringSchema("Workspace/project/folder id to file it under."),
+                          "read_only": booleanSchema("Mark the connection read-only.")],
+             required: ["name", "engine", "host", "database", "user"]),
+
+        tool(name: "update_connection",
+             description: "Change an existing connection. The password cannot be changed here, "
+                        + "and MCP access flags are left alone. Changing the host, port, database, "
+                        + "or user points the connection somewhere else, so the stored password is "
+                        + "discarded and the user is asked for it again on the next connect.",
+             properties: ["connection_id": stringSchema("Connection id from list_organizer."),
+                          "name": stringSchema("New display name."),
+                          "host": stringSchema("New host."),
+                          "port": integerSchema("New port."),
+                          "database": stringSchema("New database."),
+                          "user": stringSchema("New user."),
+                          "tls": stringSchema("New TLS mode."),
+                          "read_only": booleanSchema("Mark the connection read-only."),
+                          "color": stringSchema("Dot colour, or empty to clear.")],
+             required: ["connection_id"]),
+
+        tool(name: "delete_connection",
+             description: "Delete a connection. It goes to a small trash first, so it can be put "
+                        + "back with restore_connection until the trash is purged.",
+             properties: ["connection_id": stringSchema("Connection id from list_organizer.")],
+             required: ["connection_id"]),
+
+        tool(name: "restore_connection",
+             description: "Put a deleted connection back, with its password intact.",
+             properties: ["connection_id": stringSchema("Id of a connection in the trash.")],
+             required: ["connection_id"]),
+
+        tool(name: "move_connection",
+             description: "File a connection under a different workspace, project, or folder.",
+             properties: ["connection_id": stringSchema("Connection id from list_organizer."),
+                          "parent_id": stringSchema("Target workspace/project/folder id."),
+                          "index": integerSchema("Optional position among the parent's children.")],
+             required: ["connection_id", "parent_id"]),
+
+        tool(name: "create_container",
+             description: "Create a workspace, project, or folder to organize connections into.",
+             properties: ["name": stringSchema("Display name."),
+                          "kind": stringSchema("workspace, project, or folder."),
+                          "parent_id": stringSchema("Parent id; omit for a workspace.")],
+             required: ["name", "kind"]),
     ])
 
     // MARK: Schema builders

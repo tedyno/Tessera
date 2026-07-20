@@ -18,6 +18,8 @@ final class AppModel {
 
     let mcpApprovals = MCPApprovals()
     let mcpAudit = MCPAuditLog()
+    /// Recently deleted connections, so an unattended delete stays undoable.
+    let mcpTrash = MCPConnectionTrash()
     @ObservationIgnored private let mcpServer = MCPHTTPServer()
     @ObservationIgnored private lazy var mcpBridge = MCPBridge(app: self)
     var showingMCPLog = false

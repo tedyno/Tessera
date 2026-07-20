@@ -239,8 +239,34 @@ public protocol MCPDataSource: Sendable {
     /// Reports which MCP client connected (from `initialize`), so approval prompts can
     /// name it. Any client can speak MCP, so this is never assumed.
     func clientIdentified(name: String, version: String?) async
+
+    // MARK: Connection management
+    //
+    // These see every connection, not just the MCP-enabled ones, so the whole tree
+    // can be organized. They run without approval, which is safe only because a
+    // client can neither grant itself access nor carry a password to a new server.
+
+    func organizer() async -> [MCPOrganizerNode]
+    func createConnection(_ spec: MCPConnectionSpec) async throws -> MCPConnectionSummary
+    func updateConnection(id: String, changes: MCPConnectionChanges) async throws -> MCPConnectionSummary
+    func deleteConnection(id: String) async throws -> MCPConnectionSummary
+    func restoreConnection(id: String) async throws -> MCPConnectionSummary
+    func moveConnection(id: String, parentID: String, index: Int?) async throws -> MCPConnectionSummary
+    func createContainer(name: String, kind: String, parentID: String?) async throws -> MCPOrganizerNode
 }
 
 public extension MCPDataSource {
     func clientIdentified(name: String, version: String?) async {}
+
+    // Default to "this build doesn't manage connections" so a data source can
+    // implement only the query half of the protocol.
+    private var unmanaged: MCPToolError { MCPToolError("Connection management is not available.") }
+
+    func organizer() async -> [MCPOrganizerNode] { [] }
+    func createConnection(_ spec: MCPConnectionSpec) async throws -> MCPConnectionSummary { throw unmanaged }
+    func updateConnection(id: String, changes: MCPConnectionChanges) async throws -> MCPConnectionSummary { throw unmanaged }
+    func deleteConnection(id: String) async throws -> MCPConnectionSummary { throw unmanaged }
+    func restoreConnection(id: String) async throws -> MCPConnectionSummary { throw unmanaged }
+    func moveConnection(id: String, parentID: String, index: Int?) async throws -> MCPConnectionSummary { throw unmanaged }
+    func createContainer(name: String, kind: String, parentID: String?) async throws -> MCPOrganizerNode { throw unmanaged }
 }

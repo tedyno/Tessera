@@ -244,6 +244,37 @@ final class ConnectionsModel {
         organizer.path(toProfile: profileID)
     }
 
+    // MARK: Reversible delete (MCP trash)
+
+    /// Removes a profile and its tree nodes but **keeps** its Keychain entry, so the
+    /// deletion can be undone with the password intact. Pair with `destroySecrets`
+    /// once the deletion becomes permanent.
+    func removeProfileKeepingSecrets(_ profileID: UUID) {
+        for ref in organizer.refs(toProfile: profileID) { organizer.remove(ref.id) }
+        profiles.removeAll { $0.id == profileID }
+        try? profileStore.save(profiles)
+        saveOrganizer()
+    }
+
+    /// Erases the Keychain entries of a profile that is already gone from the tree.
+    func destroySecrets(for profile: ConnectionProfile) {
+        try? secretsStore.deleteAll(for: profile)
+    }
+
+    /// Puts a removed profile back where it was, reusing the Keychain entry that was
+    /// deliberately left behind.
+    func reinstate(_ profile: ConnectionProfile, into parentID: UUID?) {
+        guard !profiles.contains(where: { $0.id == profile.id }) else { return }
+        profiles.append(profile)
+        try? profileStore.save(profiles)
+        let node = OrganizerNode.connection(ConnectionRef(profileID: profile.id))
+        if let parentID, organizer.append(node, toParent: parentID) {
+            saveOrganizer()
+        } else if let fallback = defaultParentID, organizer.append(node, toParent: fallback) {
+            saveOrganizer()
+        }
+    }
+
     /// Deletes by id whether it is a workspace or a tree node.
     func delete(id: UUID) {
         if organizer.workspaces.contains(where: { $0.id == id }) {

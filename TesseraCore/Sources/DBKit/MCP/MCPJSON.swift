@@ -45,6 +45,19 @@ public indirect enum JSONValue: Codable, Equatable, Sendable {
         if case .string(let s) = self { return Int(s) }
         return nil
     }
+    /// Accepts a JSON bool, or the strings/numbers clients often send instead.
+    public var boolValue: Bool? {
+        if case .bool(let b) = self { return b }
+        if case .number(let n) = self { return n != 0 }
+        if case .string(let s) = self {
+            switch s.lowercased() {
+            case "true", "yes", "1": return true
+            case "false", "no", "0": return false
+            default: return nil
+            }
+        }
+        return nil
+    }
     public var objectValue: [String: JSONValue]? { if case .object(let o) = self { return o }; return nil }
 
     public subscript(key: String) -> JSONValue? { objectValue?[key] }

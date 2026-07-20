@@ -1496,6 +1496,17 @@
         }
       }
     },
+    "Moved to the trash — restore_connection puts it back.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Přesunuto do koše — restore_connection ho vrátí zpět."
+          }
+        }
+      }
+    },
     "NULL": {
       "extractionState": "manual",
       "localizations": {
@@ -1679,6 +1690,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Žádné odpovídající příkazy"
+          }
+        }
+      }
+    },
+    "No password stored — Tessera will ask on first connect.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heslo není uložené — Tessera si o něj řekne při prvním připojení."
           }
         }
       }
@@ -2618,6 +2640,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kurzor je uvnitř poddotazu."
+          }
+        }
+      }
+    },
+    "The target changed, so the stored password was discarded; Tessera will ask for it on the next connect.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Změnil se cíl připojení, takže uložené heslo bylo zahozeno; Tessera si o něj řekne při dalším připojení."
           }
         }
       }
