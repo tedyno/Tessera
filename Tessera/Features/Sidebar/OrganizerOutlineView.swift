@@ -108,6 +108,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
         outline.rowHeight = 22
         outline.indentationPerLevel = 14
         outline.autoresizesOutlineColumn = false
+        outline.allowsMultipleSelection = true
         outline.dataSource = context.coordinator
         outline.delegate = context.coordinator
         outline.registerForDraggedTypes([Self.nodeType])
@@ -283,11 +284,14 @@ struct OrganizerOutlineView: NSViewRepresentable {
             guard let outlineView, let id = selection.wrappedValue else { return }
             guard let item = find(id, in: roots) else { return }
             let row = outlineView.row(forItem: item)
-            if row >= 0, outlineView.selectedRow != row {
-                isSyncingSelection = true
-                outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                isSyncingSelection = false
-            }
+            // Only force a single-row selection when the primary id isn't already
+            // part of the current one — `sync()` calls this on every organizer/status
+            // tick, and a live multi-selection (mid-drag setup, about to be bulk
+            // deleted, …) would otherwise get collapsed back to one row underneath it.
+            guard row >= 0, !outlineView.selectedRowIndexes.contains(row) else { return }
+            isSyncingSelection = true
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            isSyncingSelection = false
         }
 
         private func find(_ id: UUID, in items: [OrganizerItem]) -> OrganizerItem? {
@@ -300,6 +304,11 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isSyncingSelection, let outlineView else { return }
+            // Only mirror a single selected row into the "primary" binding — that
+            // binding drives auto-connect (see the outer view's `onChange(of: selection)`),
+            // so extending a multi-selection with ⌘/⇧-click must not auto-connect
+            // every row added to it.
+            guard outlineView.selectedRowIndexes.count == 1 else { return }
             let row = outlineView.selectedRow
             guard row >= 0, let item = outlineView.item(atRow: row) as? OrganizerItem else { return }
             selection.wrappedValue = item.id

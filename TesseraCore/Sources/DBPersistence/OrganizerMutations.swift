@@ -230,6 +230,55 @@ extension OrganizerDocument {
         insert(node, toParent: parentID, at: nil)
     }
 
+    /// Moves several nodes under a new parent as one contiguous block, preserving
+    /// their relative order — used for a multi-selection drag. `move(nodeID:toParent:at:)`
+    /// intentionally isn't just called once per id here: its index-adjustment math
+    /// assumes a single in-place reorder, and applying it independently per item
+    /// would let the dragged group drift out of order as each one shifts the count.
+    /// Returns `false` if any node had to fall back to `fallbackParent` (the intended
+    /// parent rejected it, or it changed shape between validation and this call) —
+    /// mirroring `move`'s single-item semantics of "false = didn't land where dropped."
+    @discardableResult
+    public mutating func moveBatch(nodeIDs: [UUID], toParent parentID: UUID,
+                                    at index: Int? = nil, fallback fallbackParent: UUID) -> Bool {
+        // A folder being moved already carries its own children — drop any id
+        // that's nested under another id in the same batch, so it isn't moved twice.
+        let roots = nodeIDs.filter { id in
+            !nodeIDs.contains { other in other != id && descendants(of: other).contains(id) }
+        }
+        // Same cycle/no-op guard as the single-item `move`.
+        let candidates = roots.filter { $0 != parentID && !descendants(of: $0).contains(parentID) }
+        guard !candidates.isEmpty else { return false }
+
+        // Captured before anything is removed — the index adjustment below must
+        // reflect the pre-move tree, not a target that's shifting as we go.
+        let originalLocations = candidates.reduce(into: [UUID: (parent: UUID, index: Int)]()) { dict, id in
+            dict[id] = location(of: id)
+        }
+
+        var removedNodes: [OrganizerNode] = []
+        for id in candidates {
+            if let removed = remove(id) { removedNodes.append(removed) }
+        }
+        guard !removedNodes.isEmpty else { return false }
+
+        var adjustedIndex = index
+        if let index {
+            let shift = originalLocations.values.filter { $0.parent == parentID && $0.index < index }.count
+            adjustedIndex = index - shift
+        }
+
+        var allPlaced = true
+        for (offset, node) in removedNodes.enumerated() {
+            let at = adjustedIndex.map { $0 + offset }
+            if !insert(node, toParent: parentID, at: at) {
+                allPlaced = false
+                _ = insert(node, toParent: fallbackParent, at: nil)
+            }
+        }
+        return allPlaced
+    }
+
     @discardableResult
     public mutating func insert(_ node: OrganizerNode, toParent parentID: UUID, at index: Int?) -> Bool {
         if parentID == Self.looseParentID {

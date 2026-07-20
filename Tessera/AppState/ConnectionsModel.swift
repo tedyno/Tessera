@@ -281,6 +281,17 @@ final class ConnectionsModel {
         return true
     }
 
+    /// Moves several nodes under a new parent as one contiguous block (a
+    /// multi-selection drag) — see `OrganizerDocument.moveBatch` for why this isn't
+    /// just `move` called once per id.
+    @discardableResult
+    func moveBatch(nodeIDs: [UUID], toParent parentID: UUID, at index: Int? = nil) -> Bool {
+        let ok = organizer.moveBatch(nodeIDs: nodeIDs, toParent: parentID, at: index,
+                                     fallback: defaultParentID ?? UUID())
+        saveOrganizer()
+        return ok
+    }
+
     func deleteWorkspace(_ id: UUID) {
         deleteContainer(id, removingContents: true)
     }

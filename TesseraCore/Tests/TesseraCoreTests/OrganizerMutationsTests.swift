@@ -107,6 +107,90 @@ final class LooseConnectionTests: XCTestCase {
     }
 }
 
+// MARK: Batch moves (multi-selection drag)
+
+final class MoveBatchTests: XCTestCase {
+
+    func testCrossParentMovePreservesOrder() {
+        let source = Folder(name: "Source")
+        let target = Folder(name: "Target")
+        let workspace = Workspace(name: "W", children: [.folder(source), .folder(target)])
+        var document = OrganizerDocument(workspaces: [workspace])
+        let refs = (0..<3).map { _ in ConnectionRef(profileID: UUID()) }
+        for ref in refs { document.append(.connection(ref), toParent: source.id) }
+
+        let ok = document.moveBatch(nodeIDs: refs.map(\.id), toParent: target.id, fallback: workspace.id)
+
+        XCTAssertTrue(ok)
+        guard case .folder(let movedTarget)? = document.node(id: target.id) else {
+            return XCTFail("target folder missing")
+        }
+        XCTAssertEqual(movedTarget.children.map(\.id), refs.map(\.id))
+        guard case .folder(let emptiedSource)? = document.node(id: source.id) else {
+            return XCTFail("source folder missing")
+        }
+        XCTAssertTrue(emptiedSource.children.isEmpty)
+    }
+
+    func testSameParentReorderAdjustsIndexOnce() {
+        let folder = Folder(name: "F")
+        let workspace = Workspace(name: "W", children: [.folder(folder)])
+        var document = OrganizerDocument(workspaces: [workspace])
+        let refs = (0..<4).map { _ in ConnectionRef(profileID: UUID()) }
+        for ref in refs { document.append(.connection(ref), toParent: folder.id) }
+
+        // Move the first two (indices 0, 1) to the end (index 4, i.e. past the last).
+        let ok = document.moveBatch(nodeIDs: [refs[0].id, refs[1].id],
+                                    toParent: folder.id, at: 4, fallback: workspace.id)
+
+        XCTAssertTrue(ok)
+        guard case .folder(let reordered)? = document.node(id: folder.id) else {
+            return XCTFail("folder missing")
+        }
+        XCTAssertEqual(reordered.children.map(\.id), [refs[2].id, refs[3].id, refs[0].id, refs[1].id])
+    }
+
+    func testDescendantOfAnotherSelectedContainerIsSkipped() {
+        let inner = Folder(name: "Inner")
+        let outer = Folder(name: "Outer", children: [.folder(inner)])
+        let target = Folder(name: "Target")
+        let workspace = Workspace(name: "W", children: [.folder(outer), .folder(target)])
+        var document = OrganizerDocument(workspaces: [workspace])
+
+        // Selecting both `outer` and its child `inner` should move only `outer`
+        // (which already carries `inner` with it) — moving `inner` separately too
+        // would be redundant and would otherwise orphan/duplicate it.
+        let ok = document.moveBatch(nodeIDs: [outer.id, inner.id], toParent: target.id, fallback: workspace.id)
+
+        XCTAssertTrue(ok)
+        guard case .folder(let movedTarget)? = document.node(id: target.id) else {
+            return XCTFail("target folder missing")
+        }
+        XCTAssertEqual(movedTarget.children.map(\.id), [outer.id])
+        XCTAssertNotNil(document.node(id: inner.id))
+        XCTAssertEqual(document.location(of: inner.id)?.parent, outer.id)
+    }
+
+    func testDropAtEndWithNilIndexAppendsAll() {
+        let source = Folder(name: "Source")
+        let target = Folder(name: "Target")
+        let existing = ConnectionRef(profileID: UUID())
+        let workspace = Workspace(name: "W", children: [.folder(source), .folder(target)])
+        var document = OrganizerDocument(workspaces: [workspace])
+        document.append(.connection(existing), toParent: target.id)
+        let refs = (0..<2).map { _ in ConnectionRef(profileID: UUID()) }
+        for ref in refs { document.append(.connection(ref), toParent: source.id) }
+
+        let ok = document.moveBatch(nodeIDs: refs.map(\.id), toParent: target.id, at: nil, fallback: workspace.id)
+
+        XCTAssertTrue(ok)
+        guard case .folder(let movedTarget)? = document.node(id: target.id) else {
+            return XCTFail("target folder missing")
+        }
+        XCTAssertEqual(movedTarget.children.map(\.id), [existing.id] + refs.map(\.id))
+    }
+}
+
 // MARK: Deleting the last workspace
 
 final class LastWorkspaceDeletionTests: XCTestCase {
