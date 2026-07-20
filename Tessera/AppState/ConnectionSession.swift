@@ -149,9 +149,14 @@ final class ConnectionSession: Identifiable {
     /// there was actually something live — `open()` also calls this to clear any
     /// prior state before reconnecting, and a fresh first connect has nothing to tear
     /// down yet.
+    ///
+    /// Guards against a second overlapping call (e.g. "Disconnect All" and the idle
+    /// sweep landing on the same session): everything up to the first `await` runs
+    /// synchronously on the main actor, so a caller that arrives while `isDisconnecting`
+    /// is already true bails out before touching the driver/tunnel a second time.
     func close(reason: String = "Disconnected") async {
-        let wasLive = driver != nil || tunnel != nil
-        if wasLive { isDisconnecting = true }
+        guard !isDisconnecting, driver != nil || tunnel != nil else { return }
+        isDisconnecting = true
         await driver?.close()
         await tunnel?.stop()
         driver = nil
@@ -163,7 +168,7 @@ final class ConnectionSession: Identifiable {
         databases = []
         status = .idle
         isDisconnecting = false
-        if wasLive { log?.record(name, .disconnect, reason) }
+        log?.record(name, .disconnect, reason)
     }
 
     /// Re-introspects the schema of a live connection.

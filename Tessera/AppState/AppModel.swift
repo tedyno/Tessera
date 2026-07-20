@@ -347,11 +347,15 @@ final class AppModel {
         let now = Date()
         for session in console.sessions where session.isReady {
             guard now.timeIntervalSince(session.lastActivityAt) >= Self.idleDisconnectAfter else { continue }
-            // A running query or unsaved edits mean the tab is still very much in use
-            // even without a fresh timestamp — never disconnect out from under those.
-            let stillBusy = console.tabs.contains { $0.session === session && ($0.isRunning || $0.hasEdits) }
-            guard !stillBusy else { continue }
-            Task { await session.close(reason: "Disconnected after 5 minutes idle") }
+            Task { [console] in
+                // Re-checked here, immediately before closing, not just above: a query
+                // can start in the gap between scheduling this task and it running,
+                // and a running query or unsaved edits mean the tab is still very much
+                // in use even without a fresh timestamp.
+                guard !console.tabs.contains(where: { $0.session === session && ($0.isRunning || $0.hasEdits) })
+                else { return }
+                await session.close(reason: "Disconnected after 5 minutes idle")
+            }
         }
     }
 
