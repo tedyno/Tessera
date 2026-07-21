@@ -328,8 +328,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
         }
 
         private func speedRetarget() {
-            let term = speedTerm.lowercased()
-            speedMatches = speedCandidates().filter { title(for: $0).lowercased().hasPrefix(term) }
+            speedMatches = speedCandidates().filter { speedPrefixMatch(title(for: $0), speedTerm) }
             speedIndex = 0
             speedMatchIDs = Set(speedMatches.map(\.id))
             refreshMatchTint()
