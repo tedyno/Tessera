@@ -766,10 +766,12 @@ struct SchemaOutlineView: NSViewRepresentable {
 
         private func speedRetarget() {
             let term = speedTerm.lowercased()
-            speedMatches = speedCandidates().filter { $0.title.lowercased().contains(term) }
-            speedIndex = speedMatches.firstIndex { $0.title.lowercased().hasPrefix(term) } ?? 0
+            // Prefix-only: "us" finds "users", never "status" — matching anywhere
+            // in the name made the jumps feel random.
+            speedMatches = speedCandidates().filter { $0.title.lowercased().hasPrefix(term) }
+            speedIndex = 0
             if !speedMatches.isEmpty { jump(to: speedMatches[speedIndex]) }
-            onSpeedSearch(speedTerm, speedMatches.isEmpty ? 0 : speedIndex + 1, speedMatches.count)
+            onSpeedSearch(speedTerm, speedMatches.isEmpty ? 0 : 1, speedMatches.count)
         }
 
         private func jump(to node: SchemaOutlineNode) {
