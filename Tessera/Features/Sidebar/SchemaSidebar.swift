@@ -17,6 +17,14 @@ private extension View {
             if hovering { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
         }
     }
+
+    /// Full-row hit target: a bare Label only takes clicks on its icon and text,
+    /// leaving dead zones to the right of the name and in the row padding.
+    func rowHitTarget() -> some View {
+        frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+    }
 }
 
 /// Column 2 — the schema of the active connection (Database → Schema → Table →
@@ -147,7 +155,7 @@ struct SchemaSidebar: View {
                                 Label(tree.databaseName, systemImage: "cylinder.split.1x2")
                                     .foregroundStyle(.tint)
                                     .listRowBackground(nodeBackground("db"))
-                                    .contentShape(Rectangle())
+                                    .rowHitTarget()
                                     .pointerCursor()
                                     .simultaneousGesture(TapGesture(count: 1).onEnded { selectDatabase() })
                                     .contextMenu {
@@ -404,7 +412,7 @@ struct SchemaSidebar: View {
             Label(namespace.name, systemImage: "circle.grid.2x2")
                 .id("s:\(namespace.name)")
                 .listRowBackground(nodeBackground("s:\(namespace.name)"))
-                .contentShape(Rectangle())
+                .rowHitTarget()
                 .pointerCursor()
                 .simultaneousGesture(TapGesture(count: 1).onEnded { handleSchemaClick(namespace.name) })
                 .contextMenu {
@@ -443,7 +451,7 @@ struct SchemaSidebar: View {
                     columnRow(column)
                         .id("c:\(namespace).\(table.name).\(column.name)")
                         .modifier(HighlightRow(active: highlightedID == "c:\(namespace).\(table.name).\(column.name)"))
-                        .contentShape(Rectangle())
+                        .rowHitTarget()
                         .pointerCursor()
                         .simultaneousGesture(TapGesture(count: 2).onEnded {
                             onOpenColumn(namespace, table.name, column.name)
@@ -475,6 +483,7 @@ struct SchemaSidebar: View {
                     DisclosureGroup {
                         ForEach(table.indexes) { index in
                             indexRow(index)
+                                .rowHitTarget()
                                 .contextMenu {
                                     Button("Drop Index…", role: .destructive) {
                                         onDDL(.dropIndex(schema: namespace, table: table.name, index: index.name))
@@ -535,7 +544,7 @@ struct SchemaSidebar: View {
         let ref = TableRef(schema: namespace, table: table.name)
         return Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
             .foregroundStyle(table.kind == .view ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-            .contentShape(Rectangle())
+            .rowHitTarget()
             .pointerCursor()
             // A plain click only selects (⌘/⇧ extend the selection); double-click
             // still opens immediately and collapses the selection to just this table.
