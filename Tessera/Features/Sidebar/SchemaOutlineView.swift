@@ -93,6 +93,21 @@ final class SchemaTreeView: NSOutlineView {
     }
 }
 
+/// Row view that can tint itself as a speed-search match — softer than the
+/// selection highlight, so the active item still stands out among the matches.
+final class SchemaRowView: NSTableRowView {
+    var isSpeedMatch = false {
+        didSet { if isSpeedMatch != oldValue { needsDisplay = true } }
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        guard isSpeedMatch, !isSelected else { return }
+        NSColor.controlAccentColor.withAlphaComponent(0.10).setFill()
+        bounds.fill()
+    }
+}
+
 /// Column 2 rendered natively: the schema of the active connection as an
 /// `NSOutlineView` — full-row hit testing, reliable programmatic scrolling and
 /// AppKit performance on large schemas, none of which SwiftUI's `List` managed.
@@ -357,6 +372,14 @@ struct SchemaOutlineView: NSViewRepresentable {
         }
 
         // MARK: Cells
+
+        func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+            let identifier = NSUserInterfaceItemIdentifier("schemaRow")
+            let row = (outlineView.makeView(withIdentifier: identifier, owner: self) as? SchemaRowView)
+                ?? { let view = SchemaRowView(); view.identifier = identifier; return view }()
+            row.isSpeedMatch = (item as? SchemaOutlineNode).map { speedMatchKeys.contains($0.key) } ?? false
+            return row
+        }
 
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?,
                          item: Any) -> NSView? {
@@ -732,6 +755,8 @@ struct SchemaOutlineView: NSViewRepresentable {
         private(set) var speedTerm = ""
         private var speedMatches: [SchemaOutlineNode] = []
         private var speedIndex = 0
+        /// Keys of the current matches, for the soft row tint.
+        private var speedMatchKeys: Set<String> = []
         /// Last seen value of the representable's cancel token.
         var lastCancelToken = 0
 
@@ -762,6 +787,8 @@ struct SchemaOutlineView: NSViewRepresentable {
             speedTerm = ""
             speedMatches = []
             speedIndex = 0
+            speedMatchKeys = []
+            refreshMatchTint()
             onSpeedSearch("", 0, 0)
         }
 
@@ -778,8 +805,21 @@ struct SchemaOutlineView: NSViewRepresentable {
             // in the name made the jumps feel random.
             speedMatches = speedCandidates().filter { $0.title.lowercased().hasPrefix(term) }
             speedIndex = 0
+            speedMatchKeys = Set(speedMatches.map(\.key))
+            refreshMatchTint()
             if !speedMatches.isEmpty { jump(to: speedMatches[speedIndex]) }
             onSpeedSearch(speedTerm, speedMatches.isEmpty ? 0 : 1, speedMatches.count)
+        }
+
+        /// Re-tints the realized rows; rows scrolled in later pick the flag up
+        /// from `rowViewForItem`.
+        private func refreshMatchTint() {
+            guard let outlineView else { return }
+            outlineView.enumerateAvailableRowViews { rowView, row in
+                guard let rowView = rowView as? SchemaRowView else { return }
+                let node = outlineView.item(atRow: row) as? SchemaOutlineNode
+                rowView.isSpeedMatch = node.map { speedMatchKeys.contains($0.key) } ?? false
+            }
         }
 
         private func jump(to node: SchemaOutlineNode) {
