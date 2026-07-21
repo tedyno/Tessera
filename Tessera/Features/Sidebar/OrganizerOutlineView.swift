@@ -602,8 +602,15 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 queryTab.keyEquivalent = "t"
                 queryTab.keyEquivalentModifierMask = .command
                 menu.addItem(.separator())
-                add(menu, String(localized: "Export…"), #selector(actionExport), item)
-                add(menu, String(localized: "Import…"), #selector(actionImport), item)
+                let kind = model.organizer.profileID(forNode: item.id)
+                    .flatMap { model.profile(id: $0) }?.kind
+                if kind?.isFileBased == true {
+                    // A SQLite file is its own backup — no dump/restore tooling.
+                    add(menu, String(localized: "Reveal in Finder"), #selector(actionRevealFile), item)
+                } else {
+                    add(menu, String(localized: "Export…"), #selector(actionExport), item)
+                    add(menu, String(localized: "Import…"), #selector(actionImport), item)
+                }
                 add(menu, String(localized: "Edit…"), #selector(actionEdit), item)
                 let duplicate = add(menu, String(localized: "Duplicate…"), #selector(actionDuplicate), item)
                 duplicate.keyEquivalent = "d"
@@ -812,6 +819,12 @@ struct OrganizerOutlineView: NSViewRepresentable {
         @objc private func actionIntrospect(_ sender: NSMenuItem) {
             if let profileID = profileID(from: sender) { onIntrospect(profileID) }
         }
+        @objc private func actionRevealFile(_ sender: NSMenuItem) {
+            guard let profileID = profileID(from: sender),
+                  let path = model.profile(id: profileID)?.database, !path.isEmpty else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        }
+
         @objc private func actionExport(_ sender: NSMenuItem) {
             if let profileID = profileID(from: sender) { onExport(profileID) }
         }

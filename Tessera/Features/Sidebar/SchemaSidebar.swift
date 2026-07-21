@@ -32,6 +32,11 @@ struct SchemaSidebar: View {
     /// Distinguishes "still connecting" from "nothing selected" while `tree` is nil —
     /// otherwise a slow connection briefly looks like there's no database at all.
     var status: ConnectionSession.Status = .idle
+    /// Engine of the active connection — gates DDL items the dialect can't express
+    /// (SQLite's minimal ALTER) and swaps dumps for Reveal in Finder on files.
+    var engine: DatabaseKind?
+    /// Shows the SQLite database file in Finder (file-based engines have no dump).
+    var onRevealDatabaseFile: () -> Void = { }
     /// Databases on the server, for the database-switcher menu.
     var databases: [String] = []
     var onSwitchDatabase: (String) -> Void = { _ in }
@@ -74,6 +79,12 @@ struct SchemaSidebar: View {
     @State private var selectedSchemas: Set<String> = []
     /// Whether the database row itself is highlighted (single, no batch actions).
     @State private var dbSelected = false
+
+    /// Whether the engine's ALTER can express this operation (defaults to yes
+    /// while nothing is connected — the menu isn't reachable then anyway).
+    private func supports(_ operation: SchemaDDL.Operation) -> Bool {
+        engine.map { SchemaDDL.supports(operation, for: $0) } ?? true
+    }
 
     /// Lowercased, trimmed name filter; empty means "show everything".
     private var query: String {
@@ -150,7 +161,11 @@ struct SchemaSidebar: View {
                                         Button("New Query Tab") { onNewQueryTab() }
                                             .keyboardShortcut("t", modifiers: .command)
                                         Divider()
-                                        Button("Dump Database…") { onDumpDatabase() }
+                                        if engine?.isFileBased == true {
+                                            Button("Reveal in Finder") { onRevealDatabaseFile() }
+                                        } else {
+                                            Button("Dump Database…") { onDumpDatabase() }
+                                        }
                                     }
                             }
                         }
@@ -213,15 +228,19 @@ struct SchemaSidebar: View {
                     // multi-selection acts on the whole selection.
                     let targets = selectedSchemas.contains(namespace.name) && selectedSchemas.count > 1
                         ? Array(selectedSchemas) : [namespace.name]
-                    if targets.count > 1 {
-                        Button("Dump \(targets.count) Schemas…") { onDumpSchemas(targets) }
+    if targets.count > 1 {
+                        if engine?.isFileBased != true {
+                            Button("Dump \(targets.count) Schemas…") { onDumpSchemas(targets) }
+                        }
                     } else {
                         Button("New Query Tab") { onNewQueryTab() }
                             .keyboardShortcut("t", modifiers: .command)
                         Divider()
                         Button("Create Table…") { onDDL(.createTable(schema: namespace.name)) }
-                        Divider()
-                        Button("Dump Schema…") { onDumpSchema(namespace.name) }
+                        if engine?.isFileBased != true {
+                            Divider()
+                            Button("Dump Schema…") { onDumpSchema(namespace.name) }
+                        }
                     }
                 }
         }
@@ -249,14 +268,18 @@ struct SchemaSidebar: View {
                             Button("Rename Column…") {
                                 onDDL(.renameColumn(schema: namespace, table: table.name, column: column.name))
                             }
-                            Button("Change Type…") {
-                                onDDL(.changeColumnType(schema: namespace, table: table.name,
-                                                        column: column.name, currentType: column.dataType))
+                            if supports(.changeColumnType) {
+                                Button("Change Type…") {
+                                    onDDL(.changeColumnType(schema: namespace, table: table.name,
+                                                            column: column.name, currentType: column.dataType))
+                                }
                             }
-                            Button(column.isNullable ? "Require NOT NULL" : "Allow NULL") {
-                                onDDL(.setNullability(schema: namespace, table: table.name,
-                                                      column: column.name, type: column.dataType,
-                                                      makeNullable: !column.isNullable))
+                            if supports(.setNullability) {
+                                Button(column.isNullable ? "Require NOT NULL" : "Allow NULL") {
+                                    onDDL(.setNullability(schema: namespace, table: table.name,
+                                                          column: column.name, type: column.dataType,
+                                                          makeNullable: !column.isNullable))
+                                }
                             }
                             Divider()
                             Button("Drop Column…", role: .destructive) {
@@ -351,7 +374,7 @@ struct SchemaSidebar: View {
                         onOpenTables(targets.map { (schema: $0.schema, table: $0.table) })
                     }
                     let schemas = Set(targets.map(\.schema))
-                    if schemas.count == 1, let schema = schemas.first {
+                    if schemas.count == 1, let schema = schemas.first, engine?.isFileBased != true {
                         Button("Dump \(targets.count) Tables…") {
                             onDumpTables(schema, targets.map(\.table))
                         }
@@ -371,8 +394,10 @@ struct SchemaSidebar: View {
                     Button("Drop Table…", role: .destructive) {
                         onDDL(.dropTable(schema: namespace, table: table.name))
                     }
-                    Divider()
-                    Button("Dump Table…") { onDumpTable(namespace, table.name) }
+                    if engine?.isFileBased != true {
+                        Divider()
+                        Button("Dump Table…") { onDumpTable(namespace, table.name) }
+                    }
                 }
             }
     }

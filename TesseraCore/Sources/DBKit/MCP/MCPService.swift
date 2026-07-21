@@ -122,14 +122,14 @@ public struct MCPService: Sendable {
             let table = try string(arguments, "table")
             let schema = arguments["schema"]?.stringValue
             let limit = arguments["limit"]?.intValue ?? 20
-            let engine: DatabaseKind = info.engine.lowercased().contains("mysql") ? .mysql : .postgres
+            let engine = DatabaseKind(rawValue: info.engine.lowercased()) ?? .postgres
             let target = SchemaDDL.qualified(schema: schema, table: table, for: engine)
             let sql = "SELECT * FROM \(target) LIMIT \(max(1, limit))"
             return try encodeJSON(await source.runReadQuery(connection: connection, sql: sql, limit: limit))
 
         case "explain_query":
             let connection = try string(arguments, "connection")
-            try await requireConnection(connection)
+            let info = try await requireConnection(connection)
             let sql = try string(arguments, "sql")
             // Guard the inner statement, then explain it — EXPLAIN alone never writes.
             let (statement, access) = try MCPSQLPolicy.classify(sql)
@@ -142,8 +142,10 @@ public struct MCPService: Sendable {
                                   options: [.regularExpression, .caseInsensitive]) != nil else {
                 throw MCPToolError("Only SELECT-style statements can be explained.")
             }
+            let dialect = (DatabaseKind(rawValue: info.engine.lowercased()) ?? .postgres).dialect
+            let prefix = dialect.explainPrefix(analyze: false).prefix
             return try encodeJSON(await source.runReadQuery(connection: connection,
-                                                            sql: "EXPLAIN \(statement)", limit: nil))
+                                                            sql: prefix + statement, limit: nil))
 
         case "run_query":
             return try await runQuery(arguments)

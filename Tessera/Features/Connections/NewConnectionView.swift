@@ -178,59 +178,62 @@ struct NewConnectionView: View {
                     }
                 }
 
-                Section {
-                    Toggle("SSH tunnel", isOn: $sshEnabled)
-                    if sshEnabled {
-                        Picker("Settings", selection: $sshUseConfig) {
-                            Text("From ~/.ssh/config").tag(true)
-                            Text("Enter manually").tag(false)
-                        }
-                        .pickerStyle(.segmented)
-
-                        if sshUseConfig {
-                            if sshAliases.isEmpty {
-                                Text("No hosts found in ~/.ssh/config.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            } else {
-                                Picker("Host", selection: $sshAlias) {
-                                    Text("—").tag("")
-                                    ForEach(sshAliases, id: \.self) { Text($0).tag($0) }
-                                }
-                            }
-                            if let resolved = resolvedAlias {
-                                // Show what the alias expands to, so it isn't a black box.
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("\(resolved.user ?? NSUserName())@\(resolved.hostName):\(String(resolved.port ?? 22))")
-                                        .font(.system(.caption, design: .monospaced))
-                                    Text(resolved.identityFile.map { "key: \($0)" }
-                                         ?? String(localized: "No IdentityFile — a password will be used."))
-                                        .font(.caption2).foregroundStyle(.secondary)
-                                }
-                            }
-                            if resolvedAlias?.identityFile == nil, !sshAlias.isEmpty {
-                                revealableField("SSH password", text: $sshPassword, reveal: $revealSSHPassword)
-                            } else if !sshAlias.isEmpty {
-                                SecureField("Key passphrase (optional)", text: $sshPassphrase)
-                            }
-                        } else {
-                            HStack {
-                                TextField("SSH host", text: $sshHost)
-                                TextField("Port", text: $sshPort).frame(width: 80)
-                            }
-                            TextField("SSH user", text: $sshUser)
-                            Picker("Auth", selection: $sshAuth) {
-                                Text("Password").tag(SSHAuthKind.password)
-                                Text("Private key").tag(SSHAuthKind.privateKey)
+                // SQLite is a local file — no tunnel to configure.
+                if !kind.isFileBased {
+                    Section {
+                        Toggle("SSH tunnel", isOn: $sshEnabled)
+                        if sshEnabled {
+                            Picker("Settings", selection: $sshUseConfig) {
+                                Text("From ~/.ssh/config").tag(true)
+                                Text("Enter manually").tag(false)
                             }
                             .pickerStyle(.segmented)
-                            if sshAuth == .password {
-                                revealableField("SSH password", text: $sshPassword, reveal: $revealSSHPassword)
+
+                            if sshUseConfig {
+                                if sshAliases.isEmpty {
+                                    Text("No hosts found in ~/.ssh/config.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                } else {
+                                    Picker("Host", selection: $sshAlias) {
+                                        Text("—").tag("")
+                                        ForEach(sshAliases, id: \.self) { Text($0).tag($0) }
+                                    }
+                                }
+                                if let resolved = resolvedAlias {
+                                    // Show what the alias expands to, so it isn't a black box.
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("\(resolved.user ?? NSUserName())@\(resolved.hostName):\(String(resolved.port ?? 22))")
+                                            .font(.system(.caption, design: .monospaced))
+                                        Text(resolved.identityFile.map { "key: \($0)" }
+                                             ?? String(localized: "No IdentityFile — a password will be used."))
+                                            .font(.caption2).foregroundStyle(.secondary)
+                                    }
+                                }
+                                if resolvedAlias?.identityFile == nil, !sshAlias.isEmpty {
+                                    revealableField("SSH password", text: $sshPassword, reveal: $revealSSHPassword)
+                                } else if !sshAlias.isEmpty {
+                                    SecureField("Key passphrase (optional)", text: $sshPassphrase)
+                                }
                             } else {
                                 HStack {
-                                    TextField("Key path", text: $sshKeyPath)
-                                    Button("Choose…") { chooseKeyFile() }
+                                    TextField("SSH host", text: $sshHost)
+                                    TextField("Port", text: $sshPort).frame(width: 80)
                                 }
-                                SecureField("Key passphrase (optional)", text: $sshPassphrase)
+                                TextField("SSH user", text: $sshUser)
+                                Picker("Auth", selection: $sshAuth) {
+                                    Text("Password").tag(SSHAuthKind.password)
+                                    Text("Private key").tag(SSHAuthKind.privateKey)
+                                }
+                                .pickerStyle(.segmented)
+                                if sshAuth == .password {
+                                    revealableField("SSH password", text: $sshPassword, reveal: $revealSSHPassword)
+                                } else {
+                                    HStack {
+                                        TextField("Key path", text: $sshKeyPath)
+                                        Button("Choose…") { chooseKeyFile() }
+                                    }
+                                    SecureField("Key passphrase (optional)", text: $sshPassphrase)
+                                }
                             }
                         }
                     }
@@ -379,12 +382,14 @@ struct NewConnectionView: View {
     private func makeProfile() -> ConnectionProfile {
         // With an alias the host/user/port/key are resolved at connect time; the
         // typed fields are kept as fallbacks for anything the config omits.
-        let ssh: SSHConfig? = sshEnabled
+        let ssh: SSHConfig? = sshEnabled && !kind.isFileBased
             ? SSHConfig(
                 host: sshHost, port: Int(sshPort) ?? 22, username: sshUser,
                 authMethod: sshAuth == .password ? .password : .privateKey(path: sshKeyPath),
                 configAlias: sshUseConfig && !sshAlias.isEmpty ? sshAlias : nil)
             : nil
+        // A typed "~/…" path must resolve now — the driver opens it verbatim.
+        let database = kind.isFileBased ? (self.database as NSString).expandingTildeInPath : self.database
         return ConnectionProfile(
             id: editing?.id ?? UUID(),
             name: name, kind: kind, host: host, port: Int(port),

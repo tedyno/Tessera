@@ -149,12 +149,17 @@ public enum MCPConnectionPolicy {
         let name = spec.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw MCPToolError("A connection needs a name.") }
         guard let kind = DatabaseKind(rawValue: spec.engine.lowercased()) else {
-            throw MCPToolError("Unknown engine “\(spec.engine)”. Use postgres or mysql.")
+            throw MCPToolError("Unknown engine “\(spec.engine)”. Use postgres, mysql, mariadb or sqlite.")
         }
         let host = spec.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty else { throw MCPToolError("A connection needs a host.") }
-        guard !spec.database.isEmpty else { throw MCPToolError("A connection needs a database.") }
-        guard !spec.user.isEmpty else { throw MCPToolError("A connection needs a user.") }
+        guard !spec.database.isEmpty else {
+            throw MCPToolError(kind.isFileBased ? "A SQLite connection needs a file path in “database”."
+                                                : "A connection needs a database.")
+        }
+        if !kind.isFileBased {
+            guard !host.isEmpty else { throw MCPToolError("A connection needs a host.") }
+            guard !spec.user.isEmpty else { throw MCPToolError("A connection needs a user.") }
+        }
 
         return ConnectionProfile(
             name: name, kind: kind, host: host, port: spec.port, database: spec.database,

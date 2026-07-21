@@ -186,6 +186,12 @@ struct ContentView: View {
             reveal: app.schemaReveal,
             connectionName: app.console.connectionName,
             status: app.console.status,
+            engine: app.console.activeSession?.engine,
+            onRevealDatabaseFile: {
+                if let path = app.console.activeSession?.database, !path.isEmpty {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                }
+            },
             databases: app.console.activeSession?.databases ?? [],
             onSwitchDatabase: { database in
                 if let profileID = app.console.currentProfileID {

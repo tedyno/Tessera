@@ -78,4 +78,37 @@ final class SchemaDDLTests: XCTestCase {
         XCTAssertEqual(SchemaDDL.truncateTable(name: "t", schema: "public", for: .postgres),
                        "TRUNCATE TABLE \"public\".\"t\";")
     }
+
+    func testMariaDBFollowsMySQL() {
+        XCTAssertEqual(SchemaDDL.quote("order", for: .mariadb), "`order`")
+        XCTAssertEqual(SchemaDDL.qualified(schema: "shop", table: "t", for: .mariadb), "`t`")
+        XCTAssertEqual(SchemaDDL.renameTable(from: "a", to: "b", schema: nil, for: .mariadb),
+                       "RENAME TABLE `a` TO `b`;")
+        XCTAssertEqual(SchemaDDL.dropIndex(name: "idx_a", schema: nil, table: "t", for: .mariadb),
+                       "ALTER TABLE `t` DROP INDEX `idx_a`;")
+        let column = SchemaDDL.ColumnSpec(name: "qty", dataType: "int")
+        XCTAssertEqual(SchemaDDL.changeColumnType(column, schema: nil, table: "t", for: .mariadb),
+                       "ALTER TABLE `t` MODIFY COLUMN `qty` int;")
+    }
+
+    func testSQLiteDialectDDL() {
+        // Single namespace: never schema-qualified, even when one is passed.
+        XCTAssertEqual(SchemaDDL.qualified(schema: "main", table: "t", for: .sqlite), "\"t\"")
+        XCTAssertEqual(SchemaDDL.renameTable(from: "a", to: "b", schema: nil, for: .sqlite),
+                       "ALTER TABLE \"a\" RENAME TO \"b\";")
+        XCTAssertEqual(SchemaDDL.dropIndex(name: "idx_a", schema: "main", table: "t", for: .sqlite),
+                       "DROP INDEX \"idx_a\";")
+        // No TRUNCATE statement — DELETE FROM is the SQLite idiom.
+        XCTAssertEqual(SchemaDDL.truncateTable(name: "t", schema: nil, for: .sqlite),
+                       "DELETE FROM \"t\";")
+    }
+
+    func testSQLiteUnsupportedOperations() {
+        XCTAssertFalse(SchemaDDL.supports(.changeColumnType, for: .sqlite))
+        XCTAssertFalse(SchemaDDL.supports(.setNullability, for: .sqlite))
+        XCTAssertTrue(SchemaDDL.supports(.addColumn, for: .sqlite))
+        XCTAssertTrue(SchemaDDL.supports(.renameColumn, for: .sqlite))
+        XCTAssertTrue(SchemaDDL.supports(.changeColumnType, for: .postgres))
+        XCTAssertTrue(SchemaDDL.supports(.setNullability, for: .mariadb))
+    }
 }

@@ -42,16 +42,16 @@
         "cs": {
           "variations": {
             "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld znak"
-                }
-              },
               "few": {
                 "stringUnit": {
                   "state": "translated",
                   "value": "%lld znaky"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld znak"
                 }
               },
               "other": {
@@ -71,16 +71,16 @@
         "cs": {
           "variations": {
             "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld sloupec"
-                }
-              },
               "few": {
                 "stringUnit": {
                   "state": "translated",
                   "value": "%lld sloupce"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sloupec"
                 }
               },
               "other": {
@@ -100,16 +100,16 @@
         "cs": {
           "variations": {
             "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Uvnitř je %lld připojení."
-                }
-              },
               "few": {
                 "stringUnit": {
                   "state": "translated",
                   "value": "Uvnitř jsou %lld připojení."
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Uvnitř je %lld připojení."
                 }
               },
               "other": {
@@ -135,38 +135,38 @@
       }
     },
     "%lld of %lld rows": {
+      "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$lld of %2$lld rows"
-          }
-        },
         "cs": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld z %lld řádků"
           }
-        }
-      },
-      "extractionState": "manual"
-    },
-    "%lld of %lld schemas": {
-      "localizations": {
+        },
         "en": {
           "stringUnit": {
             "state": "new",
-            "value": "%1$lld of %2$lld schemas"
+            "value": "%1$lld of %2$lld rows"
           }
-        },
+        }
+      }
+    },
+    "%lld of %lld schemas": {
+      "extractionState": "manual",
+      "localizations": {
         "cs": {
           "stringUnit": {
             "state": "translated",
             "value": "%lld z %lld schémat"
           }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld of %2$lld schemas"
+          }
         }
-      },
-      "extractionState": "manual"
+      }
     },
     "%lld rows": {
       "extractionState": "manual",
@@ -174,16 +174,16 @@
         "cs": {
           "variations": {
             "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld řádek"
-                }
-              },
               "few": {
                 "stringUnit": {
                   "state": "translated",
                   "value": "%lld řádky"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld řádek"
                 }
               },
               "other": {
@@ -362,17 +362,6 @@
         }
       }
     },
-    "Auto-refresh": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Automatické obnovování"
-          }
-        }
-      }
-    },
     "Auth": {
       "extractionState": "manual",
       "localizations": {
@@ -380,6 +369,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ověření"
+          }
+        }
+      }
+    },
+    "Auto-refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatické obnovování"
           }
         }
       }
@@ -938,6 +938,17 @@
         }
       }
     },
+    "Database file": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Databázový soubor"
+          }
+        }
+      }
+    },
     "Decline": {
       "extractionState": "manual",
       "localizations": {
@@ -985,25 +996,19 @@
     "Delete %lld Items": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Delete %1$lld Items"
-          }
-        },
         "cs": {
           "variations": {
             "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Smazat %lld položku"
-                }
-              },
               "few": {
                 "stringUnit": {
                   "state": "translated",
                   "value": "Smazat %lld položky"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Smazat %lld položku"
                 }
               },
               "other": {
@@ -1014,31 +1019,31 @@
               }
             }
           }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Delete %1$lld Items"
+          }
         }
       }
     },
     "Delete %lld items?": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Delete %1$lld items?"
-          }
-        },
         "cs": {
           "variations": {
             "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Smazat %lld položku?"
-                }
-              },
               "few": {
                 "stringUnit": {
                   "state": "translated",
                   "value": "Smazat %lld položky?"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Smazat %lld položku?"
                 }
               },
               "other": {
@@ -1048,6 +1053,12 @@
                 }
               }
             }
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Delete %1$lld items?"
           }
         }
       }
@@ -1239,6 +1250,76 @@
         }
       }
     },
+    "Dump %lld Schemas…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "variations": {
+            "plural": {
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dump %lld schémat…"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dump %lld schématu…"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dump %lld schémat…"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Dump %1$lld Schemas…"
+          }
+        }
+      }
+    },
+    "Dump %lld Tables…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "variations": {
+            "plural": {
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dump %lld tabulek…"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dump %lld tabulky…"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Dump %lld tabulek…"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Dump %1$lld Tables…"
+          }
+        }
+      }
+    },
     "Dump Database…": {
       "extractionState": "manual",
       "localizations": {
@@ -1268,76 +1349,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dump tabulky…"
-          }
-        }
-      }
-    },
-    "Dump %lld Schemas…": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Dump %1$lld Schemas…"
-          }
-        },
-        "cs": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Dump %lld schématu…"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Dump %lld schémat…"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Dump %lld schémat…"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "Dump %lld Tables…": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Dump %1$lld Tables…"
-          }
-        },
-        "cs": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Dump %lld tabulky…"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Dump %lld tabulek…"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Dump %lld tabulek…"
-                }
-              }
-            }
           }
         }
       }
@@ -1951,17 +1962,6 @@
         }
       }
     },
-    "Loading schema…": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Načítání schématu…"
-          }
-        }
-      }
-    },
     "Load more": {
       "extractionState": "manual",
       "localizations": {
@@ -1969,6 +1969,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Načíst další"
+          }
+        }
+      }
+    },
+    "Loading schema…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Načítání schématu…"
           }
         }
       }
@@ -2002,6 +2013,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aktivita MCP…"
+          }
+        }
+      }
+    },
+    "MCP access is off on the copy; turn it on in Tessera if you want it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopie má MCP přístup vypnutý; pokud ho chcete, zapněte ho v Tesseře."
           }
         }
       }
@@ -2336,17 +2358,6 @@
         }
       }
     },
-    "Off": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vypnuto"
-          }
-        }
-      }
-    },
     "Not connected.": {
       "extractionState": "manual",
       "localizations": {
@@ -2391,37 +2402,13 @@
         }
       }
     },
-    "Open %lld Tables": {
+    "Off": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Open %1$lld Tables"
-          }
-        },
         "cs": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Otevřít %lld tabulku"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Otevřít %lld tabulky"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Otevřít %lld tabulek"
-                }
-              }
-            }
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vypnuto"
           }
         }
       }
@@ -2444,6 +2431,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Otevřít %1$@, kde %2$@ = %3$@"
+          }
+        }
+      }
+    },
+    "Open %lld Tables": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "variations": {
+            "plural": {
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Otevřít %lld tabulky"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Otevřít %lld tabulku"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Otevřít %lld tabulek"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Open %1$lld Tables"
           }
         }
       }
@@ -2613,6 +2635,17 @@
         }
       }
     },
+    "Re-run this query automatically": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spouštět tento dotaz automaticky znovu"
+          }
+        }
+      }
+    },
     "Read-only (warn before writing)": {
       "extractionState": "manual",
       "localizations": {
@@ -2668,6 +2701,17 @@
         }
       }
     },
+    "Redo Edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opakovat úpravu"
+          }
+        }
+      }
+    },
     "Refresh": {
       "extractionState": "manual",
       "localizations": {
@@ -2686,39 +2730,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Načíst schéma znovu"
-          }
-        }
-      }
-    },
-    "Redo Edit": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opakovat úpravu"
-          }
-        }
-      }
-    },
-    "Undo Edit": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vrátit úpravu"
-          }
-        }
-      }
-    },
-    "Re-run this query automatically": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spouštět tento dotaz automaticky znovu"
           }
         }
       }
@@ -2829,6 +2840,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Výsledky"
+          }
+        }
+      }
+    },
+    "Reveal in Finder": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zobrazit ve Finderu"
           }
         }
       }
@@ -3024,28 +3046,6 @@
         }
       }
     },
-    "Set NULL": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nastavit NULL"
-          }
-        }
-      }
-    },
-    "Show the query plan (Analyze also executes the statement)": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zobrazit plán dotazu (Analyze příkaz zároveň spustí)"
-          }
-        }
-      }
-    },
     "Save": {
       "extractionState": "manual",
       "localizations": {
@@ -3189,6 +3189,17 @@
         }
       }
     },
+    "Set NULL": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavit NULL"
+          }
+        }
+      }
+    },
     "Settings": {
       "extractionState": "manual",
       "localizations": {
@@ -3207,6 +3218,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Zobrazit podrobnosti"
+          }
+        }
+      }
+    },
+    "Show the query plan (Analyze also executes the statement)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zobrazit plán dotazu (Analyze příkaz zároveň spustí)"
           }
         }
       }
@@ -3574,6 +3596,28 @@
         }
       }
     },
+    "Typing a new path creates the file on first connect.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadáním nové cesty se soubor vytvoří při prvním připojení."
+          }
+        }
+      }
+    },
+    "Undo Edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrátit úpravu"
+          }
+        }
+      }
+    },
     "Unique": {
       "extractionState": "manual",
       "localizations": {
@@ -3712,16 +3756,16 @@
         "cs": {
           "variations": {
             "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "čeká %lld další požadavek"
-                }
-              },
               "few": {
                 "stringUnit": {
                   "state": "translated",
                   "value": "čekají %lld další požadavky"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "čeká %lld další požadavek"
                 }
               },
               "other": {
@@ -3741,16 +3785,16 @@
         "cs": {
           "variations": {
             "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld řádek ovlivněn"
-                }
-              },
               "few": {
                 "stringUnit": {
                   "state": "translated",
                   "value": "%lld řádky ovlivněny"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld řádek ovlivněn"
                 }
               },
               "other": {

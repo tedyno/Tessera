@@ -109,10 +109,10 @@ enum MCPTools {
                         + "the user turns that on in Tessera. A password may be given here and "
                         + "nowhere else; it goes straight to the Keychain.",
              properties: ["name": stringSchema("Display name."),
-                          "engine": stringSchema("postgres or mysql."),
-                          "host": stringSchema("Database host."),
+                          "engine": stringSchema("postgres, mysql, mariadb or sqlite."),
+                          "host": stringSchema("Database host (not used for sqlite)."),
                           "port": integerSchema("Port; defaults to the engine's standard port."),
-                          "database": stringSchema("Database name."),
+                          "database": stringSchema("Database name; for sqlite, the file path."),
                           "user": stringSchema("Database user."),
                           "password": stringSchema("Optional password, stored in the Keychain."),
                           "tls": stringSchema("disable, prefer, require, verify-ca or verify-full."),
@@ -125,7 +125,7 @@ enum MCPTools {
                           "ssh_port": integerSchema("SSH port (default 22)."),
                           "ssh_user": stringSchema("SSH user."),
                           "ssh_key_path": stringSchema("Path to the SSH private key.")],
-             required: ["name", "engine", "host", "database", "user"]),
+             required: ["name", "engine", "database"]),
 
         tool(name: "update_connection",
              description: "Change an existing connection. The password cannot be changed here, "
