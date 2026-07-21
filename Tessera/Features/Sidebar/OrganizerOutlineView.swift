@@ -328,7 +328,10 @@ struct OrganizerOutlineView: NSViewRepresentable {
         }
 
         private func speedRetarget() {
-            speedMatches = speedCandidates().filter { speedPrefixMatch(title(for: $0), speedTerm) }
+            // Substring match with prefix hits first, same as the schema tree.
+            let all = speedCandidates().filter { speedContainsMatch(title(for: $0), speedTerm) }
+            speedMatches = all.filter { speedPrefixMatch(title(for: $0), speedTerm) }
+                + all.filter { !speedPrefixMatch(title(for: $0), speedTerm) }
             speedIndex = 0
             speedMatchIDs = Set(speedMatches.map(\.id))
             refreshMatchTint()

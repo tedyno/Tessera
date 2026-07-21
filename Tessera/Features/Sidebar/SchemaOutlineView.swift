@@ -802,9 +802,11 @@ struct SchemaOutlineView: NSViewRepresentable {
         }
 
         private func speedRetarget() {
-            // Prefix-only: "us" finds "users", never "status" — matching anywhere
-            // in the name made the jumps feel random.
-            speedMatches = speedCandidates().filter { speedPrefixMatch($0.title, speedTerm) }
+            // Substring match, but names *starting* with the term come first so
+            // the initial jump is never a random mid-name hit.
+            let all = speedCandidates().filter { speedContainsMatch($0.title, speedTerm) }
+            speedMatches = all.filter { speedPrefixMatch($0.title, speedTerm) }
+                + all.filter { !speedPrefixMatch($0.title, speedTerm) }
             speedIndex = 0
             speedMatchKeys = Set(speedMatches.map(\.key))
             refreshMatchTint()
@@ -869,6 +871,14 @@ struct SchemaOutlineView: NSViewRepresentable {
 
 /// Case- and diacritic-insensitive prefix test ("za" finds "Zálohy").
 func speedPrefixMatch(_ title: String, _ term: String) -> Bool {
-    title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-        .hasPrefix(term.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current))
+    speedFold(title).hasPrefix(speedFold(term))
+}
+
+/// Case- and diacritic-insensitive substring test.
+func speedContainsMatch(_ title: String, _ term: String) -> Bool {
+    speedFold(title).contains(speedFold(term))
+}
+
+private func speedFold(_ string: String) -> String {
+    string.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
 }
