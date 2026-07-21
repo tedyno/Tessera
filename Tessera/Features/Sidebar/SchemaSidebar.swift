@@ -80,6 +80,15 @@ struct SchemaSidebar: View {
     /// Whether the database row itself is highlighted (single, no batch actions).
     @State private var dbSelected = false
 
+    /// PhpStorm-style speed search: with a sidebar row selected, typing jumps to
+    /// the first matching schema/table, arrows walk the matches, Esc ends the
+    /// search leaving the selection where it landed.
+    @State private var speedSearch = ""
+    @State private var speedMatchIndex = 0
+    @State private var speedMatchCount = 0
+    @State private var speedScrollTarget: String?
+    @State private var speedKeyMonitor: Any?
+
     /// Whether the engine's ALTER can express this operation (defaults to yes
     /// while nothing is connected — the menu isn't reachable then anyway).
     private func supports(_ operation: SchemaDDL.Operation) -> Bool {
@@ -179,8 +188,14 @@ struct SchemaSidebar: View {
                     // leak into "Open N Tables" against the other.
                     .onChange(of: tree.databaseName) { _, _ in clearTableSelection() }
                     .onChange(of: connectionName) { _, _ in clearTableSelection() }
+                    .onChange(of: speedScrollTarget) { _, id in
+                        guard let id else { return }
+                        withAnimation { proxy.scrollTo(id, anchor: .center) }
+                        speedScrollTarget = nil
+                    }
                 }
                 .safeAreaInset(edge: .bottom) { filterBar(tree) }
+                .safeAreaInset(edge: .top) { speedSearchBar }
                 .transition(.opacity)
             } else if status == .connecting {
                 VStack(spacing: 8) {
@@ -207,6 +222,175 @@ struct SchemaSidebar: View {
         // Connecting → loading schema → tree cross-fades instead of hard-swapping.
         .animation(.easeInOut(duration: 0.25), value: status)
         .animation(.easeInOut(duration: 0.25), value: tree == nil)
+        .onAppear { installSpeedSearchMonitor() }
+        .onDisappear {
+            if let monitor = speedKeyMonitor { NSEvent.removeMonitor(monitor) }
+            speedKeyMonitor = nil
+            speedSearch = ""
+        }
+    }
+
+    // MARK: Speed search
+
+    /// One row the speed search can land on.
+    private enum SpeedTarget: Equatable {
+        case schema(String)
+        case table(TableRef)
+
+        var name: String {
+            switch self {
+            case .schema(let name): name
+            case .table(let ref): ref.table
+            }
+        }
+        var rowID: String {
+            switch self {
+            case .schema(let name): "s:\(name)"
+            case .table(let ref): "t:\(ref.schema).\(ref.table)"
+            }
+        }
+    }
+
+    /// Schema and table rows in display order, restricted to what's actually on
+    /// screen (hidden/collapsed schemas and the name filter are respected).
+    private func speedCandidates() -> [SpeedTarget] {
+        guard let tree else { return [] }
+        var out: [SpeedTarget] = []
+        for namespace in tree.schemas where !hiddenSchemas.contains(namespace.name) && namespaceMatches(namespace) {
+            out.append(.schema(namespace.name))
+            guard !collapsedSchemas.contains("s:\(namespace.name)") || !query.isEmpty else { continue }
+            for table in namespace.tables where tableMatches(table) {
+                out.append(.table(TableRef(schema: namespace.name, table: table.name)))
+            }
+        }
+        return out
+    }
+
+    private func speedMatches() -> [SpeedTarget] {
+        let term = speedSearch.lowercased()
+        guard !term.isEmpty else { return [] }
+        return speedCandidates().filter { $0.name.lowercased().contains(term) }
+    }
+
+    private func installSpeedSearchMonitor() {
+        guard speedKeyMonitor == nil else { return }
+        speedKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            handleSpeedSearchKey(event) ? nil : event
+        }
+    }
+
+    /// Returns true when the event was consumed by the speed search.
+    private func handleSpeedSearchKey(_ event: NSEvent) -> Bool {
+        guard tree != nil, let window = event.window, window.isKeyWindow,
+              window.sheetParent == nil, !(window is NSPanel) else { return false }
+        // Never steal typing from an editor, a text field or the results grid
+        // (the grid starts a cell edit from a plain keystroke). SwiftUI's own
+        // List is backed by an NSTableView too, so only non-SwiftUI tables (the
+        // grid, the organizer outline) opt out.
+        if let responder = window.firstResponder {
+            if responder is NSText || responder is NSTextView { return false }
+            if responder is NSTableView,
+               !String(reflecting: type(of: responder)).hasPrefix("SwiftUI.") {
+                return false
+            }
+        }
+        let active = !speedSearch.isEmpty
+        // The "context": a sidebar row is selected, or a search is already running.
+        guard active || dbSelected || !selectedSchemas.isEmpty || !selectedTables.isEmpty else {
+            return false
+        }
+
+        switch event.keyCode {
+        case 53:   // Esc — end the search; the selection stays where it landed
+            guard active else { return false }
+            speedSearch = ""
+            return true
+        case 36, 76:   // Return — same: the match is already selected
+            guard active else { return false }
+            speedSearch = ""
+            return true
+        case 51:   // Backspace
+            guard active else { return false }
+            speedSearch.removeLast()
+            if !speedSearch.isEmpty { retargetSpeedSearch() }
+            else { speedMatchCount = 0 }
+            return true
+        case 125, 126:   // ↓ / ↑ — walk the matches, wrapping around
+            guard active else { return false }
+            let matches = speedMatches()
+            speedMatchCount = matches.count
+            guard !matches.isEmpty else { return true }
+            speedMatchIndex = (speedMatchIndex + (event.keyCode == 125 ? 1 : -1)
+                               + matches.count) % matches.count
+            selectSpeedTarget(matches[speedMatchIndex])
+            return true
+        default:
+            break
+        }
+
+        guard event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty,
+              let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first,
+              scalar.properties.isAlphabetic || CharacterSet.decimalDigits.contains(scalar)
+                || "_$.".unicodeScalars.contains(scalar)
+        else { return false }
+        speedSearch.append(Character(scalar))
+        retargetSpeedSearch()
+        return true
+    }
+
+    /// Jumps to the best match for the current term: the first prefix match in
+    /// display order, or the first substring match when no name starts with it.
+    private func retargetSpeedSearch() {
+        let matches = speedMatches()
+        speedMatchCount = matches.count
+        guard !matches.isEmpty else { return }   // keep selection; the bar turns red
+        let term = speedSearch.lowercased()
+        speedMatchIndex = matches.firstIndex { $0.name.lowercased().hasPrefix(term) } ?? 0
+        selectSpeedTarget(matches[speedMatchIndex])
+    }
+
+    private func selectSpeedTarget(_ target: SpeedTarget) {
+        withAnimation(.easeOut(duration: 0.12)) {
+            switch target {
+            case .schema(let name):
+                selectedTables = []
+                selectionAnchor = nil
+                dbSelected = false
+                selectedSchemas = [name]
+            case .table(let ref):
+                selectedSchemas = []
+                dbSelected = false
+                selectedTables = [ref]
+                selectionAnchor = ref
+            }
+        }
+        speedScrollTarget = target.rowID
+    }
+
+    @ViewBuilder
+    private var speedSearchBar: some View {
+        if !speedSearch.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(verbatim: speedSearch)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(speedMatchCount == 0 ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+                Spacer()
+                if speedMatchCount > 0 {
+                    Text(verbatim: "\(speedMatchIndex + 1)/\(speedMatchCount)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
     }
 
     // MARK: Nodes
@@ -403,6 +587,7 @@ struct SchemaSidebar: View {
     }
 
     private func clearTableSelection() {
+        speedSearch = ""
         withAnimation(.easeOut(duration: 0.15)) {
             selectedTables = []
             selectionAnchor = nil
