@@ -158,7 +158,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
         let outline = ContextualOutlineView()
         outline.style = .sourceList
         outline.headerView = nil
-        outline.rowHeight = 22
+        outline.rowHeight = 24
+        outline.intercellSpacing = .zero   // no dead zone between rows
         outline.indentationPerLevel = 14
         outline.autoresizesOutlineColumn = false
         outline.allowsMultipleSelection = true

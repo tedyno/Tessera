@@ -143,7 +143,10 @@ struct SchemaOutlineView: NSViewRepresentable {
         let outline = SchemaTreeView()
         outline.style = .sourceList
         outline.headerView = nil
-        outline.rowHeight = 22
+        outline.rowHeight = 24
+        // No dead zone between rows: the intercell gap belongs to no row, so a
+        // click there selected nothing. The gap folds into the row height.
+        outline.intercellSpacing = .zero
         outline.indentationPerLevel = 14
         outline.autoresizesOutlineColumn = false
         outline.allowsMultipleSelection = true
