@@ -83,6 +83,16 @@ struct DetailView: View {
                 tab.setValue(newValue, row: target.row, columnName: target.columnName)
             }
         }
+        // At body level, not on the editor toolbar: the data view saves queries too.
+        .alert("Save Query", isPresented: $showingSaveQuery) {
+            TextField("Name", text: $saveQueryTitle)
+            Button("Save") {
+                if let sql = model.activeTab?.sql { model.saveQuery(title: saveQueryTitle, sql: sql) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Give this query a name to find it later.")
+        }
         .sheet(isPresented: $showingHistory) {
             HistoryView(
                 history: model.history,
@@ -293,15 +303,6 @@ struct DetailView: View {
             .controlSize(.small)
         }
         .padding(6)
-        .alert("Save Query", isPresented: $showingSaveQuery) {
-            TextField("Name", text: $saveQueryTitle)
-            Button("Save") {
-                if let sql = model.activeTab?.sql { model.saveQuery(title: saveQueryTitle, sql: sql) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Give this query a name to find it later.")
-        }
     }
 
     private var savedQueriesMenu: some View {
@@ -390,6 +391,7 @@ struct DetailView: View {
 
             if tab.isRunning { ProgressView().controlSize(.mini) }
             Spacer()
+            savedQueriesMenu
             Button {
                 showingHistory = true
             } label: {

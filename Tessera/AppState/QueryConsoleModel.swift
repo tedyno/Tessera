@@ -823,10 +823,13 @@ final class QueryConsoleModel {
     }
 
     func loadIntoActiveTab(_ sql: String) {
-        if let tab = activeTab {
+        // A data view's SQL is generated from its filters — loading a saved query
+        // over it would corrupt the view, so those get a fresh console tab on the
+        // same connection instead.
+        if let tab = activeTab, tab.kind == .console {
             tab.sql = sql
         } else {
-            addTab()
+            addTab(boundTo: activeTab?.session)
             activeTab?.sql = sql
         }
     }
