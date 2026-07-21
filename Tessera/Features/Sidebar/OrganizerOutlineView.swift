@@ -39,6 +39,8 @@ final class ContextualOutlineView: NSOutlineView {
     /// ⌘↩ — connects every selected connection, the keyboard equivalent of
     /// double-clicking one (a plain click never connects; see the Coordinator).
     var onCommandReturn: (() -> Void)?
+    /// ⌘D — duplicates the single selected connection.
+    var onDuplicate: (() -> Void)?
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
@@ -47,8 +49,13 @@ final class ContextualOutlineView: NSOutlineView {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
-        if modifiers == .command, event.keyCode == 36, window?.firstResponder === self {
+        let isFocused = window?.firstResponder === self
+        if modifiers == .command, event.keyCode == 36, isFocused {
             onCommandReturn?()
+            return true
+        }
+        if modifiers == .command, event.charactersIgnoringModifiers == "d", isFocused {
+            onDuplicate?()
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -142,6 +149,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
         outline.target = context.coordinator
         outline.doubleAction = #selector(Coordinator.doubleClick(_:))
         outline.onCommandReturn = { [coordinator = context.coordinator] in coordinator.connectSelection() }
+        outline.onDuplicate = { [coordinator = context.coordinator] in coordinator.duplicateSelectedConnection() }
 
         let scrollView = NSScrollView()
         scrollView.documentView = outline
@@ -584,7 +592,9 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 add(menu, String(localized: "Export…"), #selector(actionExport), item)
                 add(menu, String(localized: "Import…"), #selector(actionImport), item)
                 add(menu, String(localized: "Edit…"), #selector(actionEdit), item)
-                add(menu, String(localized: "Duplicate…"), #selector(actionDuplicate), item)
+                let duplicate = add(menu, String(localized: "Duplicate…"), #selector(actionDuplicate), item)
+                duplicate.keyEquivalent = "d"
+                duplicate.keyEquivalentModifierMask = .command
                 menu.addItem(colorMenuItem(for: item))
             }
             add(menu, String(localized: "Delete"), #selector(actionDelete), item)
@@ -720,6 +730,15 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         @objc private func actionDuplicate(_ sender: NSMenuItem) {
             if let item = sender.representedObject as? OrganizerItem { onDuplicateConnection(item.id) }
+        }
+
+        /// ⌘D — duplicates the one selected connection (containers and
+        /// multi-selections have no obvious duplicate semantics).
+        func duplicateSelectedConnection() {
+            guard let outlineView, outlineView.selectedRowIndexes.count == 1,
+                  let item = outlineView.item(atRow: outlineView.selectedRow) as? OrganizerItem,
+                  item.category == .connection else { return }
+            onDuplicateConnection(item.id)
         }
 
         @objc private func actionNewQueryTab(_ sender: NSMenuItem) {
