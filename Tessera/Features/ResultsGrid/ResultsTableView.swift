@@ -128,6 +128,12 @@ final class GridTableView: NSTableView {
     /// Typing a printable character on a cell starts editing it, spreadsheet-style,
     /// with the typed text replacing the value; false = not applicable, keep the beep.
     var onTypeToEdit: ((String) -> Bool)?
+    /// ⇧↩ — opens the multiline value editor for the single selected cell.
+    var onOpenValueEditor: (() -> Bool)?
+    /// Context menu: opens the value editor for a clicked cell; the title callback
+    /// says "Edit Value…" or "View Value…" (nil = result rows can't be inspected).
+    var onOpenValueEditorAt: ((Int, Int) -> Void)?
+    var valueEditorMenuTitle: (() -> String?)?
 
     override func keyDown(with event: NSEvent) {
         let shift = event.modifierFlags.contains(.shift)
@@ -138,8 +144,12 @@ final class GridTableView: NSTableView {
         case 126: if onMoveSelection?(-1, 0, shift) != true { super.keyDown(with: event) }   // ↑
         case 48:  // tab / ⇧-tab — keeps focus-cycling when the grid has nothing to move over
             if onMoveSelection?(0, shift ? -1 : 1, false) != true { super.keyDown(with: event) }
-        case 36:  // return — edit the selected cell; otherwise keep normal handling
-            if onEditSelected?() != true { super.keyDown(with: event) }
+        case 36:  // return — edit in cell; ⇧↩ opens the multiline value editor
+            if shift {
+                if onOpenValueEditor?() != true { super.keyDown(with: event) }
+            } else if onEditSelected?() != true {
+                super.keyDown(with: event)
+            }
         case 53:  // escape
             if onEscape?() != true { super.keyDown(with: event) }
         case 51 where event.modifierFlags.contains(.option):   // ⌥⌫ — set NULL
@@ -204,6 +214,16 @@ final class GridTableView: NSTableView {
             follow.target = self
             follow.representedObject = CellPos(row: row, col: clickedColumn)
             menu.addItem(follow)
+            menu.addItem(.separator())
+        }
+
+        if row >= 0, clickedColumn >= 0, let title = valueEditorMenuTitle?() {
+            let item = NSMenuItem(title: title, action: #selector(openValueEditorAction(_:)),
+                                  keyEquivalent: "\r")
+            item.keyEquivalentModifierMask = .shift
+            item.target = self
+            item.representedObject = CellPos(row: row, col: clickedColumn)
+            menu.addItem(item)
             menu.addItem(.separator())
         }
 
@@ -299,6 +319,11 @@ final class GridTableView: NSTableView {
         if let format = sender.representedObject as? GridCopyFormat { onCopyAs?(format) }
     }
     @objc private func deleteRowsAction() { onDeleteRows?() }
+    @objc private func openValueEditorAction(_ sender: NSMenuItem) {
+        guard let pos = sender.representedObject as? CellPos else { return }
+        onOpenValueEditorAt?(pos.row, pos.col)
+    }
+
     @objc private func followForeignKeyAction(_ sender: NSMenuItem) {
         if let cell = sender.representedObject as? CellPos { onFollowForeignKey?(cell.row, cell.col) }
     }
@@ -379,6 +404,11 @@ struct ResultsTableView: NSViewRepresentable {
         }
         tableView.onEditSelected = { [c = context.coordinator] in c.editSelectedCell() }
         tableView.onTypeToEdit = { [c = context.coordinator] text in c.typeToEdit(text) }
+        tableView.onOpenValueEditor = { [c = context.coordinator] in c.openValueEditorForSelection() }
+        tableView.onOpenValueEditorAt = { [c = context.coordinator] row, col in
+            c.openValueEditor(row: row, col: col)
+        }
+        tableView.valueEditorMenuTitle = { [c = context.coordinator] in c.valueEditorMenuTitle }
         tableView.onSetNull = { [c = context.coordinator] in c.setSelectedToNull() }
         tableView.onUndo = { [c = context.coordinator] in c.undoEdits() }
         tableView.onRedo = { [c = context.coordinator] in c.redoEdits() }
@@ -507,6 +537,42 @@ struct ResultsTableView: NSViewRepresentable {
             return true
         }
 
+        /// Context-menu title for the value editor, nil when there is no result.
+        var valueEditorMenuTitle: String? {
+            guard tab.result != nil else { return nil }
+            return tab.isEditable && visibleRowMap == nil
+                ? String(localized: "Edit Value…")
+                : String(localized: "View Value…")
+        }
+
+        /// ⇧↩ — opens the value editor on the single selected cell.
+        func openValueEditorForSelection() -> Bool {
+            guard selected.count == 1, let cell = selected.first else { return false }
+            openValueEditor(row: cell.row, col: cell.col)
+            return true
+        }
+
+        /// Opens the multiline value-editor sheet for a cell (display coordinates):
+        /// selects the cell, then hands the current value to the detail view.
+        func openValueEditor(row: Int, col: Int) {
+            guard let result = tab.result, col < result.columns.count else { return }
+            let old = selectionRows
+            selected = [CellPos(row: row, col: col)]
+            anchor = CellPos(row: row, col: col)
+            focus = CellPos(row: row, col: col)
+            reload(rows: old.union(selectionRows))
+            updateInspector()
+
+            let column = result.columns[col]
+            let value = cellString(row: row, col: col)
+            let dataRow = dataRow(forDisplay: row)
+            let editable = tab.isEditable && visibleRowMap == nil
+                && tab.editSource?.autoIncrementColumns.contains(column.name) != true
+            tab.valueEditor = ValueEditorTarget(
+                row: dataRow, columnName: column.name, typeName: column.typeName,
+                text: value ?? "", isNull: value == nil, isEditable: editable)
+        }
+
         var tabCanUndo: Bool { tab.isEditable && visibleRowMap == nil && tab.canUndoEdits }
         var tabCanRedo: Bool { tab.isEditable && visibleRowMap == nil && tab.canRedoEdits }
 
@@ -603,12 +669,19 @@ struct ResultsTableView: NSViewRepresentable {
         /// `configure` no longer reloading the table on every observed change, the
         /// cell view is guaranteed live, and AppKit never recycles a view mid-edit.
         @discardableResult
-        func beginEdit(row: Int, col: Int) -> NSText? {
+        func beginEdit(row: Int, col: Int, allowSheet: Bool = true) -> NSText? {
             guard tab.isEditable, visibleRowMap == nil, let tableView, let result, col < result.columns.count
             else { return nil }
             // Auto-increment cells on insert rows are DB-generated — not editable.
             if isInsertRow(row),
                tab.editSource?.autoIncrementColumns.contains(result.columns[col].name) == true { return nil }
+            // A multiline value can't be edited in the single-line field — route it
+            // to the value-editor sheet instead (typeToEdit opts out: typed text
+            // replaces the value, so its shape doesn't matter).
+            if allowSheet, cellString(row: row, col: col)?.contains("\n") == true {
+                openValueEditor(row: row, col: col)
+                return nil
+            }
             let old = selectionRows
             selected = [CellPos(row: row, col: col)]
             anchor = CellPos(row: row, col: col)
@@ -641,7 +714,7 @@ struct ResultsTableView: NSViewRepresentable {
             guard tab.isEditable, visibleRowMap == nil, !selected.isEmpty else { return false }
             let targets = selected
             let cell = focus ?? anchor ?? selected.min { ($0.row, $0.col) < ($1.row, $1.col) }!
-            guard let editor = beginEdit(row: cell.row, col: cell.col) as? NSTextView else {
+            guard let editor = beginEdit(row: cell.row, col: cell.col, allowSheet: false) as? NSTextView else {
                 bulkEditTargets = nil
                 return false
             }

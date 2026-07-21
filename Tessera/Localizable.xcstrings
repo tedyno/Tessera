@@ -1397,6 +1397,17 @@
         }
       }
     },
+    "Edit Value…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upravit hodnotu…"
+          }
+        }
+      }
+    },
     "Edit…": {
       "extractionState": "manual",
       "localizations": {
@@ -2591,6 +2602,17 @@
         }
       }
     },
+    "Pretty-print JSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formátovat JSON"
+          }
+        }
+      }
+    },
     "Primary key columns (comma-separated)": {
       "extractionState": "manual",
       "localizations": {
@@ -2664,6 +2686,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spouštět tento dotaz automaticky znovu"
+          }
+        }
+      }
+    },
+    "Read-only": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jen ke čtení"
           }
         }
       }
@@ -3713,6 +3746,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Uživatel"
+          }
+        }
+      }
+    },
+    "View Value…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zobrazit hodnotu…"
           }
         }
       }

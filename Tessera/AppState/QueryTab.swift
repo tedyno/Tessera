@@ -182,6 +182,12 @@ final class QueryTab: Identifiable {
     /// selection). Set by the grid, read by the inspector panel.
     var inspected: InspectedCell?
 
+    /// A cell opened in the multiline value-editor sheet — long JSON/text values
+    /// are unwieldy in the single-line in-cell field. Set by the grid (⇧↩,
+    /// context menu, or double-clicking a multiline value); presented by the
+    /// detail view.
+    var valueEditor: ValueEditorTarget?
+
     /// Seconds between automatic re-runs of this tab (nil = off).
     var autoRefreshInterval: TimeInterval?
     @ObservationIgnored var autoRefreshTask: Task<Void, Never>?
@@ -197,4 +203,52 @@ final class QueryTab: Identifiable {
         self.title = title
         self.sql = sql
     }
+
+    /// Writes one value into one cell by data-row index (nil = SQL NULL),
+    /// mirroring how the grid records a manual edit: insert rows update their
+    /// pending values, fetched rows record an edit — dropped again when the
+    /// value matches the fetched original.
+    func setValue(_ value: String?, row: Int, columnName: String) {
+        guard let result else { return }
+        guard editSource?.autoIncrementColumns.contains(columnName) != true else { return }
+        let fetchedCount = result.rows.count
+        if row >= fetchedCount {
+            let index = row - fetchedCount
+            guard index < pendingInserts.count else { return }
+            pendingInserts[index].values[columnName] = value   // nil → column omitted
+            return
+        }
+        guard row >= 0, row < fetchedCount,
+              let col = result.columns.firstIndex(where: { $0.name == columnName }) else { return }
+        let cells = result.rows[row]
+        let original = col < cells.count ? cells[col].text : nil
+        if let value {
+            if original != nil, value == original {
+                edits[row]?[columnName] = nil
+                if edits[row]?.isEmpty == true { edits[row] = nil }
+            } else {
+                edits[row, default: [:]][columnName] = value
+            }
+        } else if original == nil {
+            // Already NULL — drop any pending edit instead of recording a no-op.
+            edits[row]?[columnName] = nil
+            if edits[row]?.isEmpty == true { edits[row] = nil }
+        } else {
+            edits[row, default: [:]].updateValue(nil, forKey: columnName)
+        }
+    }
+}
+
+/// A cell opened in the multiline value editor (`QueryTab.valueEditor`).
+struct ValueEditorTarget: Identifiable, Equatable {
+    let id = UUID()
+    /// Data-row index (insert rows continue past the fetched rows).
+    var row: Int
+    var columnName: String
+    var typeName: String
+    /// Current value with pending edits applied; "" when NULL (`isNull` marks it).
+    var text: String
+    var isNull: Bool
+    /// False on a read-only result — the sheet then only views the value.
+    var isEditable: Bool
 }

@@ -75,6 +75,14 @@ struct DetailView: View {
         .sheet(isPresented: $showingConnectionLog) {
             ConnectionLogView(log: model.connectionLog)
         }
+        .sheet(item: Binding(get: { model.activeTab?.valueEditor },
+                             set: { model.activeTab?.valueEditor = $0 })) { target in
+            ValueEditorSheet(target: target) { newValue in
+                guard let tab = model.activeTab else { return }
+                tab.captureEditSnapshot()
+                tab.setValue(newValue, row: target.row, columnName: target.columnName)
+            }
+        }
         .sheet(isPresented: $showingHistory) {
             HistoryView(
                 history: model.history,
@@ -545,12 +553,16 @@ struct DetailView: View {
                             .help("Discard this change")
 
                             Circle().fill(color(for: change.target)).frame(width: 6, height: 6)
-                            Text(change.statement)
+                            // Newlines inside a value literal would end the one-line
+                            // preview at the first line — collapse them visibly; the
+                            // tooltip carries the exact SQL.
+                            Text(change.statement.replacingOccurrences(of: "\n", with: " ⏎ "))
                                 .font(.system(.caption, design: .monospaced))
                                 .textSelection(.enabled)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                                .help(change.statement)
                         }
                     }
                 }
