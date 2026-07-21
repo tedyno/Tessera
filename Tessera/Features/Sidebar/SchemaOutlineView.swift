@@ -102,7 +102,9 @@ final class SchemaRowView: NSTableRowView {
 
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
-        guard isSpeedMatch, !isSelected else { return }
+        // Also under the selected row: the selection pill is rounded, and without
+        // the tint behind it the corners would punch visible holes in the row.
+        guard isSpeedMatch else { return }
         NSColor.controlAccentColor.withAlphaComponent(0.10).setFill()
         bounds.fill()
     }
