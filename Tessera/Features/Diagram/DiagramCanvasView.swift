@@ -181,19 +181,10 @@ final class DiagramCanvasView: NSView {
               let toEntity = model.entitiesByName[edge.toTable] else { return nil }
 
         let fromY = fromFrame.minY + TableNodeView.anchorY(forColumn: edge.fromColumn, in: fromEntity)
-        var toY = toFrame.minY + TableNodeView.anchorY(forColumn: edge.toColumn, in: toEntity)
+        // Edges sharing a target column all converge on its row midline — the
+        // user prefers the overlap over any fanned-out endpoints.
+        let toY = toFrame.minY + TableNodeView.anchorY(forColumn: edge.toColumn, in: toEntity)
         let laneOffset = CGFloat(lane % 5 - 2) * 9
-
-        // Edges pointing at the same column (typically everyone's FK → id)
-        // would all converge on one point; fan their endpoints apart instead.
-        let siblings = model.visibleEdges
-            .filter { $0.toTable == edge.toTable && $0.toColumn == edge.toColumn
-                && $0.fromTable != $0.toTable }
-            .sorted { ($0.fromTable, $0.fromColumn) < ($1.fromTable, $1.fromColumn) }
-        if siblings.count > 1, let index = siblings.firstIndex(of: edge) {
-            let spread = CGFloat(index) * 10 - CGFloat(siblings.count - 1) * 5
-            toY = min(max(toFrame.minY + 8, toY + spread), toFrame.maxY - 8)
-        }
 
         if edge.fromTable == edge.toTable {
             // Self-reference: a loop off the right edge.
