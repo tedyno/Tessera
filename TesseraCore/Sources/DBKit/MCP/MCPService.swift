@@ -168,6 +168,25 @@ public struct MCPService: Sendable {
                 connection: connection, sql: statement, format: format.lowercased(),
                 limit: arguments["limit"]?.intValue))
 
+        case "export_diagram":
+            let connection = try string(arguments, "connection")
+            try await requireConnection(connection)
+            let edgeStyle = arguments["edge_style"]?.stringValue ?? "curved"
+            guard ["curved", "orthogonal"].contains(edgeStyle) else {
+                throw MCPToolError("Unknown edge_style “\(edgeStyle)”. Use curved or orthogonal.")
+            }
+            let background = arguments["background"]?.stringValue ?? "plain"
+            guard ["plain", "dots", "grid"].contains(background) else {
+                throw MCPToolError("Unknown background “\(background)”. Use plain, dots or grid.")
+            }
+            return try encodeJSON(await source.exportDiagram(
+                connection: connection,
+                schema: try string(arguments, "schema"),
+                table: arguments["table"]?.stringValue,
+                keysOnly: arguments["keys_only"].flatMap(boolValue) ?? false,
+                onlyConnected: arguments["only_connected"].flatMap(boolValue),
+                edgeStyle: edgeStyle, background: background))
+
         case "export_dump":
             let connection = try string(arguments, "connection")
             try await requireConnection(connection)

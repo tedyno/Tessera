@@ -196,6 +196,30 @@ final class MCPServiceTests: XCTestCase {
         XCTAssertTrue(exports.isEmpty)
     }
 
+    func testExportDiagramRejectsUnknownStyleOptions() async throws {
+        let source = FakeSource(connections: [writable])
+        let service = MCPService(source: source)
+        let (_, badEdge) = try await call(service, tool: "export_diagram",
+                                          ["connection": "staging", "schema": "public",
+                                           "edge_style": "zigzag"])
+        XCTAssertTrue(badEdge)
+        let (_, badBackground) = try await call(service, tool: "export_diagram",
+                                                ["connection": "staging", "schema": "public",
+                                                 "background": "stripes"])
+        XCTAssertTrue(badBackground)
+    }
+
+    func testExportDiagramDefaultsToUnavailable() async throws {
+        // FakeSource relies on the protocol's default implementation — a headless
+        // data source has no diagram views to render with.
+        let source = FakeSource(connections: [writable])
+        let service = MCPService(source: source)
+        let (text, isError) = try await call(service, tool: "export_diagram",
+                                             ["connection": "staging", "schema": "public"])
+        XCTAssertTrue(isError)
+        XCTAssertTrue(text.contains("not available"))
+    }
+
     func testExportResultRejectsUnknownFormat() async throws {
         let source = FakeSource(connections: [writable])
         let service = MCPService(source: source)

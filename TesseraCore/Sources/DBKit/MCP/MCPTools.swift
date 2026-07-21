@@ -88,6 +88,24 @@ enum MCPTools {
                           "limit": integerSchema("Maximum rows to export.")],
              required: ["connection", "sql"]),
 
+        tool(name: "export_diagram",
+             description: "Render the ER diagram of a schema — or of one table and its direct "
+                        + "FK neighbors — to a PNG image. Runs without approval (it reveals "
+                        + "nothing beyond what describe_table already returns); Tessera chooses "
+                        + "the destination inside the user's export folder — the path cannot be "
+                        + "set here. Returns the file that was written.",
+             properties: ["connection": stringSchema("Connection name."),
+                          "schema": stringSchema("Schema to diagram."),
+                          "table": stringSchema("Optional: limit the diagram to this table "
+                                              + "and its direct FK neighbors."),
+                          "keys_only": booleanSchema("Show only PK/FK columns (default false)."),
+                          "only_connected": booleanSchema("Hide tables without any FK edge "
+                                                        + "(whole-schema scope only; defaults to "
+                                                        + "on for schemas over 150 tables)."),
+                          "edge_style": stringSchema("curved or orthogonal (default curved)."),
+                          "background": stringSchema("plain, dots or grid (default plain).")],
+             required: ["connection", "schema"]),
+
         tool(name: "import_dump",
              description: "Restore a .sql, .sql.gz, or .dump file into a connection. Writes to the "
                         + "database, so the user approves it first; refused on connections marked "

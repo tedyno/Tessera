@@ -3,7 +3,9 @@ import DBKit
 
 /// Serves the MCP core from the app's live state. Only connections that granted MCP
 /// read access are ever visible here — the core never learns the others exist.
-/// Writes, imports, and exports go through the approval prompt.
+/// Writes, imports, and exports go through the approval prompt — except the diagram
+/// export, which reveals nothing beyond `describe_table` and only writes a PNG into
+/// the app-chosen export folder.
 @MainActor
 final class MCPBridge: MCPDataSource {
     unowned let app: AppModel
@@ -262,6 +264,100 @@ final class MCPBridge: MCPDataSource {
                                 detail: sql, outcome: "failed: \(message)")
             throw MCPToolError(message)
         }
+    }
+
+    func exportDiagram(connection: String, schema: String, table: String?,
+                       keysOnly: Bool, onlyConnected: Bool?,
+                       edgeStyle: String, background: String) async throws -> MCPExportResult {
+        let scopeLabel = table.map { "table “\($0)” and its FK neighbors" } ?? "schema “\(schema)”"
+        // No approval, unlike the other exports: the diagram discloses nothing
+        // the client can't already read via describe_table, and the PNG lands
+        // in the app-chosen export folder. In exchange, every outcome — not
+        // just the write — lands in the audit log.
+        func fail(_ message: String) -> MCPToolError {
+            app.mcpAudit.record(tool: "export_diagram", connection: connection,
+                                detail: scopeLabel, outcome: "failed: \(message)")
+            return MCPToolError(message)
+        }
+
+        let session = try await readySession(connection)
+        func resolve() -> (SchemaNamespace, String?)? {
+            guard let namespace = session.schema?.schemas.first(where: { $0.name == schema })
+            else { return nil }
+            guard let table else { return (namespace, nil) }
+            // Case-insensitive like describe_table, so its output round-trips here.
+            guard let match = namespace.tables.first(where: {
+                $0.name.caseInsensitiveCompare(table) == .orderedSame
+            }) else { return nil }
+            return (namespace, match.name)
+        }
+        var resolved = resolve()
+        if resolved == nil {
+            // The cached schema may predate the requested schema/table — one re-read.
+            await session.refreshSchema()
+            resolved = resolve()
+        }
+        guard let (namespace, canonicalTable) = resolved else {
+            throw fail(table.map { "Table “\($0)” was not found in schema “\(schema)”." }
+                       ?? "Schema “\(schema)” was not found on “\(connection)”.")
+        }
+        guard !namespace.tables.isEmpty else {
+            throw fail("Schema “\(schema)” has no tables.")
+        }
+
+        let scope: DiagramModel.Scope = canonicalTable.map { .table($0) } ?? .schema
+        let model = DiagramModel(schemaName: schema, namespace: namespace, scope: scope)
+        model.showKeysOnly = keysOnly
+        // An explicit only_connected wins; unset keeps the init's big-schema default.
+        if let onlyConnected, scope == .schema { model.showOnlyConnected = onlyConnected }
+        model.performLayout()   // pack for the final flags, not the init-time sizes
+
+        // The bitmap is allocated synchronously on the main actor — refuse a
+        // runaway canvas rather than freeze the app under it.
+        let contentBounds = model.contentBounds()
+        guard contentBounds.width * contentBounds.height <= 40_000_000 else {
+            throw fail("The diagram is too large to render "
+                     + "(\(model.visibleEntities.count) tables). "
+                     + "Set only_connected or scope the export to a table.")
+        }
+
+        let canvas = DiagramCanvasView()
+        canvas.model = model
+        canvas.edgeStyle = DiagramEdgeStyle(rawValue: edgeStyle) ?? .curved
+        canvas.backgroundStyle = DiagramBackgroundStyle(rawValue: background) ?? .plain
+        canvas.render()
+        guard let rep = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) else {
+            throw fail("The diagram could not be rendered.")
+        }
+        canvas.cacheDisplay(in: canvas.bounds, to: rep)
+        guard let data = rep.representation(using: .png, properties: [:]) else {
+            throw fail("The diagram could not be rendered.")
+        }
+
+        let url = Self.availableExportURL(base: "\(connection)-\(canonicalTable ?? schema)-erd")
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            throw fail(Self.message(for: error))
+        }
+        app.mcpAudit.record(tool: "export_diagram", connection: connection,
+                            detail: scopeLabel, outcome: "wrote \(url.path)")
+        return MCPExportResult(path: url.path, bytes: data.count)
+    }
+
+    /// Timestamped export name that never clobbers a same-minute sibling —
+    /// approval-less exports can arrive several to the minute.
+    private static func availableExportURL(base: String) -> URL {
+        let directory = ExportSettings.directory
+        let first = directory.appendingPathComponent(
+            ExportSettings.fileName(base: base, extension: "png"))
+        guard FileManager.default.fileExists(atPath: first.path) else { return first }
+        let stem = first.deletingPathExtension().lastPathComponent
+        for index in 2...99 {
+            let candidate = directory.appendingPathComponent("\(stem)-\(index).png")
+            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+        }
+        return first
     }
 
     func exportDump(connection: String, schemas: [String], tables: [String],

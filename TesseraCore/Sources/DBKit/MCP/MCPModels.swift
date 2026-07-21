@@ -248,6 +248,15 @@ public protocol MCPDataSource: Sendable {
     func exportResult(connection: String, sql: String, format: String,
                       limit: Int?) async throws -> MCPExportResult
 
+    /// Renders a schema's ER diagram (optionally scoped to one table and its FK
+    /// neighbors) to a PNG. The app picks the destination inside the user's
+    /// export folder; no approval — the diagram reveals nothing beyond what
+    /// `describe_table` already returns without one. `onlyConnected` nil means
+    /// "not specified": the app keeps its own big-schema default.
+    func exportDiagram(connection: String, schema: String, table: String?,
+                       keysOnly: Bool, onlyConnected: Bool?,
+                       edgeStyle: String, background: String) async throws -> MCPExportResult
+
     /// Reports which MCP client connected (from `initialize`), so approval prompts can
     /// name it. Any client can speak MCP, so this is never assumed.
     func clientIdentified(name: String, version: String?) async
@@ -272,6 +281,13 @@ public protocol MCPDataSource: Sendable {
 
 public extension MCPDataSource {
     func clientIdentified(name: String, version: String?) async {}
+
+    /// Rendering needs the app's diagram views; a headless data source opts out.
+    func exportDiagram(connection: String, schema: String, table: String?,
+                       keysOnly: Bool, onlyConnected: Bool?,
+                       edgeStyle: String, background: String) async throws -> MCPExportResult {
+        throw MCPToolError("Diagram export is not available.")
+    }
 
     // Default to "this build doesn't manage connections" so a data source can
     // implement only the query half of the protocol.
