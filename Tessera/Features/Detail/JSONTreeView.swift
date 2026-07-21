@@ -73,6 +73,36 @@ struct JSONTreeNode: Identifiable {
     }
 }
 
+/// Inspector value display: a collapsible JSON tree when the value parses as
+/// one, the plain (pretty-printed) text otherwise. Owns the parse cache — the
+/// tree is rebuilt only when the value changes, so expansion state survives
+/// unrelated re-renders and a 256 KB value isn't re-parsed per keystroke.
+struct JSONInspectorView: View {
+    let value: String
+    /// Fallback text when the value isn't tree-worthy (pre-formatted upstream).
+    let fallback: String
+
+    @State private var parsedSource: String?
+    @State private var parsedNode: JSONTreeNode?
+
+    var body: some View {
+        Group {
+            if parsedSource == value, let node = parsedNode {
+                JSONTreeView(node: node)
+            } else if parsedSource == value {
+                Text(fallback).font(.callout.monospaced())
+            } else {
+                // First render for this value: parse next tick, show text meanwhile.
+                Text(fallback).font(.callout.monospaced())
+            }
+        }
+        .onChange(of: value, initial: true) { _, newValue in
+            parsedNode = JSONTreeNode.parse(newValue)
+            parsedSource = newValue
+        }
+    }
+}
+
 /// Collapsible key/value rendering of a JSON cell value in the inspector.
 /// The root level is always laid out; nested containers start collapsed.
 struct JSONTreeView: View {

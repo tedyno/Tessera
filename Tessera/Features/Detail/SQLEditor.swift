@@ -176,6 +176,22 @@ struct SQLEditor: NSViewRepresentable {
             updateStatementHighlight()
         }
 
+        /// Whether the editor holds more than one runnable statement — cached on
+        /// the text, since the caret moves far more often than the text changes.
+        private var multiStatementText: (text: String, isMulti: Bool)?
+
+        private func hasMultipleStatements(_ text: String) -> Bool {
+            if let cached = multiStatementText, cached.text == text { return cached.isMulti }
+            let real = SQLScript.statements(in: text).filter {
+                // Comment-only chunks (a trailing "-- done") aren't statements.
+                !SQLText.maskLiteralsAndComments($0)
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            let isMulti = real.count > 1
+            multiStatementText = (text, isMulti)
+            return isMulti
+        }
+
         /// Faint background under the statement ⌘↩ would run — only shown when
         /// the editor holds more than one statement, where it actually informs.
         func updateStatementHighlight() {
@@ -183,7 +199,8 @@ struct SQLEditor: NSViewRepresentable {
             let ns = textView.string as NSString
             let full = NSRange(location: 0, length: ns.length)
             storage.removeAttribute(.backgroundColor, range: full)
-            guard var range = SQLStatements.statementNSRange(
+            guard hasMultipleStatements(textView.string),
+                  var range = SQLStatements.statementNSRange(
                 sql: textView.string, utf16Cursor: textView.selectedRange().location)
             else { return }
             // Trim surrounding whitespace so the tint hugs the SQL, not the gaps.
@@ -197,8 +214,7 @@ struct SQLEditor: NSViewRepresentable {
                   CharacterSet.whitespacesAndNewlines.contains(scalar) {
                 range = NSRange(location: range.location, length: range.length - 1)
             }
-            let trimmedText = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard range.length > 0, range.length < (trimmedText as NSString).length else { return }
+            guard range.length > 0 else { return }
             storage.addAttribute(.backgroundColor,
                                  value: NSColor.controlAccentColor.withAlphaComponent(0.07),
                                  range: range)

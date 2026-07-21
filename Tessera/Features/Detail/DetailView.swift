@@ -766,11 +766,7 @@ struct DetailView: View {
                 ScrollView {
                     Group {
                         if let value = cell.value {
-                            if let node = JSONTreeNode.parse(value) {
-                                JSONTreeView(node: node)
-                            } else {
-                                Text(inspectorText(value)).font(.callout.monospaced())
-                            }
+                            JSONInspectorView(value: value, fallback: inspectorText(value))
                         } else {
                             Text("NULL").font(.callout.monospaced().italic()).foregroundStyle(.secondary)
                         }
@@ -808,15 +804,19 @@ struct DetailView: View {
 
     private var statusBar: some View {
         HStack(spacing: 14) {
-            // Which database this tab talks to, by its organizer colour — one
-            // glance tells production from dev before anything runs.
-            if let session = model.activeTab?.session ?? model.activeSession {
+            // Which database this bar describes, by its organizer colour — the
+            // SAME session `model.status` reads, or the dot would name A while
+            // the text right next to it reports B's status. Dimmed when idle:
+            // identity without implying a live connection.
+            if let session = model.activeSession ?? model.activeTab?.session {
+                let idle = !session.isReady && !session.isConnecting
                 HStack(spacing: 5) {
                     Circle()
-                        .fill(ConnectionPalette.color(session.colorName) ?? .secondary)
+                        .fill((ConnectionPalette.color(session.colorName) ?? .secondary)
+                            .opacity(idle ? 0.35 : 1))
                         .frame(width: 7, height: 7)
                     Text(session.qualifiedName)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(idle ? .tertiary : .secondary)
                         .lineLimit(1)
                 }
                 .help(session.pathLabel)

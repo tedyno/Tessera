@@ -574,12 +574,14 @@ struct SchemaOutlineView: NSViewRepresentable {
         }
 
         /// "842", "12.4k", "3.1M" — the badge wants magnitude, not precision.
+        /// Rounding rolls over units: 999,960 is "1.0M", never "1000.0k".
         private static func compactCount(_ count: Int) -> String {
-            switch count {
-            case ..<1000: String(count)
-            case ..<1_000_000: String(format: "%.1fk", Double(count) / 1000)
-            default: String(format: "%.1fM", Double(count) / 1_000_000)
-            }
+            if count < 1000 { return String(count) }
+            let thousands = Double(count) / 1000
+            if thousands < 999.95 { return String(format: "%.1fk", thousands) }
+            let millions = Double(count) / 1_000_000
+            if millions < 999.95 { return String(format: "%.1fM", millions) }
+            return String(format: "%.1fB", Double(count) / 1_000_000_000)
         }
 
         private static func badgeString(_ parts: [(String, NSColor)]) -> NSAttributedString {

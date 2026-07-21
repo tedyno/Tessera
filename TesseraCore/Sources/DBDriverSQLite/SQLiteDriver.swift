@@ -229,15 +229,17 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
             + "AND name NOT LIKE 'sqlite_%' ORDER BY name", on: db, maxRows: nil)
 
         // Row estimates exist only after ANALYZE (sqlite_stat1's stat column
-        // leads with the row count); absent stats just mean no badge.
+        // leads with the entry count); absent stats just mean no badge.
         var rowCounts: [String: Int] = [:]
         if let stats = try? run("SELECT tbl, stat FROM sqlite_stat1", on: db, maxRows: nil) {
             for row in stats.rows where row.count >= 2 {
                 guard let table = row[0].text,
                       let first = row[1].text?.split(separator: " ").first,
                       let count = Int(first) else { continue }
-                // One row per index; they all lead with the table's row count.
-                rowCounts[table] = count
+                // One row per index, each counting *that index's* entries — a
+                // partial index covers only its WHERE subset, so the largest
+                // entry count is the closest thing to the table's row count.
+                rowCounts[table] = max(rowCounts[table] ?? 0, count)
             }
         }
 
