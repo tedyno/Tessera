@@ -123,4 +123,40 @@ final class MCPConnectionPolicyTests: XCTestCase {
         XCTAssertEqual(MCPConnectionPolicy.accessLabel(
             profile(mcpRead: false, mcpWrite: false, noApproval: false)), "none")
     }
+
+    // MARK: File-based engines
+
+    func testSQLiteNeedsOnlyAPathAndNoHostOrUser() throws {
+        let created = try MCPConnectionPolicy.makeProfile(
+            MCPConnectionSpec(name: "Local", engine: "sqlite", host: "",
+                              database: "/tmp/app.sqlite", user: ""))
+        XCTAssertEqual(created.kind, .sqlite)
+        XCTAssertEqual(created.database, "/tmp/app.sqlite")
+    }
+
+    func testSQLiteWithoutAPathIsRejected() {
+        XCTAssertThrowsError(try MCPConnectionPolicy.makeProfile(
+            MCPConnectionSpec(name: "Local", engine: "sqlite", host: "", database: "", user: "")))
+    }
+
+    func testServerEnginesStillRequireHostAndUser() {
+        XCTAssertThrowsError(try MCPConnectionPolicy.makeProfile(
+            MCPConnectionSpec(name: "DB", engine: "mariadb", host: "", database: "d", user: "u")))
+        XCTAssertThrowsError(try MCPConnectionPolicy.makeProfile(
+            MCPConnectionSpec(name: "DB", engine: "postgres", host: "h", database: "d", user: "")))
+    }
+
+    func testMariaDBEngineIsAccepted() throws {
+        let created = try MCPConnectionPolicy.makeProfile(
+            MCPConnectionSpec(name: "M", engine: "MariaDB", host: "h", database: "d", user: "u"))
+        XCTAssertEqual(created.kind, .mariadb)
+        XCTAssertEqual(created.port, DatabaseKind.mariadb.defaultPort)
+    }
+
+    func testUnknownEngineErrorNamesAllFour() {
+        XCTAssertThrowsError(try MCPConnectionPolicy.makeProfile(
+            MCPConnectionSpec(name: "X", engine: "oracle", host: "h", database: "d", user: "u"))) {
+            XCTAssertTrue("\($0)".contains("sqlite"))
+        }
+    }
 }

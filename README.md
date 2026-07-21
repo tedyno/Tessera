@@ -1,8 +1,8 @@
 # Tessera
 
 A fast, native database client for macOS. No Electron, no webview, no JavaScript —
-pure Swift and SwiftUI. Built for PostgreSQL and MySQL, with secure credential storage
-and SSH tunnelling.
+pure Swift and SwiftUI. Built for PostgreSQL, MySQL, MariaDB and SQLite, with secure
+credential storage and SSH tunnelling.
 
 The name is the Latin word for a single tile of a mosaic: one cell of a data grid, from
 which the whole picture is assembled.
@@ -11,9 +11,11 @@ which the whole picture is assembled.
 
 ## Features
 
-- **PostgreSQL and MySQL** through one interface, with several connections live at once —
-  staging and production side by side. Each tab is bound to its own session, labelled with
-  its connection and a live status dot, and a per-tab picker points it at any connection.
+- **PostgreSQL, MySQL, MariaDB and SQLite** through one interface, with several connections
+  live at once — staging and production side by side. Each tab is bound to its own session,
+  labelled with its connection and a live status dot, and a per-tab picker points it at any
+  connection. SQLite needs no server at all: point a connection at a file (or a new path —
+  the file is created on first connect).
 - **Connection organizer** — nest connections in folders, colour-code them, mark the
   dangerous ones read-only, and connect / disconnect / reconnect / re-introspect from the
   sidebar (with a live green status dot).
@@ -29,12 +31,14 @@ which the whole picture is assembled.
   headers, an adjustable row limit, paging ("Load more") and total row counts.
 - **Schema editing** — add, rename, retype and drop columns, indexes and tables, with the
   generated DDL shown before it runs.
-- **Export** a table, a schema or the whole database through `pg_dump` / `mysqldump` — with
+- **Export** a table, a schema or the whole database through `pg_dump` / `mysqldump` /
+  `mariadb-dump` — with
   structure/data, DROP/CREATE options, INSERT-statement or custom format, and **gzip** so
   you can send it straight on. The binary is matched to the server's major version. A
   configurable default export folder (Downloads) with timestamped filenames, and
   **reveal-in-Finder after export**.
-- **Import / restore** dumps through `psql` / `pg_restore` / `mysql`.
+- **Import / restore** dumps through `psql` / `pg_restore` / `mysql` / `mariadb`. (SQLite has
+  no dump pipeline — the database *is* a file; Tessera offers Reveal in Finder instead.)
 - **Export query results** to CSV or JSON.
 - **SSH tunnelling** with password or key authentication (OpenSSH ed25519 and RSA keys).
 - **Secrets stay in the Keychain** — never in a config file, never in the organizer JSON.
@@ -143,7 +147,8 @@ TesseraCore/           # local Swift Package — portable core, no SwiftUI
   Sources/DBKit/           # models + protocols (no networking dependencies)
   Sources/DBPersistence/   # organizer and profile persistence (JSON)
   Sources/DBDriverPostgres/
-  Sources/DBDriverMySQL/
+  Sources/DBDriverMySQL/   # also serves MariaDB (same wire protocol)
+  Sources/DBDriverSQLite/  # system libsqlite3, no dependencies
   Sources/DBTunnel/        # SSH local port forwarding
   Sources/DBSecurity/      # Keychain wrapper
   Sources/DBMCPServer/     # MCP HTTP transport
@@ -153,8 +158,8 @@ TesseraCore/           # local Swift Package — portable core, no SwiftUI
 the other way round. The UI talks to the core purely through `DBKit` protocols, injected as
 dependencies.
 
-**Tech stack:** Swift 6 (strict concurrency), SwiftUI, PostgresNIO, MySQLNIO, Citadel
-(swift-nio-ssh), Security.framework.
+**Tech stack:** Swift 6 (strict concurrency), SwiftUI, PostgresNIO, MySQLNIO, the system
+SQLite3 C library, Citadel (swift-nio-ssh), Security.framework.
 
 ## Contributing
 

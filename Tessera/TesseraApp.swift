@@ -123,7 +123,7 @@ struct TesseraCommands: Commands {
     /// The standard About panel, with the copyright and licence terms in the credits.
     private static func showAbout() {
         let notice = String(localized: """
-            A native database client for PostgreSQL and MySQL.
+            A native database client for PostgreSQL, MySQL, MariaDB and SQLite.
 
             Copyright © 2026 David Vaníček
 

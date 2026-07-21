@@ -208,13 +208,13 @@
         }
       }
     },
-    "A native database client for PostgreSQL and MySQL.\n\nCopyright © 2026 David Vaníček\n\nTessera is free software under the GNU General Public License, version 3. You may redistribute and modify it under those terms. It comes with absolutely no warranty.\n\nIncludes third-party open-source components (MIT and Apache-2.0 licensed); their notices are in THIRD-PARTY-LICENSES.md alongside the source.": {
+    "A native database client for PostgreSQL, MySQL, MariaDB and SQLite.\n\nCopyright © 2026 David Vaníček\n\nTessera is free software under the GNU General Public License, version 3. You may redistribute and modify it under those terms. It comes with absolutely no warranty.\n\nIncludes third-party open-source components (MIT and Apache-2.0 licensed); their notices are in THIRD-PARTY-LICENSES.md alongside the source.": {
       "extractionState": "manual",
       "localizations": {
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nativní databázový klient pro PostgreSQL a MySQL.\n\nCopyright © 2026 David Vaníček\n\nTessera je svobodný software pod licencí GNU General Public License, verze 3. Můžete ji šířit a upravovat za těchto podmínek. Nevztahuje se na ni žádná záruka.\n\nObsahuje open-source komponenty třetích stran (licence MIT a Apache-2.0); jejich licenční ujednání najdete v souboru THIRD-PARTY-LICENSES.md u zdrojových kódů."
+            "value": "Nativní databázový klient pro PostgreSQL, MySQL, MariaDB a SQLite.\n\nCopyright © 2026 David Vaníček\n\nTessera je svobodný software pod licencí GNU General Public License, verze 3. Můžete ji šířit a upravovat za těchto podmínek. Nevztahuje se na ni žádná záruka.\n\nObsahuje open-source komponenty třetích stran (licence MIT a Apache-2.0); jejich licenční ujednání najdete v souboru THIRD-PARTY-LICENSES.md u zdrojových kódů."
           }
         }
       }
