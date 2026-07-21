@@ -60,6 +60,18 @@ final class SchemaTreeView: NSOutlineView {
         return super.performKeyEquivalent(with: event)
     }
 
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let hitRow = row(at: point)
+        super.mouseDown(with: event)
+        // A SwiftUI re-render can interleave with the click's tracking loop and
+        // abort NSTableView's own selection — re-assert the obvious outcome.
+        if hitRow >= 0, selectedRowIndexes.isEmpty,
+           event.modifierFlags.intersection([.command, .shift]).isEmpty {
+            selectRowIndexes(IndexSet(integer: hitRow), byExtendingSelection: false)
+        }
+    }
+
     override func keyDown(with event: NSEvent) {
         let active = speedIsActive?() == true
         switch event.keyCode {
@@ -99,6 +111,7 @@ final class SchemaRowView: NSTableRowView {
     var isSpeedMatch = false {
         didSet { if isSpeedMatch != oldValue { needsDisplay = true } }
     }
+
 
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
@@ -309,10 +322,29 @@ struct SchemaOutlineView: NSViewRepresentable {
                                                      title: namespace.name, schema: namespace.name,
                                                      children: tableNodes))
             }
+            // reloadData wipes the native selection — remember it by node key.
+            let selectedKeys = (outlineView?.selectedRowIndexes ?? [])
+                .compactMap { (outlineView?.item(atRow: $0) as? SchemaOutlineNode)?.key }
             root = SchemaOutlineNode(kind: .database, key: "db", title: tree.databaseName,
                                      children: schemaNodes)
             outlineView?.reloadData()
             restoreExpansion()
+            if let outlineView, !selectedKeys.isEmpty {
+                let rows = selectedKeys.compactMap { key in
+                    node(forKey: key).map { outlineView.row(forItem: $0) }
+                }.filter { $0 >= 0 }
+                outlineView.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
+            }
+        }
+
+        /// Depth-first lookup by stable key, for restoring selection across rebuilds.
+        private func node(forKey key: String) -> SchemaOutlineNode? {
+            func walk(_ node: SchemaOutlineNode) -> SchemaOutlineNode? {
+                if node.key == key { return node }
+                for child in node.children { if let hit = walk(child) { return hit } }
+                return nil
+            }
+            return root.flatMap(walk)
         }
 
         private func restoreExpansion() {

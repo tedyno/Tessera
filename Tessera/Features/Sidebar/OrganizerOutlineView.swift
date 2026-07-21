@@ -67,6 +67,21 @@ final class ContextualOutlineView: NSOutlineView {
         return super.performKeyEquivalent(with: event)
     }
 
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let hitRow = row(at: point)
+        super.mouseDown(with: event)
+        // A SwiftUI re-render can interleave with the click's tracking loop and
+        // abort NSTableView's own selection (observed in the wild: mouseDown on
+        // a row, selection empty afterwards). Re-assert the obvious outcome.
+        // ⌘/⇧ stay untouched: ⌘-clicking the only selected row legitimately
+        // leaves the selection empty.
+        if hitRow >= 0, selectedRowIndexes.isEmpty,
+           event.modifierFlags.intersection([.command, .shift]).isEmpty {
+            selectRowIndexes(IndexSet(integer: hitRow), byExtendingSelection: false)
+        }
+    }
+
     /// Speed search, same as the schema tree: typing jumps the selection to the
     /// first name starting with the typed text, arrows walk the matches.
     override func keyDown(with event: NSEvent) {
@@ -399,12 +414,24 @@ struct OrganizerOutlineView: NSViewRepresentable {
         }
 
         func rebuild(expandingAll: Bool) {
+            // reloadData wipes the native selection, and the SwiftUI binding is
+            // not a reliable source to restore from — remember it by item id.
+            let selectedIDs = (outlineView?.selectedRowIndexes ?? [])
+                .compactMap { (outlineView?.item(atRow: $0) as? OrganizerItem)?.id }
             // Connections belonging to no workspace list first, at the top level.
             roots = model.organizer.looseConnections.map(Self.item(forNode:))
                 + model.organizer.workspaces.map(Self.item(forWorkspace:))
             lastHash = currentHash
             outlineView?.reloadData()
             if expandingAll { outlineView?.expandItem(nil, expandChildren: true) }
+            if let outlineView, !selectedIDs.isEmpty {
+                let rows = selectedIDs.compactMap { id in
+                    find(id, in: roots).map { outlineView.row(forItem: $0) }
+                }.filter { $0 >= 0 }
+                isSyncingSelection = true
+                outlineView.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
+                isSyncingSelection = false
+            }
             applySelection()
         }
 
