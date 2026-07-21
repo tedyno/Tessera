@@ -40,6 +40,8 @@ struct SchemaSidebar: View {
     var onDumpTable: (_ schema: String, _ table: String) -> Void = { _, _ in }
     var onDumpSchema: (_ schema: String) -> Void = { _ in }
     var onDumpDatabase: () -> Void = { }
+    var onOpenDiagram: (_ schema: String) -> Void = { _ in }
+    var onShowTableInDiagram: (_ schema: String, _ table: String) -> Void = { _, _ in }
     var onDDL: (DDLOperation) -> Void = { _ in }
     /// Opens every table in the list at once (multi-selection double-click / ⌘↩).
     var onOpenTables: (_ tables: [(schema: String, table: String)]) -> Void = { _ in }
@@ -95,6 +97,8 @@ struct SchemaSidebar: View {
                         onDumpSchemas: onDumpSchemas,
                         onDumpDatabase: onDumpDatabase,
                         onRevealDatabaseFile: onRevealDatabaseFile,
+                        onOpenDiagram: onOpenDiagram,
+                        onShowTableInDiagram: onShowTableInDiagram,
                         onDDL: onDDL,
                         onSpeedSearch: { term, position, count in
                             speedTerm = term

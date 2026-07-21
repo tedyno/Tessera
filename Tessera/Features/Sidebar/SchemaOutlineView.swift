@@ -166,6 +166,8 @@ struct SchemaOutlineView: NSViewRepresentable {
     var onDumpSchemas: (_ schemas: [String]) -> Void = { _ in }
     var onDumpDatabase: () -> Void = { }
     var onRevealDatabaseFile: () -> Void = { }
+    var onOpenDiagram: (_ schema: String) -> Void = { _ in }
+    var onShowTableInDiagram: (_ schema: String, _ table: String) -> Void = { _, _ in }
     var onDDL: (DDLOperation) -> Void = { _ in }
     /// Mirrors the speed search for the indicator bar: (term, position, matches).
     var onSpeedSearch: (String, Int, Int) -> Void = { _, _, _ in }
@@ -245,6 +247,8 @@ struct SchemaOutlineView: NSViewRepresentable {
         coordinator.onDumpSchemas = onDumpSchemas
         coordinator.onDumpDatabase = onDumpDatabase
         coordinator.onRevealDatabaseFile = onRevealDatabaseFile
+        coordinator.onOpenDiagram = onOpenDiagram
+        coordinator.onShowTableInDiagram = onShowTableInDiagram
         coordinator.onDDL = onDDL
         coordinator.onSpeedSearch = onSpeedSearch
         coordinator.onRevealHandled = onRevealHandled
@@ -271,6 +275,8 @@ struct SchemaOutlineView: NSViewRepresentable {
         var onDumpSchemas: (_ schemas: [String]) -> Void = { _ in }
         var onDumpDatabase: () -> Void = { }
         var onRevealDatabaseFile: () -> Void = { }
+        var onOpenDiagram: (_ schema: String) -> Void = { _ in }
+        var onShowTableInDiagram: (_ schema: String, _ table: String) -> Void = { _, _ in }
         var onDDL: (DDLOperation) -> Void = { _ in }
         var onSpeedSearch: (String, Int, Int) -> Void = { _, _, _ in }
         /// Called after a reveal target was applied, so the source clears it.
@@ -683,6 +689,7 @@ struct SchemaOutlineView: NSViewRepresentable {
                     }
                 } else {
                     add(menu, String(localized: "New Query Tab"), #selector(newQueryTabAction), key: "t")
+                    add(menu, String(localized: "Open ER Diagram"), #selector(openDiagramAction), node: node)
                     menu.addItem(.separator())
                     add(menu, String(localized: "Create Table…"), #selector(createTableAction), node: node)
                     if engine?.isFileBased != true {
@@ -706,6 +713,7 @@ struct SchemaOutlineView: NSViewRepresentable {
                     }
                 } else {
                     add(menu, String(localized: "Open"), #selector(openTableAction), node: node)
+                    add(menu, String(localized: "Show in Diagram"), #selector(showInDiagramAction), node: node)
                     menu.addItem(.separator())
                     add(menu, String(localized: "Add Column…"), #selector(addColumnAction), node: node)
                     add(menu, String(localized: "Create Index…"), #selector(createIndexAction), node: node)
@@ -778,6 +786,14 @@ struct SchemaOutlineView: NSViewRepresentable {
         }
         @objc private func openTableAction(_ sender: NSMenuItem) {
             if let node = node(from: sender), let table = node.table { onOpenTable(node.schema, table) }
+        }
+        @objc private func openDiagramAction(_ sender: NSMenuItem) {
+            if let node = node(from: sender) { onOpenDiagram(node.schema) }
+        }
+        @objc private func showInDiagramAction(_ sender: NSMenuItem) {
+            if let node = node(from: sender), let table = node.table {
+                onShowTableInDiagram(node.schema, table)
+            }
         }
         @objc private func openTablesAction(_ sender: NSMenuItem) {
             guard let pairs = sender.representedObject as? [[String]] else { return }

@@ -241,6 +241,9 @@ final class QueryConsoleModel {
             }
             tab.result = result
             tab.resultVersion &+= 1
+            tab.currentPlan = (tab.expectedPlan?.sql == sql) ? tab.expectedPlan : nil
+            tab.expectedPlan = nil
+            tab.showRawPlan = false
             tab.scriptSummary = nil
             tab.edits = [:]
             tab.pendingDeletes = []
@@ -258,6 +261,7 @@ final class QueryConsoleModel {
                           table: tab.kind == .data ? tab.dataTable : nil)
         } catch {
             tab.errorMessage = ConnectionSession.message(for: error)
+            tab.expectedPlan = nil
         }
         tab.isRunning = false
         Self.bounceDockIfLong(started, clock: clock)
@@ -298,6 +302,8 @@ final class QueryConsoleModel {
             }
             tab.result = lastResult ?? QueryResult()
             tab.resultVersion &+= 1
+            tab.expectedPlan = nil
+            tab.currentPlan = nil
             tab.edits = [:]; tab.pendingDeletes = []; tab.pendingInserts = []
             tab.clearEditHistory()
             tab.clearSearch()
@@ -673,6 +679,44 @@ final class QueryConsoleModel {
         await reloadData(tab, refreshCount: true)
     }
 
+    /// Opens (or refocuses) the ER-diagram tab for one schema on a connection.
+    /// Pure canvas over the already-introspected schema — no query runs.
+    func openDiagram(schema: String, focusTable: String? = nil,
+                     on session: ConnectionSession? = nil) {
+        guard let session = session ?? activeSession else { return }
+        let namespace = session.schema?.schemas.first(where: { $0.name == schema })
+        if let existing = tabs.first(where: {
+            $0.session === session && $0.kind == .diagram && $0.diagram?.schemaName == schema
+        }) {
+            // Re-introspection (DDL, ⌘R, database switch) invalidates the
+            // snapshot — rebuild rather than focus a table that isn't in it.
+            if let namespace, existing.diagram?.entities != namespace.tables {
+                existing.diagram = DiagramModel(schemaName: schema, namespace: namespace)
+            }
+            focus(existing.diagram, on: focusTable)
+            activate(existing)
+            return
+        }
+        guard let namespace else { return }
+        let tab = QueryTab(title: schema)
+        tab.session = session
+        tab.kind = .diagram
+        tab.diagram = DiagramModel(schemaName: schema, namespace: namespace)
+        focus(tab.diagram, on: focusTable)
+        tabs.append(tab)
+        activate(tab)
+    }
+
+    private func focus(_ diagram: DiagramModel?, on table: String?) {
+        guard let diagram, let table, diagram.entitiesByName[table] != nil else { return }
+        diagram.focusTable = table
+        diagram.selectedTable = table
+        // The target may be hidden by the connected-only filter.
+        if !diagram.visibleEntities.contains(where: { $0.name == table }) {
+            diagram.showOnlyConnected = false
+        }
+    }
+
     /// The generated `SELECT *` for a data view, folding in the filter, sort, and page limit.
     private func dataSQL(_ tab: QueryTab, limit: Int? = nil, offset: Int? = nil,
                          orderOverride: [String]? = nil) -> String {
@@ -713,6 +757,7 @@ final class QueryConsoleModel {
     /// survives each refresh (its bar is visible, unlike the stale-filter case a
     /// manual run clears).
     func setAutoRefresh(_ tab: QueryTab, interval: TimeInterval?) {
+        guard tab.kind != .diagram else { return }
         tab.autoRefreshTask?.cancel()
         tab.autoRefreshTask = nil
         tab.autoRefreshInterval = interval

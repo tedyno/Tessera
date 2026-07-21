@@ -47,6 +47,11 @@ struct DetailView: View {
             if model.activeTab == nil {
                 emptyState
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let tab = model.activeTab, tab.kind == .diagram, let diagram = tab.diagram {
+                DiagramTabView(model: diagram, onOpenTable: { schema, table in
+                    Task { await model.openTable(schema: schema, table: table, on: tab.session) }
+                })
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 if let tab = model.activeTab, tab.kind == .data {
                     dataToolbar(tab)
@@ -166,6 +171,14 @@ struct DetailView: View {
 
     @State private var hoveredTabID: UUID?
 
+    private func chipIcon(_ tab: QueryTab) -> String {
+        switch tab.kind {
+        case .console: "terminal"
+        case .data: "tablecells"
+        case .diagram: "point.3.connected.trianglepath.dotted"
+        }
+    }
+
     private func tabChip(_ tab: QueryTab) -> some View {
         let isActive = tab.id == model.activeTabID
         // Label each tab with its connection when more than one is open, so the same
@@ -175,7 +188,7 @@ struct DetailView: View {
             if tab.isRunning {
                 ProgressView().controlSize(.mini)
             } else {
-                Image(systemName: tab.kind == .data ? "tablecells" : "terminal")
+                Image(systemName: chipIcon(tab))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
@@ -646,26 +659,16 @@ struct DetailView: View {
                     Divider()
                 }
                 if let result = tab.result, !result.columns.isEmpty {
-                    ResultsTableView(
-                        tab: tab,
-                        onSort: { column in
-                            Task { await model.sortByColumn(tab, column: column) }
-                        },
-                        onFollowForeignKey: { target, clause in
-                            Task {
-                                await model.openReferencedTable(schema: target.schema,
-                                                                table: target.table,
-                                                                where: clause)
-                            }
-                        },
-                        rowHeight: gridComfortable ? 24 : 18)
-                    .overlay(alignment: .topTrailing) {
-                        if tab.isSearchBarVisible {
-                            findBar(tab, result: result)
-                                .transition(.move(edge: .top).combined(with: .opacity))
+                    if tab.currentPlan != nil, let session = tab.session {
+                        PlanResultView(tab: tab, engine: session.engine) {
+                            resultsGrid(tab, result: result)
                         }
+                        // Tie the parse cache to the tab — two tabs at the same
+                        // resultVersion must not share a cached plan.
+                        .id(tab.id)
+                    } else {
+                        resultsGrid(tab, result: result)
                     }
-                    .animation(.snappy(duration: 0.2), value: tab.isSearchBarVisible)
                 } else {
                     Spacer(minLength: 0)
                 }
@@ -675,6 +678,29 @@ struct DetailView: View {
             ContentUnavailableView("No results", systemImage: "tablecells",
                                    description: Text("Press Run to execute the query."))
         }
+    }
+
+    private func resultsGrid(_ tab: QueryTab, result: QueryResult) -> some View {
+        ResultsTableView(
+            tab: tab,
+            onSort: { column in
+                Task { await model.sortByColumn(tab, column: column) }
+            },
+            onFollowForeignKey: { target, clause in
+                Task {
+                    await model.openReferencedTable(schema: target.schema,
+                                                    table: target.table,
+                                                    where: clause)
+                }
+            },
+            rowHeight: gridComfortable ? 24 : 18)
+        .overlay(alignment: .topTrailing) {
+            if tab.isSearchBarVisible {
+                findBar(tab, result: result)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy(duration: 0.2), value: tab.isSearchBarVisible)
     }
 
     /// ⌘F find bar: filters the grid to rows containing the text, client-side, without

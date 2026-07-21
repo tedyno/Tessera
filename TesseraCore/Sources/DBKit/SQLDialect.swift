@@ -21,6 +21,10 @@ public protocol SQLDialect: Sendable {
     /// Statement prefix producing a query plan. `executes` warns that the
     /// analyzing variant actually runs the statement.
     func explainPrefix(analyze: Bool) -> (prefix: String, executes: Bool)
+    /// Statement prefix producing a plan the app can render as a tree, or nil
+    /// when the engine has no such form for this variant (the caller falls back
+    /// to `explainPrefix` and the raw grid). `executes` mirrors `explainPrefix`.
+    func structuredExplain(analyze: Bool) -> (prefix: String, executes: Bool, format: ExplainPlanFormat)?
     /// SQL listing the server's databases for the switcher, or nil when the
     /// engine has nothing to switch between.
     var listDatabasesSQL: String? { get }
@@ -35,6 +39,14 @@ public extension SQLDialect {
     func quoteIfNeeded(_ identifier: String) -> String {
         needsQuoting(identifier) ? quote(identifier) : identifier
     }
+}
+
+/// How a structured (tree-parseable) plan comes back from the server.
+public enum ExplainPlanFormat: Sendable, Equatable {
+    /// One row / one cell containing a JSON document.
+    case json
+    /// SQLite's EXPLAIN QUERY PLAN rows: (id, parent, notused, detail).
+    case sqliteQueryPlan
 }
 
 public extension DatabaseKind {
@@ -93,6 +105,11 @@ public struct PostgresDialect: SQLDialect {
         analyze ? ("EXPLAIN ANALYZE ", true) : ("EXPLAIN ", false)
     }
 
+    public func structuredExplain(analyze: Bool) -> (prefix: String, executes: Bool, format: ExplainPlanFormat)? {
+        analyze ? ("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ", true, .json)
+                : ("EXPLAIN (FORMAT JSON) ", false, .json)
+    }
+
     public var listDatabasesSQL: String? {
         "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
     }
@@ -129,6 +146,12 @@ public struct MySQLDialect: SQLDialect {
 
     public func explainPrefix(analyze: Bool) -> (prefix: String, executes: Bool) {
         analyze ? ("EXPLAIN ANALYZE ", true) : ("EXPLAIN ", false)
+    }
+
+    public func structuredExplain(analyze: Bool) -> (prefix: String, executes: Bool, format: ExplainPlanFormat)? {
+        // MySQL's EXPLAIN ANALYZE emits TREE format only (no JSON variant), so
+        // the analyzing form stays on the raw grid.
+        analyze ? nil : ("EXPLAIN FORMAT=JSON ", false, .json)
     }
 
     public var listDatabasesSQL: String? {
@@ -176,6 +199,10 @@ public struct MariaDBDialect: SQLDialect {
         analyze ? ("ANALYZE ", true) : ("EXPLAIN ", false)
     }
 
+    public func structuredExplain(analyze: Bool) -> (prefix: String, executes: Bool, format: ExplainPlanFormat)? {
+        analyze ? ("ANALYZE FORMAT=JSON ", true, .json) : ("EXPLAIN FORMAT=JSON ", false, .json)
+    }
+
     public var completionKeywords: [String] {
         base.completionKeywords + ["RETURNING"]
     }
@@ -204,6 +231,11 @@ public struct SQLiteDialect: SQLDialect {
     public func explainPrefix(analyze: Bool) -> (prefix: String, executes: Bool) {
         // One plan form; EXPLAIN QUERY PLAN never executes the statement.
         ("EXPLAIN QUERY PLAN ", false)
+    }
+
+    public func structuredExplain(analyze: Bool) -> (prefix: String, executes: Bool, format: ExplainPlanFormat)? {
+        // Same single form as explainPrefix; the id/parent rows assemble into a tree.
+        ("EXPLAIN QUERY PLAN ", false, .sqliteQueryPlan)
     }
 
     public var listDatabasesSQL: String? { nil }   // one file, one database

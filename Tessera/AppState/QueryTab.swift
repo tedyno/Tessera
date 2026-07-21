@@ -42,9 +42,10 @@ struct PendingChange: Identifiable {
 @MainActor
 @Observable
 final class QueryTab: Identifiable {
-    /// A tab is either a SQL console (editor + result) or a data view opened from
-    /// the schema tree (grid + filter + pagination, no SQL editor).
-    enum Kind: Equatable { case console, data }
+    /// A tab is a SQL console (editor + result), a data view opened from the
+    /// schema tree (grid + filter + pagination, no SQL editor), or an ER
+    /// diagram of one schema (canvas, no SQL at all).
+    enum Kind: Equatable { case console, data, diagram }
 
     /// Default page size for data views; "Load more" grows the LIMIT by this.
     static let pageSize = 200
@@ -58,6 +59,8 @@ final class QueryTab: Identifiable {
     var session: ConnectionSession?
 
     var kind: Kind = .console
+    /// ER-diagram state (only used when `kind == .diagram`).
+    var diagram: DiagramModel?
     /// Data-view source table and paging state (only used when `kind == .data`).
     var dataSchema: String?
     var dataTable: String?
@@ -172,6 +175,21 @@ final class QueryTab: Identifiable {
         searchQuery = ""
         isSearchBarVisible = false
     }
+
+    /// The explain request a result should be interpreted against. Armed by
+    /// `explainActiveQuery` before dispatching; `run()` promotes it to
+    /// `currentPlan` only when the executed SQL matches exactly, so a cancelled
+    /// destructive-confirm or an interleaved normal run can never mislabel an
+    /// ordinary result as a plan.
+    struct PlanExpectation: Equatable {
+        var sql: String
+        var format: ExplainPlanFormat
+        var analyze: Bool
+    }
+    var expectedPlan: PlanExpectation?
+    var currentPlan: PlanExpectation?
+    /// User flipped the plan view's Tree/Raw toggle to the raw server output.
+    var showRawPlan = false
 
     /// Caret offset in the editor, used to run the statement under the cursor.
     var cursorPosition = 0

@@ -226,6 +226,12 @@ struct ContentView: View {
                     app.exportConnection(profileID: profileID)
                 }
             },
+            onOpenDiagram: { schema in
+                app.console.openDiagram(schema: schema)
+            },
+            onShowTableInDiagram: { schema, table in
+                app.console.openDiagram(schema: schema, focusTable: table)
+            },
             onDDL: { app.startDDL($0) },
             onOpenTables: { tables in
                 // One sequential Task, not one per table — looping the plain

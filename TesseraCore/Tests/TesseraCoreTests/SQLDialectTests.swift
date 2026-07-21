@@ -66,6 +66,35 @@ final class SQLDialectTests: XCTestCase {
         XCTAssertFalse(sqlite.explainPrefix(analyze: true).executes)
     }
 
+    func testStructuredExplainPrefixes() {
+        let pg = DatabaseKind.postgres.dialect
+        XCTAssertEqual(pg.structuredExplain(analyze: false)?.prefix, "EXPLAIN (FORMAT JSON) ")
+        XCTAssertEqual(pg.structuredExplain(analyze: false)?.executes, false)
+        XCTAssertEqual(pg.structuredExplain(analyze: false)?.format, .json)
+        XCTAssertEqual(pg.structuredExplain(analyze: true)?.prefix,
+                       "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ")
+        XCTAssertEqual(pg.structuredExplain(analyze: true)?.executes, true)
+
+        // MySQL's EXPLAIN ANALYZE is TREE-only — no structured form.
+        let mysql = DatabaseKind.mysql.dialect
+        XCTAssertEqual(mysql.structuredExplain(analyze: false)?.prefix, "EXPLAIN FORMAT=JSON ")
+        XCTAssertEqual(mysql.structuredExplain(analyze: false)?.executes, false)
+        XCTAssertNil(mysql.structuredExplain(analyze: true))
+
+        let maria = DatabaseKind.mariadb.dialect
+        XCTAssertEqual(maria.structuredExplain(analyze: false)?.prefix, "EXPLAIN FORMAT=JSON ")
+        XCTAssertEqual(maria.structuredExplain(analyze: true)?.prefix, "ANALYZE FORMAT=JSON ")
+        XCTAssertEqual(maria.structuredExplain(analyze: true)?.executes, true)
+
+        let sqlite = DatabaseKind.sqlite.dialect
+        for analyze in [false, true] {
+            let structured = sqlite.structuredExplain(analyze: analyze)
+            XCTAssertEqual(structured?.prefix, "EXPLAIN QUERY PLAN ")
+            XCTAssertEqual(structured?.executes, false)
+            XCTAssertEqual(structured?.format, .sqliteQueryPlan)
+        }
+    }
+
     func testOnlyServerEnginesListDatabases() {
         XCTAssertNotNil(DatabaseKind.postgres.dialect.listDatabasesSQL)
         XCTAssertNotNil(DatabaseKind.mysql.dialect.listDatabasesSQL)

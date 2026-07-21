@@ -205,6 +205,8 @@ final class AppModel {
         pendingDestructiveSQL = nil
         pendingScriptTab = nil
         destructiveWarnings = []
+        // A cancelled ⇧⌘E leaves no run behind to consume the expectation.
+        console.activeTab?.expectedPlan = nil
     }
 
     var currentIsReadOnly: Bool {
@@ -260,7 +262,8 @@ final class AppModel {
     // Runnable whenever a tab has a connection and isn't mid-connect/mid-run — a
     // disconnected tab reconnects on run.
     var canRun: Bool {
-        guard let tab = console.activeTab, tab.session != nil, !tab.isRunning else { return false }
+        guard let tab = console.activeTab, tab.session != nil, !tab.isRunning,
+              tab.kind != .diagram else { return false }
         return console.status != .connecting
     }
     var isRunning: Bool { console.activeTab?.isRunning ?? false }
@@ -591,7 +594,7 @@ final class AppModel {
     }
 
     func runActiveQuery() {
-        guard let tab = console.activeTab else { return }
+        guard let tab = console.activeTab, tab.kind != .diagram else { return }
         if tab.hasEdits {
             if currentIsReadOnly {
                 pendingCommitTab = tab
@@ -622,7 +625,8 @@ final class AppModel {
     }
 
     var canExplain: Bool {
-        guard let tab = console.activeTab, tab.session != nil, !tab.isRunning else { return false }
+        guard let tab = console.activeTab, tab.session != nil, !tab.isRunning,
+              tab.kind != .diagram else { return false }
         // Running anything replaces the result and clears pending edits — don't let
         // a reflexive ⌘E eat unsaved changes.
         return !tab.hasEdits
@@ -654,7 +658,18 @@ final class AppModel {
         }
         let trimmed = sql.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let (prefix, executes) = session.engine.dialect.explainPrefix(analyze: analyze)
+        // Prefer the JSON/tree form the plan view can render; engines without
+        // one (MySQL's analyze) keep the raw-grid behavior.
+        let prefix: String
+        let executes: Bool
+        if let structured = session.engine.dialect.structuredExplain(analyze: analyze) {
+            (prefix, executes) = (structured.prefix, structured.executes)
+            tab.expectedPlan = .init(sql: prefix + trimmed, format: structured.format,
+                                     analyze: analyze)
+        } else {
+            (prefix, executes) = session.engine.dialect.explainPrefix(analyze: analyze)
+            tab.expectedPlan = nil
+        }
         let prefixed = prefix + trimmed
         if executes {
             runChecked(prefixed, checking: trimmed, on: tab)
@@ -754,9 +769,12 @@ final class AppModel {
 
     var canFindInResults: Bool { console.activeTab?.result != nil }
 
-    /// ⌘F — reveals the find bar over the active tab's results grid.
+    /// ⌘F — reveals the find bar over the active tab's results grid. A plan
+    /// tree has no grid; flip it to the raw view so the bar has somewhere to be.
     func findInResults() {
-        console.activeTab?.isSearchBarVisible = true
+        guard let tab = console.activeTab else { return }
+        if tab.currentPlan != nil { tab.showRawPlan = true }
+        tab.isSearchBarVisible = true
     }
 
     /// Discards all pending edits/inserts/deletes on the active tab.
