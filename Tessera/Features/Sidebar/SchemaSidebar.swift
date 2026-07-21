@@ -22,7 +22,6 @@ private extension View {
     /// leaving dead zones to the right of the name and in the row padding.
     func rowHitTarget() -> some View {
         frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 2)
             .contentShape(Rectangle())
     }
 }
@@ -91,6 +90,15 @@ struct SchemaSidebar: View {
     /// PhpStorm-style speed search: with a sidebar row selected, typing jumps to
     /// the first matching schema/table, arrows walk the matches, Esc ends the
     /// search leaving the selection where it landed.
+    /// The key monitor's escaping closure captures a *copy* of this struct, so
+    /// plain properties (`tree`, `hiddenSchemas`) inside it are frozen at install
+    /// time. Body refreshes this shared box each render; the handler reads it.
+    private final class SpeedSearchBox {
+        var tree: DatabaseTree?
+        var hiddenSchemas: Set<String> = []
+    }
+    @State private var speedBox = SpeedSearchBox()
+
     @State private var speedSearch = ""
     @State private var speedMatchIndex = 0
     @State private var speedMatchCount = 0
@@ -156,7 +164,8 @@ struct SchemaSidebar: View {
     }
 
     var body: some View {
-        Group {
+        let _ = { speedBox.tree = tree; speedBox.hiddenSchemas = hiddenSchemas }()
+        return Group {
             if let tree {
                 ScrollViewReader { proxy in
                     List {
@@ -165,7 +174,12 @@ struct SchemaSidebar: View {
                                 ForEach(tree.schemas.filter {
                                     !hiddenSchemas.contains($0.name) && namespaceMatches($0)
                                 }) { namespace in
+                                    // Scroll anchor at row level: List can only
+                                    // scroll to ids of rows, not to ids nested
+                                    // inside their labels (those register only
+                                    // once the row is realized on screen).
                                     schemaNode(namespace)
+                                        .id("s:\(namespace.name)")
                                 }
                             } label: {
                                 Label(tree.databaseName, systemImage: "cylinder.split.1x2")
@@ -286,7 +300,8 @@ struct SchemaSidebar: View {
     /// Schema and table rows in display order, restricted to what's actually on
     /// screen (hidden/collapsed schemas and the name filter are respected).
     private func speedCandidates() -> [SpeedTarget] {
-        guard let tree else { return [] }
+        guard let tree = speedBox.tree else { return [] }
+        let hiddenSchemas = speedBox.hiddenSchemas
         var out: [SpeedTarget] = []
         for namespace in tree.schemas where !hiddenSchemas.contains(namespace.name) && namespaceMatches(namespace) {
             out.append(.schema(namespace.name))
@@ -307,7 +322,7 @@ struct SchemaSidebar: View {
 
     /// Returns true when the event was consumed by the speed search.
     private func handleSpeedSearchKey(_ event: NSEvent) -> Bool {
-        guard tree != nil, let window = event.window, window.isKeyWindow,
+        guard speedBox.tree != nil, let window = event.window, window.isKeyWindow,
               window.sheetParent == nil, !(window is NSPanel) else { return false }
         // Never steal typing from an editor, a text field or the results grid
         // (the grid starts a cell edit from a plain keystroke). SwiftUI's own
@@ -444,10 +459,10 @@ struct SchemaSidebar: View {
         DisclosureGroup(isExpanded: schemaBinding("s:\(namespace.name)")) {
             ForEach(namespace.tables.filter(tableMatches)) { table in
                 tableNode(namespace: namespace.name, table: table)
+                    .id("t:\(namespace.name).\(table.name)")
             }
         } label: {
             Label(namespace.name, systemImage: "circle.grid.2x2")
-                .id("s:\(namespace.name)")
                 .listRowBackground(clickCatcher(nodeBackground("s:\(namespace.name)"),
                                                 onSingle: { handleSchemaClick(namespace.name) }))
                 .rowHitTarget()
@@ -481,7 +496,6 @@ struct SchemaSidebar: View {
         let tableKey = "t:\(namespace).\(table.name)"
         if table.columns.isEmpty && table.indexes.isEmpty {
             tableLabel(namespace: namespace, table: table)
-                .id(tableKey)
                 .listRowBackground(clickCatcher(
                     tableBackground(tableKey, namespace: namespace, table: table.name),
                     onSingle: { handleTableClick(namespace: namespace, table: table.name) },
@@ -545,7 +559,6 @@ struct SchemaSidebar: View {
                 }
             } label: {
                 tableLabel(namespace: namespace, table: table)
-                    .id(tableKey)
                     .listRowBackground(clickCatcher(
                     tableBackground(tableKey, namespace: namespace, table: table.name),
                     onSingle: { handleTableClick(namespace: namespace, table: table.name) },
