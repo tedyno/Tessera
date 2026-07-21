@@ -347,15 +347,17 @@ struct OrganizerOutlineView: NSViewRepresentable {
             let row = outlineView.row(forItem: item)
             guard row >= 0 else { return }
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            // Async + padded: the SwiftUI bars overlay the scroll edges as insets
-            // scrollRowToVisible ignores, and the speed bar appearing with the
-            // first keystroke shifts the layout right after a synchronous scroll.
+            // Center by setting the scroll origin directly — minimal-scroll APIs
+            // interact badly with the SwiftUI bars overlaying the tree's edges.
             DispatchQueue.main.async {
                 let row = outlineView.row(forItem: item)
-                guard row >= 0 else { return }
-                let padded = outlineView.rect(ofRow: row)
-                    .insetBy(dx: 0, dy: -3 * outlineView.rowHeight)
-                outlineView.scrollToVisible(padded)
+                guard row >= 0, let scrollView = outlineView.enclosingScrollView else { return }
+                let clip = scrollView.contentView
+                let rowRect = outlineView.rect(ofRow: row)
+                let maxY = max(0, outlineView.bounds.height - clip.bounds.height)
+                let y = min(max(0, rowRect.midY - clip.bounds.height / 2), maxY)
+                clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: y))
+                scrollView.reflectScrolledClipView(clip)
             }
         }
 

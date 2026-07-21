@@ -838,20 +838,22 @@ struct SchemaOutlineView: NSViewRepresentable {
             scrollKeepingClear(of: node)
         }
 
-        /// Scrolls so the item sits clear of both edges. The SwiftUI bars (speed
-        /// search on top, the filter bar below) overlay the scroll view as
-        /// safe-area insets that `scrollRowToVisible` ignores — a minimal scroll
-        /// parks the row exactly underneath them, looking like it scrolled to the
-        /// wrong item. Async because the speed bar appears with the first
-        /// keystroke and shifts the layout right after a synchronous scroll.
+        /// Centers the item in the viewport by setting the scroll origin
+        /// directly — `scrollRowToVisible`'s minimal scroll interacts badly with
+        /// the SwiftUI bars overlaying the tree's edges, and a centered target is
+        /// unambiguous. Async so the bar appearing with the first keystroke has
+        /// already reshaped the layout when the origin is computed.
         private func scrollKeepingClear(of item: AnyObject) {
             guard let outlineView else { return }
             DispatchQueue.main.async {
                 let row = outlineView.row(forItem: item)
-                guard row >= 0 else { return }
-                let padded = outlineView.rect(ofRow: row)
-                    .insetBy(dx: 0, dy: -3 * outlineView.rowHeight)
-                outlineView.scrollToVisible(padded)
+                guard row >= 0, let scrollView = outlineView.enclosingScrollView else { return }
+                let clip = scrollView.contentView
+                let rowRect = outlineView.rect(ofRow: row)
+                let maxY = max(0, outlineView.bounds.height - clip.bounds.height)
+                let y = min(max(0, rowRect.midY - clip.bounds.height / 2), maxY)
+                clip.setBoundsOrigin(NSPoint(x: clip.bounds.origin.x, y: y))
+                scrollView.reflectScrolledClipView(clip)
             }
         }
 
