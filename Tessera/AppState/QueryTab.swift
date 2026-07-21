@@ -251,4 +251,10 @@ struct ValueEditorTarget: Identifiable, Equatable {
     var isNull: Bool
     /// False on a read-only result — the sheet then only views the value.
     var isEditable: Bool
+    /// On a pending-insert row an unset column means "database default", not
+    /// NULL — the sheet labels the empty state accordingly.
+    var isInsertRow: Bool
+    /// The tab's `resultVersion` at open time; a save against a replaced result
+    /// would target the wrong row and is dropped.
+    var resultVersion: Int
 }

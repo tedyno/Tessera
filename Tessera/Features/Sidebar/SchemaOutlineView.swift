@@ -66,8 +66,10 @@ final class SchemaTreeView: NSOutlineView {
         super.mouseDown(with: event)
         // A SwiftUI re-render can interleave with the click's tracking loop and
         // abort NSTableView's own selection — re-assert the obvious outcome.
+        // Chevron clicks stay untouched: natively they expand without selecting.
         if hitRow >= 0, selectedRowIndexes.isEmpty,
-           event.modifierFlags.intersection([.command, .shift]).isEmpty {
+           event.modifierFlags.intersection([.command, .shift]).isEmpty,
+           !frameOfOutlineCell(atRow: hitRow).contains(point) {
             selectRowIndexes(IndexSet(integer: hitRow), byExtendingSelection: false)
         }
     }
@@ -86,7 +88,7 @@ final class SchemaTreeView: NSOutlineView {
         if event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty,
            let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first,
            scalar.properties.isAlphabetic || CharacterSet.decimalDigits.contains(scalar)
-             || "_$.".unicodeScalars.contains(scalar) {
+             || "_$.-".unicodeScalars.contains(scalar) {
             onSpeedChar?(Character(scalar))
             return
         }
@@ -102,6 +104,21 @@ final class SchemaTreeView: NSOutlineView {
         for row in rows.lowerBound..<rows.upperBound {
             addCursorRect(rect(ofRow: row), cursor: .pointingHand)
         }
+    }
+
+    /// Row rects shift on scroll without changing the view's own bounds, so cursor
+    /// rects need an explicit nudge to recompute — they aren't invalidated for free.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let clipView = enclosingScrollView?.contentView else { return }
+        clipView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(invalidateCursorRectsOnScroll),
+            name: NSView.boundsDidChangeNotification, object: clipView)
+    }
+
+    @objc private func invalidateCursorRectsOnScroll() {
+        window?.invalidateCursorRects(for: self)
     }
 }
 
@@ -149,6 +166,9 @@ struct SchemaOutlineView: NSViewRepresentable {
     var onDDL: (DDLOperation) -> Void = { _ in }
     /// Mirrors the speed search for the indicator bar: (term, position, matches).
     var onSpeedSearch: (String, Int, Int) -> Void = { _, _, _ in }
+    /// Called once a reveal target has been applied — the owner clears it so the
+    /// same target can be revealed again later.
+    var onRevealHandled: () -> Void = { }
     /// Bump to cancel a running speed search from outside (the bar's ✕ button).
     var speedCancelToken: Int = 0
 
@@ -200,7 +220,11 @@ struct SchemaOutlineView: NSViewRepresentable {
         context.coordinator.applyReveal(reveal)
         if context.coordinator.lastCancelToken != speedCancelToken {
             context.coordinator.lastCancelToken = speedCancelToken
-            context.coordinator.speedEnd()
+            // Deferred: speedEnd reports through onSpeedSearch, which writes
+            // SwiftUI state — illegal inside the update pass that got us here.
+            DispatchQueue.main.async { [coordinator = context.coordinator] in
+                coordinator.speedEnd()
+            }
         }
     }
 
@@ -220,6 +244,7 @@ struct SchemaOutlineView: NSViewRepresentable {
         coordinator.onRevealDatabaseFile = onRevealDatabaseFile
         coordinator.onDDL = onDDL
         coordinator.onSpeedSearch = onSpeedSearch
+        coordinator.onRevealHandled = onRevealHandled
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -245,6 +270,8 @@ struct SchemaOutlineView: NSViewRepresentable {
         var onRevealDatabaseFile: () -> Void = { }
         var onDDL: (DDLOperation) -> Void = { _ in }
         var onSpeedSearch: (String, Int, Int) -> Void = { _, _, _ in }
+        /// Called after a reveal target was applied, so the source clears it.
+        var onRevealHandled: () -> Void = { }
 
         private var root: SchemaOutlineNode?
         private var databaseName = ""
@@ -334,6 +361,13 @@ struct SchemaOutlineView: NSViewRepresentable {
                     node(forKey: key).map { outlineView.row(forItem: $0) }
                 }.filter { $0 >= 0 }
                 outlineView.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
+            }
+            // A rebuild replaces every node instance; a live search holding the
+            // old ones would go dead (row(forItem:) = -1). Recompute over the new
+            // tree — deferred, since rebuilds run inside SwiftUI's update pass
+            // and retargeting reports state through onSpeedSearch.
+            if !speedTerm.isEmpty {
+                DispatchQueue.main.async { self.speedRetarget() }
             }
         }
 
@@ -582,6 +616,9 @@ struct SchemaOutlineView: NSViewRepresentable {
         func menu(forRow row: Int) -> NSMenu? {
             guard let outlineView, row >= 0,
                   let node = outlineView.item(atRow: row) as? SchemaOutlineNode else { return nil }
+            // No menu for the "Indexes" header — bail before touching the
+            // selection, or the right-click would collapse it for nothing.
+            if case .indexGroup = node.kind { return nil }
             // Right-clicking inside the selection acts on the whole selection;
             // outside it, on the clicked row alone (and moves the selection there,
             // matching AppKit convention).
@@ -896,11 +933,14 @@ struct SchemaOutlineView: NSViewRepresentable {
 
         func applyReveal(_ target: SchemaRevealTarget?) {
             guard let target, target != lastReveal else { return }
+            guard let outlineView, let root,
+                  let schema = root.children.first(where: { $0.key == "s:\(target.schema)" })
+            else { return }   // not consumed — the schema may be hidden/filtered now
             lastReveal = target
-            guard let outlineView, let root else { return }
+            // One-shot: cleared at the source so revealing the same target again
+            // works, and a stale value can't replay onto another connection's tree.
+            DispatchQueue.main.async { self.onRevealHandled() }
             outlineView.expandItem(root)
-            guard let schema = root.children.first(where: { $0.key == "s:\(target.schema)" })
-            else { return }
             outlineView.expandItem(schema)
             var node: SchemaOutlineNode = schema
             if let table = target.table,

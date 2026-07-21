@@ -74,10 +74,12 @@ final class ContextualOutlineView: NSOutlineView {
         // A SwiftUI re-render can interleave with the click's tracking loop and
         // abort NSTableView's own selection (observed in the wild: mouseDown on
         // a row, selection empty afterwards). Re-assert the obvious outcome.
-        // ⌘/⇧ stay untouched: ⌘-clicking the only selected row legitimately
-        // leaves the selection empty.
+        // ⌘/⇧ stay untouched (⌘-clicking the only selected row legitimately
+        // leaves the selection empty), and so do disclosure-chevron clicks —
+        // natively those expand without selecting.
         if hitRow >= 0, selectedRowIndexes.isEmpty,
-           event.modifierFlags.intersection([.command, .shift]).isEmpty {
+           event.modifierFlags.intersection([.command, .shift]).isEmpty,
+           !frameOfOutlineCell(atRow: hitRow).contains(point) {
             selectRowIndexes(IndexSet(integer: hitRow), byExtendingSelection: false)
         }
     }
@@ -222,7 +224,11 @@ struct OrganizerOutlineView: NSViewRepresentable {
         context.coordinator.sync()
         if context.coordinator.lastCancelToken != speedCancelToken {
             context.coordinator.lastCancelToken = speedCancelToken
-            context.coordinator.speedEnd()
+            // Deferred: speedEnd reports through onSpeedSearch, which writes
+            // SwiftUI state — illegal inside the update pass that got us here.
+            DispatchQueue.main.async { [coordinator = context.coordinator] in
+                coordinator.speedEnd()
+            }
         }
     }
 
@@ -279,6 +285,10 @@ struct OrganizerOutlineView: NSViewRepresentable {
         private var isSyncingSelection = false
 
         var onSpeedSearch: (String, Int, Int) -> Void = { _, _, _ in }
+        /// Binding value applySelection last honored — a user-driven selection
+        /// change (including ⌘-deselecting to empty) marks the current binding
+        /// as applied so the periodic sync can't fight the user.
+        private var lastAppliedSelection: UUID?
         private(set) var speedTerm = ""
         private var speedMatches: [OrganizerItem] = []
         private var speedIndex = 0
@@ -484,7 +494,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
         // MARK: Selection
 
         private func applySelection() {
-            guard let outlineView, let id = selection.wrappedValue else { return }
+            guard let outlineView, let id = selection.wrappedValue,
+                  id != lastAppliedSelection else { return }
             // Never touch a live multi-selection: `sync()` calls this on every
             // organizer/status tick, and the binding only tracks the single "primary"
             // row — it may even point at a row the user has since ⌘-deselected, so
@@ -496,6 +507,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
             isSyncingSelection = true
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             isSyncingSelection = false
+            lastAppliedSelection = id
         }
 
         private func find(_ id: UUID, in items: [OrganizerItem]) -> OrganizerItem? {
@@ -508,6 +520,9 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isSyncingSelection, let outlineView else { return }
+            // Whatever the user just did wins: mark the binding as applied even
+            // when this change doesn't get mirrored into it (empty / multi).
+            defer { lastAppliedSelection = selection.wrappedValue }
             // Only mirror a single selected row into the "primary" binding — that
             // binding drives auto-connect (see the outer view's `onChange(of: selection)`),
             // so extending a multi-selection with ⌘/⇧-click must not auto-connect

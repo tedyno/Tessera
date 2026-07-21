@@ -31,7 +31,9 @@ struct ValueEditorSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 if isNull {
-                    Text(verbatim: "NULL")
+                    // On an insert row an unset column means "database default",
+                    // not NULL — the commit omits the column entirely.
+                    Text(verbatim: target.isInsertRow ? "DEFAULT" : "NULL")
                         .font(.system(size: 9, weight: .bold))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
@@ -62,7 +64,9 @@ struct ValueEditorSheet: View {
                 Button("Pretty-print JSON") { prettyPrint() }
                     .disabled(prettyPrinted() == nil)
                 if target.isEditable {
-                    Button("Set NULL") {
+                    // Insert rows can't express NULL — removing the value falls
+                    // back to the column default, so the button says what it does.
+                    Button(target.isInsertRow ? "Use Default" : "Set NULL") {
                         onSave(nil)
                         dismiss()
                     }
@@ -72,7 +76,8 @@ struct ValueEditorSheet: View {
                     .keyboardShortcut(.cancelAction)
                 if target.isEditable {
                     Button("Save") {
-                        onSave(text)
+                        // An untouched NULL saves as NULL, not as "".
+                        onSave(isNull ? nil : text)
                         dismiss()
                     }
                     // ⌘↩, not plain Return — Return types a newline in the editor.

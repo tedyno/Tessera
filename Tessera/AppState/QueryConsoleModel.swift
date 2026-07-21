@@ -72,6 +72,9 @@ final class QueryConsoleModel {
     /// a `didSet` on `activeTabID`: property observers inside `@Observable` are a
     /// trap, and every internal caller here needs the focus updated anyway.
     func activate(_ tab: QueryTab) {
+        // The value-editor sheet is presented off the *active* tab; leaving it
+        // open on a background tab would re-present a stale target on return.
+        if activeTabID != tab.id { activeTab?.valueEditor = nil }
         activeTabID = tab.id
         if let session = tab.session { currentSession = session }
     }
@@ -731,7 +734,8 @@ final class QueryConsoleModel {
                 // A live cell-edit session has no committed edits yet, so it needs
                 // its own guard — replacing the result under it would make the edit
                 // commit against shifted row indices.
-                guard !tab.isRunning, !tab.hasEdits, !tab.isEditingCell else { continue }
+                guard !tab.isRunning, !tab.hasEdits, !tab.isEditingCell,
+                      tab.valueEditor == nil else { continue }
                 if tab.kind == .data {
                     await self.reloadData(tab, preserveSearch: true)
                 } else if let sql {

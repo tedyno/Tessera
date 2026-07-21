@@ -192,6 +192,7 @@ struct ContentView: View {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                 }
             },
+            onRevealHandled: { app.schemaReveal = nil },
             databases: app.console.activeSession?.databases ?? [],
             onSwitchDatabase: { database in
                 if let profileID = app.console.currentProfileID {

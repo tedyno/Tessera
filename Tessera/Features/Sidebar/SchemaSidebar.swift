@@ -27,6 +27,8 @@ struct SchemaSidebar: View {
     var engine: DatabaseKind?
     /// Shows the SQLite database file in Finder (file-based engines have no dump).
     var onRevealDatabaseFile: () -> Void = { }
+    /// Called once a spotlight reveal was applied — the owner clears the target.
+    var onRevealHandled: () -> Void = { }
     /// Databases on the server, for the database-switcher menu.
     var databases: [String] = []
     var onSwitchDatabase: (String) -> Void = { _ in }
@@ -99,6 +101,7 @@ struct SchemaSidebar: View {
                             speedPosition = position
                             speedCount = count
                         },
+                        onRevealHandled: onRevealHandled,
                         speedCancelToken: speedCancelCount)
                 }
                 .safeAreaInset(edge: .top) { speedSearchBar }

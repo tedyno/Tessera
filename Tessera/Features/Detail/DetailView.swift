@@ -78,7 +78,14 @@ struct DetailView: View {
         .sheet(item: Binding(get: { model.activeTab?.valueEditor },
                              set: { model.activeTab?.valueEditor = $0 })) { target in
             ValueEditorSheet(target: target) { newValue in
-                guard let tab = model.activeTab else { return }
+                guard let tab = model.activeTab,
+                      // The result was replaced while the sheet was up (a run
+                      // finishing late) — the captured row would hit the wrong
+                      // record now, so the save is dropped rather than misapplied.
+                      tab.resultVersion == target.resultVersion,
+                      // No change, no snapshot: a no-op save would still clear
+                      // the redo stack.
+                      newValue != (target.isNull ? nil : target.text) else { return }
                 tab.captureEditSnapshot()
                 tab.setValue(newValue, row: target.row, columnName: target.columnName)
             }

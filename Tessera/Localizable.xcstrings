@@ -421,6 +421,17 @@
         }
       }
     },
+    "Cancel search (Esc)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrušit hledání (Esc)"
+          }
+        }
+      }
+    },
     "Cancelled.": {
       "extractionState": "manual",
       "localizations": {
@@ -3724,6 +3735,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Použít DROP … IF EXISTS"
+          }
+        }
+      }
+    },
+    "Use Default": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Použít výchozí"
           }
         }
       }
