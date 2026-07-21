@@ -20,6 +20,10 @@ final class TableNodeView: NSView {
     var isSelected = false {
         didSet { if isSelected != oldValue { needsDisplay = true } }
     }
+    /// Compact mode: only PK/FK rows, the rest collapses into the count line.
+    var keysOnly = false {
+        didSet { if keysOnly != oldValue { needsDisplay = true } }
+    }
 
     init(table: SchemaTable) {
         self.table = table
@@ -35,31 +39,35 @@ final class TableNodeView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     /// Rows actually rendered; the rest collapses into the trailing count line.
-    private static func renderedRows(for table: SchemaTable) -> Int {
-        min(table.columns.count, maxRows)
+    static func displayedColumns(for table: SchemaTable, keysOnly: Bool) -> [SchemaColumn] {
+        let source = keysOnly
+            ? table.columns.filter { $0.isPrimaryKey || $0.isForeignKey }
+            : table.columns
+        return Array(source.prefix(maxRows))
     }
 
-    private static func hasOverflow(_ table: SchemaTable) -> Bool {
-        table.columns.count > maxRows
+    private static func hiddenCount(for table: SchemaTable, keysOnly: Bool) -> Int {
+        table.columns.count - displayedColumns(for: table, keysOnly: keysOnly).count
     }
 
-    static func preferredSize(for table: SchemaTable) -> CGSize {
+    static func preferredSize(for table: SchemaTable, keysOnly: Bool) -> CGSize {
         var width = (table.name as NSString).size(withAttributes: [.font: headerFont]).width
-        for column in table.columns.prefix(maxRows) {
+        let displayed = displayedColumns(for: table, keysOnly: keysOnly)
+        for column in displayed {
             let name = (column.name as NSString).size(withAttributes: [.font: nameFont]).width
             let type = (column.dataType as NSString).size(withAttributes: [.font: typeFont]).width
             width = max(width, iconWidth + name + 12 + type)
         }
-        let rows = CGFloat(renderedRows(for: table) + (hasOverflow(table) ? 1 : 0))
+        let rows = CGFloat(displayed.count + (hiddenCount(for: table, keysOnly: keysOnly) > 0 ? 1 : 0))
         return CGSize(width: min(max(width + 2 * hPadding, 160), 280),
                       height: headerHeight + max(rows, 1) * rowHeight + 6)
     }
 
     /// Vertical midline of a column's row, for edge attachment; columns hidden
     /// behind the overflow line (or unknown) anchor at the header instead.
-    static func anchorY(forColumn name: String, in table: SchemaTable) -> CGFloat {
-        guard let index = table.columns.firstIndex(where: { $0.name == name }),
-              index < maxRows else { return headerHeight / 2 }
+    static func anchorY(forColumn name: String, in table: SchemaTable, keysOnly: Bool) -> CGFloat {
+        guard let index = displayedColumns(for: table, keysOnly: keysOnly)
+            .firstIndex(where: { $0.name == name }) else { return headerHeight / 2 }
         return headerHeight + CGFloat(index) * rowHeight + rowHeight / 2
     }
 
@@ -82,12 +90,13 @@ final class TableNodeView: NSView {
             withAttributes: [.font: Self.headerFont, .foregroundColor: NSColor.labelColor])
 
         var y = Self.headerHeight
-        for column in table.columns.prefix(Self.maxRows) {
+        for column in Self.displayedColumns(for: table, keysOnly: keysOnly) {
             drawRow(column, atY: y)
             y += Self.rowHeight
         }
-        if Self.hasOverflow(table) {
-            let hidden = table.columns.count - Self.maxRows
+        let hidden = table.columns.count
+            - Self.displayedColumns(for: table, keysOnly: keysOnly).count
+        if hidden > 0 {
             let more = String(localized: "\(hidden) more columns") as NSString
             more.draw(at: NSPoint(x: Self.hPadding + Self.iconWidth, y: y + 2),
                       withAttributes: [.font: Self.typeFont,

@@ -50,6 +50,15 @@ final class DiagramModel {
     var showOnlyConnected: Bool {
         didSet { performLayout(keepingExisting: true) }
     }
+    /// Compact boxes: only PK/FK rows. Box sizes change, so the size cache
+    /// resets; positions survive (boxes shrink/grow in place).
+    var showKeysOnly = false {
+        didSet {
+            guard showKeysOnly != oldValue else { return }
+            sizeCache.removeAll()
+            performLayout(keepingExisting: true)
+        }
+    }
 
     init(schemaName: String, namespace: SchemaNamespace, scope: Scope = .schema) {
         self.schemaName = schemaName
@@ -102,7 +111,7 @@ final class DiagramModel {
 
     func size(of table: SchemaTable) -> CGSize {
         if let cached = sizeCache[table.name] { return cached }
-        let measured = TableNodeView.preferredSize(for: table)
+        let measured = TableNodeView.preferredSize(for: table, keysOnly: showKeysOnly)
         sizeCache[table.name] = measured
         return measured
     }

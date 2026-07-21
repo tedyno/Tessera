@@ -69,6 +69,7 @@ final class DiagramCanvasView: NSView {
             }()
             view.frame = frame(for: table.name) ?? .zero
             view.isSelected = model.selectedTable == table.name
+            view.keysOnly = model.showKeysOnly
         }
         needsDisplay = true
 
@@ -180,10 +181,13 @@ final class DiagramCanvasView: NSView {
               let fromEntity = model.entitiesByName[edge.fromTable],
               let toEntity = model.entitiesByName[edge.toTable] else { return nil }
 
-        let fromY = fromFrame.minY + TableNodeView.anchorY(forColumn: edge.fromColumn, in: fromEntity)
+        let keysOnly = model.showKeysOnly
+        let fromY = fromFrame.minY
+            + TableNodeView.anchorY(forColumn: edge.fromColumn, in: fromEntity, keysOnly: keysOnly)
         // Edges sharing a target column all converge on its row midline — the
         // user prefers the overlap over any fanned-out endpoints.
-        let toY = toFrame.minY + TableNodeView.anchorY(forColumn: edge.toColumn, in: toEntity)
+        let toY = toFrame.minY
+            + TableNodeView.anchorY(forColumn: edge.toColumn, in: toEntity, keysOnly: keysOnly)
         let laneOffset = CGFloat(lane % 5 - 2) * 9
 
         if edge.fromTable == edge.toTable {

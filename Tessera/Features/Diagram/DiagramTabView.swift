@@ -51,6 +51,9 @@ struct DiagramTabView: View {
             }
             .font(.callout.weight(.semibold))
             Spacer()
+            Toggle("Keys only", isOn: $model.showKeysOnly)
+                .toggleStyle(.checkbox)
+                .font(.caption)
             if model.scope == .schema {
                 Toggle("Only connected tables", isOn: $model.showOnlyConnected)
                     .toggleStyle(.checkbox)

@@ -4485,6 +4485,17 @@
           }
         }
       }
+    },
+    "Keys only": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jen klíče"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
