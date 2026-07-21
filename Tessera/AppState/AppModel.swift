@@ -63,7 +63,7 @@ final class AppModel {
         Task { await applyMCPSetting() }
     }
 
-    private func applyMCPSetting() async {
+    private func applyMCPSetting(attempt: Int = 0) async {
         guard MCPSettings.isEnabled else {
             await mcpServer.stop()
             mcpRunning = false
@@ -80,6 +80,12 @@ final class AppModel {
         } catch {
             mcpRunning = false
             mcpError = "Could not listen on port \(MCPSettings.port): \(error.localizedDescription)"
+            // A relaunch can lose the race for the port against its own dying
+            // predecessor — retry briefly before giving up until a settings change.
+            guard attempt < 5 else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard MCPSettings.isEnabled, !mcpRunning else { return }
+            await applyMCPSetting(attempt: attempt + 1)
         }
     }
 

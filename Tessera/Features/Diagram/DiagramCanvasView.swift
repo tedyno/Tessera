@@ -20,11 +20,18 @@ final class DiagramCanvasView: NSView {
     var edgeStyle: DiagramEdgeStyle = .curved {
         didSet {
             guard edgeStyle != oldValue else { return }
+            // Offscreen renders (MCP export) must draw the final style at once —
+            // a transition frame at progress 0 would bake in the OLD routing.
+            guard window != nil else { needsDisplay = true; return }
             beginStyleTransition(from: oldValue)
         }
     }
     var backgroundStyle: DiagramBackgroundStyle = .plain {
-        didSet { if backgroundStyle != oldValue { needsDisplay = true } }
+        didSet {
+            guard backgroundStyle != oldValue else { return }
+            guard window != nil else { needsDisplay = true; return }
+            beginBackgroundTransition(from: oldValue)
+        }
     }
 
     private var nodeViews: [String: TableNodeView] = [:]
@@ -103,7 +110,13 @@ final class DiagramCanvasView: NSView {
         // PNG export isn't transparent between the boxes.
         NSColor.underPageBackgroundColor.setFill()
         dirtyRect.fill()
-        drawBackdrop(dirtyRect)
+        if let transition = backgroundTransition {
+            let t = Self.ease(transition.progress)
+            drawBackdrop(transition.from, phase: t, outgoing: true, in: dirtyRect)
+            drawBackdrop(backgroundStyle, phase: t, outgoing: false, in: dirtyRect)
+        } else {
+            drawBackdrop(backgroundStyle, phase: 1, outgoing: false, in: dirtyRect)
+        }
         guard let model else { return }
         let selected = model.selectedTable
         // Unrelated edges recede when a table is selected — draw them first so
@@ -122,44 +135,167 @@ final class DiagramCanvasView: NSView {
         }
     }
 
-    private func drawBackdrop(_ rect: NSRect) {
-        guard backgroundStyle != .plain else { return }
+    /// `phase` runs 0→1 for both directions: an incoming backdrop builds up, an
+    /// `outgoing` one drains as a continuation of the same motion. The whole
+    /// wave travels from the top-left corner: vertical lines arrive from the
+    /// top (cascading left to right), horizontal ones from the left (cascading
+    /// top to bottom) — one coherent sweep, never two fronts meeting in the
+    /// middle. Dots fade.
+    private func drawBackdrop(_ style: DiagramBackgroundStyle, phase: CGFloat,
+                              outgoing: Bool, in rect: NSRect) {
+        guard style != .plain else { return }
+        if outgoing ? phase >= 1 : phase <= 0 { return }
         let step: CGFloat = 24
-        NSColor.separatorColor.withAlphaComponent(0.35).set()
         let minX = (rect.minX / step).rounded(.down) * step
         let minY = (rect.minY / step).rounded(.down) * step
-        switch backgroundStyle {
+        switch style {
         case .plain:
             break
         case .dots:
-            let dots = NSBezierPath()
+            // Each dot fades in (and out) at its own moment — a mild diagonal
+            // order with mostly random timing. Per-dot alpha is bucketed into
+            // a few levels so the whole field still fills in ~10 calls.
+            let buckets = 10
+            var byAlpha = [NSBezierPath?](repeating: nil, count: buckets + 1)
+            let anchor = window != nil ? visibleRect : bounds
             var x = minX
             while x <= rect.maxX {
                 var y = minY
                 while y <= rect.maxY {
-                    dots.appendOval(in: NSRect(x: x - 1, y: y - 1, width: 2, height: 2))
+                    let local = Self.dotProgress(phase, x: x, y: y, anchor: anchor)
+                    let strength = outgoing ? 1 - local : local
+                    let bucket = Int((strength * CGFloat(buckets)).rounded())
+                    if bucket > 0 {
+                        let path = byAlpha[bucket] ?? NSBezierPath()
+                        path.appendOval(in: NSRect(x: x - 1, y: y - 1, width: 2, height: 2))
+                        byAlpha[bucket] = path
+                    }
                     y += step
                 }
                 x += step
             }
-            dots.fill()
+            for (bucket, path) in byAlpha.enumerated() {
+                guard let path else { continue }
+                NSColor.separatorColor
+                    .withAlphaComponent(0.35 * CGFloat(bucket) / CGFloat(buckets)).set()
+                path.fill()
+            }
         case .grid:
+            NSColor.separatorColor.withAlphaComponent(0.35).set()
             let lines = NSBezierPath()
             lines.lineWidth = 0.5
+            // The flow is anchored to the viewport, not the (possibly huge)
+            // canvas — and a finished phase draws unclamped, so no cached
+            // mid-animation strip can ever leave the grid half-drawn. Every
+            // line starts at its own moment and draws at its own pace (seeded
+            // by its coordinate), so the sweep feels sketched, not mechanical.
+            let anchor = window != nil ? visibleRect : bounds
+            let columns = max(1, anchor.width / step)
             var x = minX
             while x <= rect.maxX {
-                lines.move(to: NSPoint(x: x, y: rect.minY))
-                lines.line(to: NSPoint(x: x, y: rect.maxY))
+                let local = Self.lineProgress(phase, index: (x - anchor.minX) / step,
+                                              count: columns, seed: x)
+                let segment: (from: CGFloat, to: CGFloat)? = if outgoing {
+                    local >= 1 ? nil
+                        : (max(rect.minY, anchor.minY + anchor.height * local), rect.maxY)
+                } else {
+                    local <= 0 ? nil
+                        : (rect.minY, local >= 1 ? rect.maxY
+                            : min(rect.maxY, anchor.minY + anchor.height * local))
+                }
+                if let segment, segment.to > segment.from {
+                    lines.move(to: NSPoint(x: x, y: segment.from))
+                    lines.line(to: NSPoint(x: x, y: segment.to))
+                }
                 x += step
             }
+            let rows = max(1, anchor.height / step)
             var y = minY
             while y <= rect.maxY {
-                lines.move(to: NSPoint(x: rect.minX, y: y))
-                lines.line(to: NSPoint(x: rect.maxX, y: y))
+                let local = Self.lineProgress(phase, index: (y - anchor.minY) / step,
+                                              count: rows, seed: y)
+                let segment: (from: CGFloat, to: CGFloat)? = if outgoing {
+                    local >= 1 ? nil
+                        : (max(rect.minX, anchor.minX + anchor.width * local), rect.maxX)
+                } else {
+                    local <= 0 ? nil
+                        : (rect.minX, local >= 1 ? rect.maxX
+                            : min(rect.maxX, anchor.minX + anchor.width * local))
+                }
+                if let segment, segment.to > segment.from {
+                    lines.move(to: NSPoint(x: segment.from, y: y))
+                    lines.line(to: NSPoint(x: segment.to, y: y))
+                }
                 y += step
             }
             lines.stroke()
         }
+    }
+
+    /// While set, the backdrop draws as a cross-fade/flow between two styles.
+    private var backgroundTransition: (from: DiagramBackgroundStyle, progress: CGFloat)?
+    private var backgroundAnimation: Task<Void, Never>?
+
+    private func beginBackgroundTransition(from old: DiagramBackgroundStyle) {
+        backgroundAnimation?.cancel()
+        backgroundTransition = (old, 0)
+        needsDisplay = true
+        backgroundAnimation = Task { [weak self] in
+            let steps = 28   // ~0.45 s at 60 fps — room for the cascade to read
+            for step in 1...steps {
+                try? await Task.sleep(for: .milliseconds(16))
+                guard !Task.isCancelled, let self else { return }
+                self.backgroundTransition = (old, CGFloat(step) / CGFloat(steps))
+                self.needsDisplay = true
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.backgroundTransition = nil
+            self.needsDisplay = true
+        }
+    }
+
+    private static func ease(_ t: CGFloat) -> CGFloat { t * t * (3 - 2 * t) }
+
+    /// Per-line progress: the sweep still travels across the viewport (the
+    /// position term dominates the delay), but every line starts at its own
+    /// moment and draws at its own speed — both seeded deterministically from
+    /// its coordinate, so frames stay coherent and everything lands by phase 1.
+    private static func lineProgress(_ phase: CGFloat, index: CGFloat, count: CGFloat,
+                                     seed: CGFloat) -> CGFloat {
+        guard phase < 1 else { return 1 }
+        guard phase > 0 else { return 0 }
+        let position = min(max(index / count, 0), 1)
+        let delay = 0.55 * (0.65 * position + 0.35 * random01(seed))
+        let duration = (1 - delay) * (0.45 + 0.55 * random01(seed + 17.3))
+        return min(max((phase - delay) / duration, 0), 1)
+    }
+
+    /// Cheap deterministic 0…1 hash — stable per line, different per seed.
+    private static func random01(_ seed: CGFloat) -> CGFloat {
+        let value = sin(seed * 12.9898) * 43758.5453
+        return value - value.rounded(.down)
+    }
+
+    /// Per-dot progress: starts are spread across most of the timeline
+    /// (mostly random, a hint of diagonal order) and each dot then fades in
+    /// gently over its own window — individual, but soft.
+    private static func dotProgress(_ phase: CGFloat, x: CGFloat, y: CGFloat,
+                                    anchor: NSRect) -> CGFloat {
+        guard phase < 1 else { return 1 }
+        guard phase > 0 else { return 0 }
+        let diagonal = ((x - anchor.minX) / max(anchor.width, 1)
+            + (y - anchor.minY) / max(anchor.height, 1)) / 2
+        let delay = 0.65 * (0.25 * min(max(diagonal, 0), 1)
+            + 0.75 * random01(x * 3.1 + y * 7.7))
+        return min(max((phase - delay) / 0.35, 0), 1)
+    }
+
+    /// Landing in a window replays the backdrop entrance — opening a diagram
+    /// tab gets the same flow-in the style switch has.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil, backgroundStyle != .plain else { return }
+        beginBackgroundTransition(from: .plain)
     }
 
     /// The connector's shape, kept as data so drawing and tooltip sampling
@@ -322,7 +458,7 @@ final class DiagramCanvasView: NSView {
             // equal-length point samples of both shapes.
             let a = Self.samples(of: fromGeo.path, count: 33)
             let b = Self.samples(of: geo.path, count: 33)
-            let t = transition.progress * transition.progress * (3 - 2 * transition.progress)
+            let t = Self.ease(transition.progress)
             path.move(to: Self.mix(a[0], b[0], t))
             for index in 1..<min(a.count, b.count) {
                 path.line(to: Self.mix(a[index], b[index], t))

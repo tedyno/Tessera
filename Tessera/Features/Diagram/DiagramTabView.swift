@@ -24,12 +24,15 @@ struct DiagramTabView: View {
                                        systemImage: "point.3.connected.trianglepath.dotted")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                DiagramCanvasRepresentable(model: model,
-                                           zoomToFitToken: zoomToFitToken,
-                                           edgeStyle: DiagramEdgeStyle(rawValue: edgeStyleRaw) ?? .curved,
-                                           backgroundStyle: DiagramBackgroundStyle(rawValue: backgroundRaw) ?? .plain,
-                                           onOpenTable: onOpenTable,
-                                           onCanvasReady: { canvas = $0 })
+                ZStack(alignment: .bottomTrailing) {
+                    DiagramCanvasRepresentable(model: model,
+                                               zoomToFitToken: zoomToFitToken,
+                                               edgeStyle: DiagramEdgeStyle(rawValue: edgeStyleRaw) ?? .curved,
+                                               backgroundStyle: DiagramBackgroundStyle(rawValue: backgroundRaw) ?? .plain,
+                                               onOpenTable: onOpenTable,
+                                               onCanvasReady: { canvas = $0 })
+                    stylePill
+                }
             }
         }
         .alert(Text("Export failed"), isPresented: Binding(
@@ -68,26 +71,58 @@ struct DiagramTabView: View {
                 .font(.caption)
             Button("Export PNG…") { exportPNG() }
                 .font(.caption)
-            Menu {
-                Picker("Edges", selection: $edgeStyleRaw) {
-                    Text("Curved").tag(DiagramEdgeStyle.curved.rawValue)
-                    Text("Right-angled").tag(DiagramEdgeStyle.orthogonal.rawValue)
-                }
-                Picker("Background", selection: $backgroundRaw) {
-                    Text("Plain").tag(DiagramBackgroundStyle.plain.rawValue)
-                    Text("Dots").tag(DiagramBackgroundStyle.dots.rawValue)
-                    Text("Grid").tag(DiagramBackgroundStyle.grid.rawValue)
-                }
-            } label: {
-                Image(systemName: "slider.horizontal.3")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Diagram appearance")
         }
         .controlSize(.small)
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
+    }
+
+    /// Floating appearance controls in the canvas corner: edge routing on top,
+    /// backdrop below — always at hand without reaching for the toolbar.
+    private var stylePill: some View {
+        VStack(spacing: 5) {
+            pillButton("point.topleft.down.curvedto.point.bottomright.up", help: "Curved",
+                       isOn: edgeStyleRaw == DiagramEdgeStyle.curved.rawValue) {
+                edgeStyleRaw = DiagramEdgeStyle.curved.rawValue
+            }
+            pillButton("arrow.turn.down.right", help: "Right-angled",
+                       isOn: edgeStyleRaw == DiagramEdgeStyle.orthogonal.rawValue) {
+                edgeStyleRaw = DiagramEdgeStyle.orthogonal.rawValue
+            }
+            Divider().frame(width: 16)
+            pillButton("square", help: "Plain",
+                       isOn: backgroundRaw == DiagramBackgroundStyle.plain.rawValue) {
+                backgroundRaw = DiagramBackgroundStyle.plain.rawValue
+            }
+            pillButton("circle.grid.3x3.fill", help: "Dots",
+                       isOn: backgroundRaw == DiagramBackgroundStyle.dots.rawValue) {
+                backgroundRaw = DiagramBackgroundStyle.dots.rawValue
+            }
+            pillButton("grid", help: "Grid",
+                       isOn: backgroundRaw == DiagramBackgroundStyle.grid.rawValue) {
+                backgroundRaw = DiagramBackgroundStyle.grid.rawValue
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 5)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.separator.opacity(0.5)))
+        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+        .padding(14)
+    }
+
+    private func pillButton(_ icon: String, help: LocalizedStringKey, isOn: Bool,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 24, height: 24)
+                .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+                .background(isOn ? Color.accentColor.opacity(0.16) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     /// Renders the full canvas (at the display's backing scale, so Retina gets
