@@ -28,9 +28,13 @@ struct DetailView: View {
     /// Connections a tab can target, and the action to point the active tab at one.
     var connectionOptions: [ConnectionOption] = []
     var onSelectConnection: (UUID) -> Void = { _ in }
+    /// Opens the New Connection sheet (empty state on a fresh install).
+    var onNewConnection: () -> Void = { }
 
     /// Whether the value inspector panel is shown below the results grid.
     @State private var showInspector = false
+    /// Grid row density; compact matches a terminal, comfortable breathes.
+    @AppStorage("tessera.gridDensity") private var gridComfortable = false
     @State private var showingConnectionLog = false
     @State private var showingSaveQuery = false
     @State private var saveQueryTitle = ""
@@ -121,9 +125,25 @@ struct DetailView: View {
         ContentUnavailableView {
             Label("No tab open", systemImage: "macwindow")
         } description: {
-            Text("Double-click a table in the schema to browse it, or press ⌘T for a new query tab.")
+            Text(connectionOptions.isEmpty
+                 ? "Create a connection to get started."
+                 : "Double-click a table in the schema to browse it, or press ⌘T for a new query tab.")
         } actions: {
-            Button("New Query Tab") { model.addTab() }
+            if connectionOptions.isEmpty {
+                Button("New Connection…") { onNewConnection() }
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button("New Query Tab") { model.addTab() }
+                // Jump straight back into a known database — the empty state is
+                // most often "I just opened the app".
+                ForEach(connectionOptions.prefix(3)) { option in
+                    Button {
+                        onSelectConnection(option.id)
+                    } label: {
+                        Label(option.name, systemImage: "cylinder.split.1x2")
+                    }
+                }
+            }
         }
     }
 
@@ -174,6 +194,12 @@ struct DetailView: View {
             Text(tab.title)
                 .font(.system(size: 12, weight: isActive ? .medium : .regular))
                 .foregroundStyle(isActive ? .primary : .secondary)
+            if tab.hasEdits {
+                // Uncommitted changes — the editor-world "unsaved" dot.
+                Circle().fill(.orange).frame(width: 6, height: 6)
+                    .help("Uncommitted changes")
+                    .transition(.scale.combined(with: .opacity))
+            }
             if showConnection, let session = tab.session {
                 Text(session.qualifiedName)
                     .font(.system(size: 10))
@@ -640,7 +666,8 @@ struct DetailView: View {
                                                                 table: target.table,
                                                                 where: clause)
                             }
-                        })
+                        },
+                        rowHeight: gridComfortable ? 24 : 18)
                     .overlay(alignment: .topTrailing) {
                         if tab.isSearchBarVisible {
                             findBar(tab, result: result)
@@ -748,7 +775,11 @@ struct DetailView: View {
                 ScrollView {
                     Group {
                         if let value = cell.value {
-                            Text(inspectorText(value)).font(.callout.monospaced())
+                            if let node = JSONTreeNode.parse(value) {
+                                JSONTreeView(node: node)
+                            } else {
+                                Text(inspectorText(value)).font(.callout.monospaced())
+                            }
                         } else {
                             Text("NULL").font(.callout.monospaced().italic()).foregroundStyle(.secondary)
                         }
@@ -786,6 +817,19 @@ struct DetailView: View {
 
     private var statusBar: some View {
         HStack(spacing: 14) {
+            // Which database this tab talks to, by its organizer colour — one
+            // glance tells production from dev before anything runs.
+            if let session = model.activeTab?.session ?? model.activeSession {
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(ConnectionPalette.color(session.colorName) ?? .secondary)
+                        .frame(width: 7, height: 7)
+                    Text(session.qualifiedName)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .help(session.pathLabel)
+            }
             switch model.status {
             case .idle: Text("Idle")
             case .connecting: Text("Connecting…")
@@ -833,6 +877,16 @@ struct DetailView: View {
             }
             Spacer()
             if model.activeTab?.result != nil {
+                Button { gridComfortable.toggle() } label: {
+                    Label("Row Density",
+                          systemImage: gridComfortable
+                              ? "arrow.down.right.and.arrow.up.left"
+                              : "arrow.up.left.and.arrow.down.right")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help(gridComfortable ? "Compact rows" : "Comfortable rows")
                 Button { showInspector.toggle() } label: {
                     Label("Inspect Cell", systemImage: "rectangle.and.text.magnifyingglass")
                         .labelStyle(.iconOnly)

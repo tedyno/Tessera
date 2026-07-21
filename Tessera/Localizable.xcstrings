@@ -696,6 +696,17 @@
         }
       }
     },
+    "Comfortable rows": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vzdušnější řádky"
+          }
+        }
+      }
+    },
     "Command Palette…": {
       "extractionState": "manual",
       "localizations": {
@@ -714,6 +725,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Uložit změny"
+          }
+        }
+      }
+    },
+    "Compact rows": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompaktní řádky"
           }
         }
       }
@@ -912,6 +934,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vytvořit tabulku…"
+          }
+        }
+      }
+    },
+    "Create a connection to get started.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Začněte vytvořením připojení."
           }
         }
       }
@@ -2943,6 +2976,17 @@
         }
       }
     },
+    "Row Density": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hustota řádků"
+          }
+        }
+      }
+    },
     "Run": {
       "extractionState": "manual",
       "localizations": {
@@ -3673,6 +3717,17 @@
         }
       }
     },
+    "Uncommitted changes": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepotvrzené změny"
+          }
+        }
+      }
+    },
     "Undo Edit": {
       "extractionState": "manual",
       "localizations": {
@@ -3838,6 +3893,35 @@
         }
       }
     },
+    "[…] ^[%lld item](inflect: true)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "variations": {
+            "plural": {
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "[…] %lld položky"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "[…] %lld položka"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "[…] %lld položek"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "^[%lld more request](inflect: true) waiting": {
       "extractionState": "manual",
       "localizations": {
@@ -3991,6 +4075,35 @@
           "stringUnit": {
             "state": "translated",
             "value": "typ"
+          }
+        }
+      }
+    },
+    "{…} ^[%lld key](inflect: true)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "variations": {
+            "plural": {
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{…} %lld klíče"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{…} %lld klíč"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "{…} %lld klíčů"
+                }
+              }
+            }
           }
         }
       }

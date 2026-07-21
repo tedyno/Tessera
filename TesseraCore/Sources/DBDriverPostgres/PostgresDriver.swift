@@ -251,6 +251,20 @@ public actor PostgresDriver: DatabaseDriver {
                 Self.parseIndex(name: row[2].text ?? "", definition: row[3].text ?? ""))
         }
 
+        // Planner estimates, kept current by autovacuum — free to read, and the
+        // sidebar only wants an order of magnitude anyway. -1 = never analyzed.
+        let countsResult = try? await execute("""
+            SELECT schemaname, relname, reltuples::bigint
+            FROM pg_stat_user_tables
+            JOIN pg_class ON pg_class.oid = relid
+            """, maxRows: nil)
+        var countsByTable: [TableKey: Int] = [:]
+        for row in countsResult?.rows ?? [] where row.count >= 3 {
+            if let count = row[2].text.flatMap(Int.init), count >= 0 {
+                countsByTable[TableKey(schema: row[0].text ?? "", table: row[1].text ?? "")] = count
+            }
+        }
+
         var schemaOrder: [String] = []
         var tablesBySchema: [String: [SchemaTable]] = [:]
         for row in tablesResult.rows where row.count >= 3 {
@@ -262,7 +276,8 @@ public actor PostgresDriver: DatabaseDriver {
             tablesBySchema[schema, default: []].append(
                 SchemaTable(name: table, kind: kind,
                             columns: columnsByTable[key] ?? [],
-                            indexes: indexesByTable[key] ?? []))
+                            indexes: indexesByTable[key] ?? [],
+                            approximateRowCount: kind == .table ? countsByTable[key] : nil))
         }
 
         let namespaces = schemaOrder.map { SchemaNamespace(name: $0, tables: tablesBySchema[$0] ?? []) }

@@ -48,7 +48,8 @@ struct ContentView: View {
                        onPickHistory: { app.loadHistoryEntry($0) },
                        onRunHistory: { app.runHistoryEntry($0) },
                        connectionOptions: app.connectionOptions,
-                       onSelectConnection: { app.selectConnection($0) })
+                       onSelectConnection: { app.selectConnection($0) },
+                       onNewConnection: { app.newConnection() })
         }
         // Nothing connects on launch — no Keychain access until the user actually
         // connects something (double-click / ⌘↩ in the organizer). A plain click

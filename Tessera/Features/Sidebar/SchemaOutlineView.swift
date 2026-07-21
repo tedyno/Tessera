@@ -16,11 +16,13 @@ final class SchemaOutlineNode {
     let columnInfo: SchemaColumn?
     let indexInfo: SchemaIndex?
     let isView: Bool
+    /// Statistics estimate shown as a grey badge on table rows.
+    let rowCount: Int?
     var children: [SchemaOutlineNode]
 
     init(kind: Kind, key: String, title: String, schema: String = "", table: String? = nil,
          columnInfo: SchemaColumn? = nil, indexInfo: SchemaIndex? = nil,
-         isView: Bool = false, children: [SchemaOutlineNode] = []) {
+         isView: Bool = false, rowCount: Int? = nil, children: [SchemaOutlineNode] = []) {
         self.kind = kind
         self.key = key
         self.title = title
@@ -29,6 +31,7 @@ final class SchemaOutlineNode {
         self.columnInfo = columnInfo
         self.indexInfo = indexInfo
         self.isView = isView
+        self.rowCount = rowCount
         self.children = children
     }
 }
@@ -343,7 +346,9 @@ struct SchemaOutlineView: NSViewRepresentable {
                     }
                     return SchemaOutlineNode(kind: .table, key: tableKey, title: table.name,
                                              schema: namespace.name, table: table.name,
-                                             isView: table.kind == .view, children: children)
+                                             isView: table.kind == .view,
+                                             rowCount: table.approximateRowCount,
+                                             children: children)
                 }
                 schemaNodes.append(SchemaOutlineNode(kind: .schema, key: "s:\(namespace.name)",
                                                      title: namespace.name, schema: namespace.name,
@@ -533,6 +538,9 @@ struct SchemaOutlineView: NSViewRepresentable {
                 symbol = node.isView ? "eye" : "tablecells"
                 if node.isView { cell.textField?.textColor = .secondaryLabelColor }
                 cell.toolTip = String(localized: "Double-click to SELECT *")
+                if let count = node.rowCount {
+                    detailField?.stringValue = "≈\(Self.compactCount(count))"
+                }
             case .indexGroup:
                 symbol = "number"
                 cell.textField?.font = .systemFont(ofSize: 11)
@@ -563,6 +571,15 @@ struct SchemaOutlineView: NSViewRepresentable {
             cell.imageView?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
                 .withSymbolConfiguration(.init(pointSize: size, weight: .regular))
             cell.imageView?.contentTintColor = tint
+        }
+
+        /// "842", "12.4k", "3.1M" — the badge wants magnitude, not precision.
+        private static func compactCount(_ count: Int) -> String {
+            switch count {
+            case ..<1000: String(count)
+            case ..<1_000_000: String(format: "%.1fk", Double(count) / 1000)
+            default: String(format: "%.1fM", Double(count) / 1_000_000)
+            }
         }
 
         private static func badgeString(_ parts: [(String, NSColor)]) -> NSAttributedString {

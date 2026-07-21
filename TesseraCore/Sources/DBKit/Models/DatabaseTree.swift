@@ -67,15 +67,20 @@ public struct SchemaTable: Codable, Sendable, Hashable, Identifiable {
     public var kind: Kind
     public var columns: [SchemaColumn]
     public var indexes: [SchemaIndex]
+    /// Planner/statistics estimate of the row count, when the engine keeps one —
+    /// display only (sidebar badge), never exact. Optional so cached trees from
+    /// before this field decode unchanged.
+    public var approximateRowCount: Int?
 
     public var id: String { name }
 
     public init(name: String, kind: Kind = .table, columns: [SchemaColumn] = [],
-                indexes: [SchemaIndex] = []) {
+                indexes: [SchemaIndex] = [], approximateRowCount: Int? = nil) {
         self.name = name
         self.kind = kind
         self.columns = columns
         self.indexes = indexes
+        self.approximateRowCount = approximateRowCount
     }
 }
 

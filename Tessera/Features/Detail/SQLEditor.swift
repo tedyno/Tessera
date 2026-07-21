@@ -117,6 +117,7 @@ struct SQLEditor: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView else { return }
             cursor?.wrappedValue = textView.selectedRange().location
+            updateStatementHighlight()
         }
 
         // Reject automatic capitalization/autocorrect (case-only changes). Automatic
@@ -172,6 +173,35 @@ struct SQLEditor: NSViewRepresentable {
             color(Self.stringRegex, in: string, range: full, storage: storage, color: .systemRed)
             color(Self.commentRegex, in: string, range: full, storage: storage, color: .secondaryLabelColor)
             storage.endEditing()
+            updateStatementHighlight()
+        }
+
+        /// Faint background under the statement ⌘↩ would run — only shown when
+        /// the editor holds more than one statement, where it actually informs.
+        func updateStatementHighlight() {
+            guard let textView, let storage = textView.textStorage else { return }
+            let ns = textView.string as NSString
+            let full = NSRange(location: 0, length: ns.length)
+            storage.removeAttribute(.backgroundColor, range: full)
+            guard var range = SQLStatements.statementNSRange(
+                sql: textView.string, utf16Cursor: textView.selectedRange().location)
+            else { return }
+            // Trim surrounding whitespace so the tint hugs the SQL, not the gaps.
+            while range.length > 0,
+                  let scalar = Unicode.Scalar(ns.character(at: range.location)),
+                  CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                range = NSRange(location: range.location + 1, length: range.length - 1)
+            }
+            while range.length > 0,
+                  let scalar = Unicode.Scalar(ns.character(at: range.location + range.length - 1)),
+                  CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                range = NSRange(location: range.location, length: range.length - 1)
+            }
+            let trimmedText = textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard range.length > 0, range.length < (trimmedText as NSString).length else { return }
+            storage.addAttribute(.backgroundColor,
+                                 value: NSColor.controlAccentColor.withAlphaComponent(0.07),
+                                 range: range)
         }
 
         private func color(_ regex: NSRegularExpression, in string: String, range: NSRange,

@@ -160,8 +160,10 @@ public actor MySQLDriver: DatabaseDriver {
         guard connection != nil else { throw DatabaseError.notConnected }
         let database = databaseName ?? ""
 
+        // table_rows is the storage engine's estimate (exact only for MyISAM);
+        // the sidebar badge just needs the magnitude.
         let tables = try await execute("""
-            SELECT table_name, table_type FROM information_schema.tables
+            SELECT table_name, table_type, table_rows FROM information_schema.tables
             WHERE table_schema = DATABASE() ORDER BY table_name
             """, maxRows: nil)
         let columns = try await execute("""
@@ -246,9 +248,11 @@ public actor MySQLDriver: DatabaseDriver {
         for row in tables.rows where row.count >= 2 {
             let name = row[0].text ?? ""
             let kind: SchemaTable.Kind = (row[1].text ?? "").uppercased().contains("VIEW") ? .view : .table
+            let rowCount = row.count >= 3 ? row[2].text.flatMap(Int.init) : nil
             schemaTables.append(SchemaTable(name: name, kind: kind,
                                             columns: columnsByTable[name] ?? [],
-                                            indexes: indexesByTable[name] ?? []))
+                                            indexes: indexesByTable[name] ?? [],
+                                            approximateRowCount: kind == .table ? rowCount : nil))
         }
 
         return DatabaseTree(databaseName: database, schemas: [SchemaNamespace(name: database, tables: schemaTables)])

@@ -361,6 +361,8 @@ struct ResultsTableView: NSViewRepresentable {
     var onSort: (String) -> Void = { _ in }
     /// Opens the table a foreign key points at, filtered to the referenced row.
     var onFollowForeignKey: (ForeignKeyTarget, String) -> Void = { _, _ in }
+    /// Row height: 18 (compact) or 24 (comfortable), from the density toggle.
+    var rowHeight: CGFloat = 18
 
     func makeNSView(context: Context) -> NSScrollView {
         let tableView = GridTableView()
@@ -371,7 +373,7 @@ struct ResultsTableView: NSViewRepresentable {
         tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         tableView.allowsColumnResizing = true
         tableView.allowsColumnReordering = false
-        tableView.rowHeight = 18
+        tableView.rowHeight = rowHeight
         tableView.selectionHighlightStyle = .none
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
@@ -433,6 +435,11 @@ struct ResultsTableView: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         context.coordinator.onSort = onSort
         context.coordinator.onFollowForeignKey = onFollowForeignKey
+        if let table = nsView.documentView as? NSTableView, table.rowHeight != rowHeight,
+           !context.coordinator.isEditingActive {
+            table.rowHeight = rowHeight
+            table.reloadData()
+        }
         context.coordinator.configure(for: tab)
     }
 
@@ -453,7 +460,7 @@ struct ResultsTableView: NSViewRepresentable {
         /// True while a cell edit session is live — configure() must not reload the
         /// table then (the live-preview mutations would otherwise retrigger it and
         /// kill the very session that made them).
-        private var isEditingActive = false
+        private(set) var isEditingActive = false
         private var selected: Set<CellPos> = []
         private var anchor: CellPos?
         /// The cell arrow keys move from — the last cell clicked or stepped onto

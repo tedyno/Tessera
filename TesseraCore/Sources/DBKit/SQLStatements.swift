@@ -36,6 +36,24 @@ public enum SQLStatements {
         return .statement(statement)
     }
 
+    /// UTF-16 range of the statement containing the cursor, for editor
+    /// highlighting. nil when the text is empty or the cursor lands nowhere.
+    public static func statementNSRange(sql: String, utf16Cursor: Int) -> NSRange? {
+        let chars = Array(sql)
+        guard !chars.isEmpty else { return nil }
+        // The bounds walk characters; the editor speaks UTF-16 — convert both ways.
+        let utf16 = sql.utf16
+        let clamped = min(max(utf16Cursor, 0), utf16.count)
+        let cursorIndex = utf16.index(utf16.startIndex, offsetBy: clamped)
+            .samePosition(in: sql) ?? sql.startIndex
+        let cursor = sql.distance(from: sql.startIndex, to: cursorIndex)
+        let (start, end) = statementBounds(chars, cursor: cursor)
+        guard start < end else { return nil }
+        let lower = sql.index(sql.startIndex, offsetBy: start)
+        let upper = sql.index(sql.startIndex, offsetBy: end)
+        return NSRange(lower..<upper, in: sql)
+    }
+
     /// Range of the statement containing `cursor`, splitting on top-level `;`
     /// (ignoring semicolons inside strings and line comments). When the cursor sits
     /// past the final `;` (in trailing whitespace), it resolves to the statement that

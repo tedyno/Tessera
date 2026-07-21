@@ -228,12 +228,27 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
             "SELECT name, type, sql FROM sqlite_master WHERE type IN ('table','view') "
             + "AND name NOT LIKE 'sqlite_%' ORDER BY name", on: db, maxRows: nil)
 
+        // Row estimates exist only after ANALYZE (sqlite_stat1's stat column
+        // leads with the row count); absent stats just mean no badge.
+        var rowCounts: [String: Int] = [:]
+        if let stats = try? run("SELECT tbl, stat FROM sqlite_stat1", on: db, maxRows: nil) {
+            for row in stats.rows where row.count >= 2 {
+                guard let table = row[0].text,
+                      let first = row[1].text?.split(separator: " ").first,
+                      let count = Int(first) else { continue }
+                // One row per index; they all lead with the table's row count.
+                rowCounts[table] = count
+            }
+        }
+
         var tables: [SchemaTable] = []
         for row in master.rows {
             guard let name = row[0].text else { continue }
             let isView = row[1].text == "view"
             let createSQL = (row.count > 2 ? row[2].text : nil) ?? ""
-            tables.append(try table(named: name, isView: isView, createSQL: createSQL, on: db))
+            var schemaTable = try table(named: name, isView: isView, createSQL: createSQL, on: db)
+            if !isView { schemaTable.approximateRowCount = rowCounts[name] }
+            tables.append(schemaTable)
         }
         return DatabaseTree(databaseName: "main",
                             schemas: [SchemaNamespace(name: "main", tables: tables)])

@@ -579,7 +579,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
             // Connections show the database mascot (elephant / dolphin). A custom
             // color renders it as a tinted template; otherwise the branded colors show.
             if orgItem.category == .connection, let kind = profileKind(for: orgItem),
-               let mascot = Self.mascotName(for: kind).flatMap({ NSImage(named: $0)?.copy() as? NSImage }) {
+               let mascot = Self.mascotImage(for: kind)?.copy() as? NSImage {
                 if let tint = Self.nsColor(custom) {
                     mascot.isTemplate = true
                     cell.imageView?.contentTintColor = tint
@@ -660,12 +660,19 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         /// Asset name of the engine's mascot, or nil to fall back to an SF symbol
         /// (SQLite has no bundled art yet; MariaDB borrows the dolphin for now).
-        static func mascotName(for kind: DatabaseKind) -> String? {
-            switch kind {
-            case .postgres: "postgres"
-            case .mysql, .mariadb: "mysql"
-            case .sqlite: nil
+        /// Dedicated art first, then a sensible stand-in — so dropping the
+        /// asset into the catalog is all it takes to light a mascot up.
+        static func mascotImage(for kind: DatabaseKind) -> NSImage? {
+            let candidates: [String] = switch kind {
+            case .postgres: ["postgres"]
+            case .mysql: ["mysql"]
+            case .mariadb: ["mariadb", "mysql"]
+            case .sqlite: ["sqlite"]
             }
+            for name in candidates {
+                if let image = NSImage(named: name) { return image }
+            }
+            return nil
         }
 
         private static func dotColor(_ status: ConnectionDot) -> NSColor? {
