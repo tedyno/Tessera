@@ -42,6 +42,11 @@ final class ContextualOutlineView: NSOutlineView {
     /// ⌘D — duplicates the single selected connection; false = nothing applicable
     /// selected, let the key travel on.
     var onDuplicate: (() -> Bool)?
+    var speedIsActive: (() -> Bool)?
+    var onSpeedChar: ((Character) -> Void)?
+    var onSpeedBackspace: (() -> Void)?
+    var onSpeedCancel: (() -> Void)?
+    var onSpeedStep: ((Int) -> Void)?
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
@@ -60,6 +65,28 @@ final class ContextualOutlineView: NSOutlineView {
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// Speed search, same as the schema tree: typing jumps the selection to the
+    /// first name starting with the typed text, arrows walk the matches.
+    override func keyDown(with event: NSEvent) {
+        let active = speedIsActive?() == true
+        switch event.keyCode {
+        case 53 where active: onSpeedCancel?(); return    // Esc
+        case 51 where active: onSpeedBackspace?(); return // Backspace
+        case 36 where active: onSpeedCancel?(); return    // Return commits too
+        case 125 where active: onSpeedStep?(1); return    // ↓
+        case 126 where active: onSpeedStep?(-1); return   // ↑
+        default: break
+        }
+        if event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty,
+           let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first,
+           scalar.properties.isAlphabetic || CharacterSet.decimalDigits.contains(scalar)
+             || "_$.-".unicodeScalars.contains(scalar) {
+            onSpeedChar?(Character(scalar))
+            return
+        }
+        super.keyDown(with: event)
     }
 
     /// A pointing-hand cursor over each row — AppKit gives list rows no cursor
@@ -118,6 +145,10 @@ struct OrganizerOutlineView: NSViewRepresentable {
     /// A value that changes with the organizer/profiles so SwiftUI re-invokes
     /// updateNSView (which refreshes the tree) on renames/recolors.
     var version: Int = 0
+    /// Mirrors the speed search for the indicator bar: (term, position, matches).
+    var onSpeedSearch: (String, Int, Int) -> Void = { _, _, _ in }
+    /// Bump to cancel a running speed search from outside (the bar's ✕ button).
+    var speedCancelToken: Int = 0
     /// Changes when any connection's live status changes, so the dots refresh.
     var statusVersion: Int = 0
 
@@ -151,6 +182,11 @@ struct OrganizerOutlineView: NSViewRepresentable {
         outline.doubleAction = #selector(Coordinator.doubleClick(_:))
         outline.onCommandReturn = { [coordinator = context.coordinator] in coordinator.connectSelection() }
         outline.onDuplicate = { [coordinator = context.coordinator] in coordinator.duplicateSelectedConnection() }
+        outline.speedIsActive = { [coordinator = context.coordinator] in !coordinator.speedTerm.isEmpty }
+        outline.onSpeedChar = { [coordinator = context.coordinator] in coordinator.speedChar($0) }
+        outline.onSpeedBackspace = { [coordinator = context.coordinator] in coordinator.speedBackspace() }
+        outline.onSpeedCancel = { [coordinator = context.coordinator] in coordinator.speedEnd() }
+        outline.onSpeedStep = { [coordinator = context.coordinator] in coordinator.speedStep($0) }
 
         let scrollView = NSScrollView()
         scrollView.documentView = outline
@@ -168,9 +204,14 @@ struct OrganizerOutlineView: NSViewRepresentable {
         applyClosures(to: context.coordinator)
         context.coordinator.statusVersion = statusVersion
         context.coordinator.sync()
+        if context.coordinator.lastCancelToken != speedCancelToken {
+            context.coordinator.lastCancelToken = speedCancelToken
+            context.coordinator.speedEnd()
+        }
     }
 
     private func applyClosures(to coordinator: Coordinator) {
+        coordinator.onSpeedSearch = onSpeedSearch
         coordinator.connectionDot = connectionDot
         coordinator.onDuplicateConnection = onDuplicateConnection
         coordinator.onConnectProfile = onConnectProfile
@@ -221,6 +262,14 @@ struct OrganizerOutlineView: NSViewRepresentable {
         private var lastHash: Int?
         private var isSyncingSelection = false
 
+        var onSpeedSearch: (String, Int, Int) -> Void = { _, _, _ in }
+        private(set) var speedTerm = ""
+        private var speedMatches: [OrganizerItem] = []
+        private var speedIndex = 0
+        private var speedMatchIDs: Set<UUID> = []
+        /// Last seen value of the representable's cancel token.
+        var lastCancelToken = 0
+
         init(model: ConnectionsModel, selection: Binding<UUID?>,
              onNewConnection: @escaping (UUID?) -> Void, onNewFolder: @escaping (UUID) -> Void,
              onNewProject: @escaping (UUID) -> Void, onNewWorkspace: @escaping () -> Void,
@@ -236,6 +285,93 @@ struct OrganizerOutlineView: NSViewRepresentable {
             self.onSetColor = onSetColor
             self.onSetConnectionColor = onSetConnectionColor
             self.onEditConnection = onEditConnection
+        }
+
+        // MARK: Speed search
+
+        /// Every row in display order — workspaces, projects, folders and
+        /// connections all match; jumping expands the path to the hit.
+        private func speedCandidates() -> [OrganizerItem] {
+            var out: [OrganizerItem] = []
+            func walk(_ item: OrganizerItem) {
+                out.append(item)
+                item.children.forEach(walk)
+            }
+            roots.forEach(walk)
+            return out
+        }
+
+        func speedChar(_ character: Character) {
+            speedTerm.append(character)
+            speedRetarget()
+        }
+
+        func speedBackspace() {
+            speedTerm.removeLast()
+            if speedTerm.isEmpty { speedEnd() } else { speedRetarget() }
+        }
+
+        func speedEnd() {
+            speedTerm = ""
+            speedMatches = []
+            speedIndex = 0
+            speedMatchIDs = []
+            refreshMatchTint()
+            onSpeedSearch("", 0, 0)
+        }
+
+        func speedStep(_ delta: Int) {
+            guard !speedMatches.isEmpty else { return }
+            speedIndex = (speedIndex + delta + speedMatches.count) % speedMatches.count
+            jump(to: speedMatches[speedIndex])
+            onSpeedSearch(speedTerm, speedIndex + 1, speedMatches.count)
+        }
+
+        private func speedRetarget() {
+            let term = speedTerm.lowercased()
+            speedMatches = speedCandidates().filter { title(for: $0).lowercased().hasPrefix(term) }
+            speedIndex = 0
+            speedMatchIDs = Set(speedMatches.map(\.id))
+            refreshMatchTint()
+            if !speedMatches.isEmpty { jump(to: speedMatches[speedIndex]) }
+            onSpeedSearch(speedTerm, speedMatches.isEmpty ? 0 : 1, speedMatches.count)
+        }
+
+        private func jump(to item: OrganizerItem) {
+            guard let outlineView else { return }
+            for ancestor in path(to: item.id)?.dropLast() ?? [] {
+                outlineView.expandItem(ancestor)
+            }
+            let row = outlineView.row(forItem: item)
+            guard row >= 0 else { return }
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            outlineView.scrollRowToVisible(row)
+        }
+
+        /// Root-to-item chain, for expanding a match's ancestors.
+        private func path(to id: UUID, in items: [OrganizerItem]? = nil) -> [OrganizerItem]? {
+            for item in items ?? roots {
+                if item.id == id { return [item] }
+                if let sub = path(to: id, in: item.children) { return [item] + sub }
+            }
+            return nil
+        }
+
+        private func refreshMatchTint() {
+            guard let outlineView else { return }
+            outlineView.enumerateAvailableRowViews { rowView, row in
+                guard let rowView = rowView as? SchemaRowView else { return }
+                let item = outlineView.item(atRow: row) as? OrganizerItem
+                rowView.isSpeedMatch = item.map { speedMatchIDs.contains($0.id) } ?? false
+            }
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+            let identifier = NSUserInterfaceItemIdentifier("organizerRow")
+            let row = (outlineView.makeView(withIdentifier: identifier, owner: self) as? SchemaRowView)
+                ?? { let view = SchemaRowView(); view.identifier = identifier; return view }()
+            row.isSpeedMatch = (item as? OrganizerItem).map { speedMatchIDs.contains($0.id) } ?? false
+            return row
         }
 
         // MARK: Building

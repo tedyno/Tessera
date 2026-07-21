@@ -34,6 +34,11 @@ struct OrganizerSidebar: View {
     }
     @State private var pending: PendingEdit?
     @State private var editText = ""
+    /// Mirror of the outline's speed search, for the indicator bar.
+    @State private var speedTerm = ""
+    @State private var speedPosition = 0
+    @State private var speedCount = 0
+    @State private var speedCancelCount = 0
 
     var body: some View {
         OrganizerOutlineView(
@@ -57,7 +62,19 @@ struct OrganizerSidebar: View {
             onNewQueryTab: onNewQueryTab,
             connectionDot: connectionDot,
             version: model.stateVersion,
+            onSpeedSearch: { term, position, count in
+                speedTerm = term
+                speedPosition = position
+                speedCount = count
+            },
+            speedCancelToken: speedCancelCount,
             statusVersion: statusVersion)
+        .safeAreaInset(edge: .top) {
+            if !speedTerm.isEmpty {
+                SpeedSearchBar(term: speedTerm, position: speedPosition, count: speedCount,
+                               onCancel: { speedCancelCount += 1 })
+            }
+        }
         .safeAreaInset(edge: .bottom) { bottomBar }
         .alert(alertTitle, isPresented: pendingBinding) {
             TextField("Name", text: $editText)

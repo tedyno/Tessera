@@ -136,34 +136,8 @@ struct SchemaSidebar: View {
     @ViewBuilder
     private var speedSearchBar: some View {
         if !speedTerm.isEmpty {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(verbatim: speedTerm)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(speedCount == 0 ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
-                Spacer()
-                if speedCount > 0 {
-                    Text(verbatim: "\(speedPosition)/\(speedCount)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                Button {
-                    speedCancelCount += 1
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("Cancel search (Esc)")
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(.bar)
-            .overlay(alignment: .bottom) { Divider() }
-            .transition(.move(edge: .top).combined(with: .opacity))
+            SpeedSearchBar(term: speedTerm, position: speedPosition, count: speedCount,
+                           onCancel: { speedCancelCount += 1 })
         }
     }
 
@@ -252,5 +226,43 @@ struct SchemaSidebar: View {
         }
         .padding(12)
         .frame(minWidth: 180, alignment: .leading)
+    }
+}
+
+/// The indicator strip of a tree's speed search — shared by the schema tree and
+/// the connection organizer.
+struct SpeedSearchBar: View {
+    let term: String
+    let position: Int
+    let count: Int
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(verbatim: term)
+                .font(.system(.callout, design: .monospaced))
+                .foregroundStyle(count == 0 ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+            Spacer()
+            if count > 0 {
+                Text(verbatim: "\(position)/\(count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Button(action: onCancel) {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Cancel search (Esc)")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }

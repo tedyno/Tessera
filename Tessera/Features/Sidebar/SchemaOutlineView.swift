@@ -762,11 +762,11 @@ struct SchemaOutlineView: NSViewRepresentable {
         /// Last seen value of the representable's cancel token.
         var lastCancelToken = 0
 
-        /// Schema and table nodes in display order — including tables inside
-        /// collapsed schemas; jumping expands the path, like PhpStorm.
+        /// Database, schema and table nodes in display order — including tables
+        /// inside collapsed schemas; jumping expands the path, like PhpStorm.
         private func speedCandidates() -> [SchemaOutlineNode] {
             guard let root else { return [] }
-            var out: [SchemaOutlineNode] = []
+            var out: [SchemaOutlineNode] = [root]
             for schema in root.children {
                 out.append(schema)
                 out.append(contentsOf: schema.children.filter { $0.kind == .table })
