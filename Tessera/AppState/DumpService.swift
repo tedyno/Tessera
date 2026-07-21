@@ -27,7 +27,15 @@ final class DumpService {
     func locateBest(named name: String, engine: DatabaseKind,
                     serverMajor: Int?, override: String?) async -> String? {
         if let override, !override.isEmpty, FileManager.default.isExecutableFile(atPath: override) { return override }
-        let candidates = candidateBinaries(named: name, engine: engine)
+        var candidates = candidateBinaries(named: name, engine: engine)
+        if candidates.isEmpty {
+            // MariaDB installs mariadb-dump/mariadb, but the plain MySQL clients
+            // speak the same protocol — whichever the user has works.
+            for fallback in Self.equivalentBinaries[name] ?? [] {
+                candidates = candidateBinaries(named: fallback, engine: engine)
+                if !candidates.isEmpty { break }
+            }
+        }
         guard candidates.count > 1, let serverMajor else { return candidates.first }
 
         var versioned: [(path: String, major: Int)] = []
@@ -43,6 +51,13 @@ final class DumpService {
         if let newest = versioned.max(by: { $0.major < $1.major }) { return newest.path }
         return candidates.first
     }
+
+    /// Interchangeable client binaries, tried in order when the preferred one is
+    /// missing (MariaDB ↔ MySQL clients are protocol- and argument-compatible).
+    private static let equivalentBinaries: [String: [String]] = [
+        "mariadb-dump": ["mysqldump"],
+        "mariadb": ["mysql"],
+    ]
 
     /// Every installed copy of the binary: `$PATH`, the known dirs, and versioned
     /// Homebrew formulae (`postgresql@16`, `libpq`, `mysql@8`, …) and Postgres.app.
@@ -61,7 +76,12 @@ final class DumpService {
         (pathDirectories + DumpTool.searchDirectories).forEach { add(dir: $0) }
 
         // Versioned / keg-only Homebrew formulae under opt/.
-        let formulaPrefixes = engine == .postgres ? ["postgresql", "libpq"] : ["mysql"]
+        let formulaPrefixes: [String] = switch engine {
+        case .postgres: ["postgresql", "libpq"]
+        case .mysql: ["mysql"]
+        case .mariadb: ["mariadb", "mysql"]   // either client dumps MariaDB fine
+        case .sqlite: []                      // no external tool
+        }
         for optRoot in ["/opt/homebrew/opt", "/usr/local/opt"] {
             guard let entries = try? fileManager.contentsOfDirectory(atPath: optRoot) else { continue }
             for entry in entries where formulaPrefixes.contains(where: { entry.hasPrefix($0) }) {

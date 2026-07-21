@@ -192,22 +192,12 @@ struct SQLEditor: NSViewRepresentable {
             "WHEN", "THEN", "ELSE", "END", "EXISTS", "COUNT(", "SUM(", "AVG(", "MIN(",
             "MAX(", "COALESCE(", "CAST(", "NOW()",
         ]
-        private static let postgresKeywords: [String] = [
-            "ILIKE", "RETURNING", "ON CONFLICT", "DO NOTHING", "DO UPDATE SET",
-            "DISTINCT ON (", "STRING_AGG(", "ARRAY_AGG(", "JSON_AGG(", "JSONB_AGG(",
-            "GENERATE_SERIES(", "DATE_TRUNC(", "INTERVAL", "FOR UPDATE",
-        ]
-        private static let mysqlKeywords: [String] = [
-            "ON DUPLICATE KEY UPDATE", "REPLACE INTO", "GROUP_CONCAT(", "IFNULL(",
-            "CURDATE()", "DATE_FORMAT(", "JSON_EXTRACT(", "STRAIGHT_JOIN", "AUTO_INCREMENT",
-        ]
+        /// SQL-shape decisions (keywords, quoting, schema layer) come from the
+        /// dialect; Postgres stands in while no connection is chosen yet.
+        private var dialect: any SQLDialect { (engine ?? .postgres).dialect }
 
         private var keywordPool: [String] {
-            switch engine {
-            case .mysql: Self.commonKeywords + Self.mysqlKeywords
-            case .postgres: Self.commonKeywords + Self.postgresKeywords
-            default: Self.commonKeywords
-            }
+            Self.commonKeywords + dialect.completionKeywords
         }
 
         private struct TableInfo {
@@ -288,15 +278,16 @@ struct SQLEditor: NSViewRepresentable {
                 guard let first = qualifier.first, !first.isNumber else { return [] }
                 if let info = context.aliases[qualifier] ?? tableByLower[qualifier] {
                     pool = info.columns.map { (columnItem($0.name, detail: $0.type), 0) }
-                } else if engine != .mysql, let tables = tablesBySchemaLower[qualifier] {
+                } else if dialect.hasSchemaLayer, let tables = tablesBySchemaLower[qualifier] {
                     // In MySQL a "schema" is the database itself — no schema. prefix.
                     pool = tables.map { (tableItem($0, detail: nil), 0) }
                 } else {
                     pool = contextColumnPool(context, fallbackToAll: true)
                 }
             } else if Self.tableContextKeywords.contains(Self.lastToken(in: before).uppercased()) {
-                pool = allTables.map { (tableItem($0, detail: engine == .mysql ? nil : $0.schema), 0) }
-                if engine != .mysql {
+                pool = allTables.map { (tableItem($0, detail: schemaDetail($0)), 0) }
+                if dialect.hasSchemaLayer {
+                    // Only a real schema layer is worth qualifying with.
                     pool += schemaNames.map { (schemaItem($0), 1) }
                 }
             } else {
@@ -304,7 +295,7 @@ struct SQLEditor: NSViewRepresentable {
                 // typed, or when explicitly asked (⌃Space).
                 guard !partial.isEmpty || forced else { return [] }
                 pool = contextColumnPool(context, fallbackToAll: false)
-                pool += allTables.map { (tableItem($0, detail: engine == .mysql ? nil : $0.schema), 2) }
+                pool += allTables.map { (tableItem($0, detail: schemaDetail($0)), 2) }
                 pool += keywordPool.map { (keywordItem($0), 3) }
                 pool += globalColumnPool(excluding: context)
             }
@@ -360,6 +351,12 @@ struct SQLEditor: NSViewRepresentable {
                               kind: keyword.hasSuffix("(") || keyword.hasSuffix(")") ? .function : .keyword)
         }
 
+        /// Schema annotation for a table row — only meaningful where schemas are a
+        /// real layer (MySQL-family: database; SQLite: single "main").
+        private func schemaDetail(_ info: TableInfo) -> String? {
+            dialect.hasSchemaLayer ? info.schema : nil
+        }
+
         private func tableItem(_ info: TableInfo, detail: String?) -> SQLCompletionItem {
             SQLCompletionItem(insert: quoteIfNeeded(info.name), label: info.name,
                               detail: detail, kind: .table)
@@ -387,32 +384,12 @@ struct SQLEditor: NSViewRepresentable {
             return nil
         }
 
-        /// Identifiers the target dialect can't take bare: PostgreSQL folds unquoted
-        /// names to lowercase (so mixed case must be quoted), MySQL mostly needs
-        /// quoting for reserved words and special characters.
+        /// Identifiers the target dialect can't take bare — delegated to the
+        /// dialect (Postgres folds unquoted names to lowercase, MySQL mostly needs
+        /// quoting for reserved words and special characters).
         private func quoteIfNeeded(_ name: String) -> String {
-            let reserved = Self.reservedWords.contains(name.uppercased())
-            switch engine {
-            case .mysql:
-                let plain = name.range(of: "^[A-Za-z_][A-Za-z0-9_$]*$", options: .regularExpression) != nil
-                return plain && !reserved ? name
-                    : "`" + name.replacingOccurrences(of: "`", with: "``") + "`"
-            default:
-                let plain = name.range(of: "^[a-z_][a-z0-9_$]*$", options: .regularExpression) != nil
-                return plain && !reserved ? name
-                    : "\"" + name.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-            }
+            dialect.quoteIfNeeded(name)
         }
-
-        /// The highlight keywords plus common reserved names that aren't in it.
-        private static let reservedWords: Set<String> = keywords.union([
-            "USER", "CHECK", "CONSTRAINT", "GRANT", "TO", "EXISTS", "ANY", "SOME",
-            "BOTH", "DO", "ONLY", "COLLATE", "COLUMN", "CURRENT_DATE", "CURRENT_TIME",
-            // MySQL 8 additions that commonly appear as column names.
-            "ROWS", "RANK", "DENSE_RANK", "ROW_NUMBER", "INTERVAL", "GROUPS", "WINDOW",
-            "LATERAL", "OVER", "PARTITION", "RECURSIVE", "SYSTEM", "GENERATED",
-            "STORED", "VIRTUAL", "CUME_DIST", "NTILE", "LEAD", "LAG",
-        ])
 
         private static func lastToken(in string: String) -> String {
             string.split(whereSeparator: { " \n\t,()".contains($0) }).last.map(String.init) ?? ""

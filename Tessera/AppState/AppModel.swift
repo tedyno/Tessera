@@ -625,12 +625,21 @@ final class AppModel {
         return !tab.hasEdits
     }
 
-    /// EXPLAIN (or EXPLAIN ANALYZE) for the statement under the cursor — the plan
-    /// lands in the results grid like any query, without touching the editor text.
-    /// ANALYZE actually executes the statement, so it goes through the same
-    /// destructive-statement confirmation as a normal run.
+    /// Disabled where the dialect has no separate analyzing form (SQLite's
+    /// EXPLAIN QUERY PLAN is its only plan statement).
+    var canExplainAnalyze: Bool {
+        guard canExplain, let engine = console.activeTab?.session?.engine else { return false }
+        let dialect = engine.dialect
+        return dialect.explainPrefix(analyze: true).prefix != dialect.explainPrefix(analyze: false).prefix
+    }
+
+    /// EXPLAIN (or its analyzing variant) for the statement under the cursor — the
+    /// plan lands in the results grid like any query, without touching the editor
+    /// text. The analyzing variants actually execute the statement, so they go
+    /// through the same destructive-statement confirmation as a normal run.
     func explainActiveQuery(analyze: Bool) {
-        guard let tab = console.activeTab, tab.session != nil, !tab.isRunning, !tab.hasEdits else { return }
+        guard let tab = console.activeTab, let session = tab.session,
+              !tab.isRunning, !tab.hasEdits else { return }
         let sql: String
         if tab.kind == .data {
             sql = tab.sql   // the generated SELECT for this data view
@@ -642,8 +651,9 @@ final class AppModel {
         }
         let trimmed = sql.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let prefixed = (analyze ? "EXPLAIN ANALYZE " : "EXPLAIN ") + trimmed
-        if analyze {
+        let (prefix, executes) = session.engine.dialect.explainPrefix(analyze: analyze)
+        let prefixed = prefix + trimmed
+        if executes {
             runChecked(prefixed, on: tab)
         } else {
             tab.task = Task { await console.run(tab, sqlToRun: prefixed) }
@@ -826,7 +836,8 @@ final class AppModel {
     /// Everything the export sheet needs, resolved from the live session when possible
     /// (so an SSH-tunnelled connection dumps through the local tunnel endpoint).
     func exportContext(for target: ExportTarget) -> ExportContext? {
-        guard let profile = connections.profile(id: target.profileID) else { return nil }
+        guard let profile = connections.profile(id: target.profileID),
+              !profile.kind.isFileBased else { return nil }   // a SQLite DB is its own backup
         let session = console.session(for: target.profileID)
         return ExportContext(
             kind: profile.kind,

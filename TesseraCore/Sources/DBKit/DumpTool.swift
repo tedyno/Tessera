@@ -43,9 +43,22 @@ public struct DumpOptions: Sendable, Equatable {
 /// Builds command lines for the external `pg_dump` / `mysqldump` binaries. Pure and
 /// unit-tested; the process is actually spawned by the app layer.
 public enum DumpTool {
-    /// The binary a given engine dumps with.
+    /// The binary a given engine dumps with. SQLite has no dump tool here — the
+    /// database is a single file and export is disabled for it in the UI.
     public static func binaryName(for kind: DatabaseKind) -> String {
-        kind == .postgres ? "pg_dump" : "mysqldump"
+        switch kind {
+        case .postgres: "pg_dump"
+        case .mysql: "mysqldump"
+        case .mariadb: "mariadb-dump"
+        case .sqlite: "sqlite3"   // unreachable via the UI; kept total for safety
+        }
+    }
+
+    /// Alternative binary names worth trying when the preferred one is missing —
+    /// MariaDB installs `mariadb-dump`, but `mysqldump` speaks the same protocol
+    /// and arguments, and many systems only have one of the two.
+    public static func fallbackBinaryNames(for kind: DatabaseKind) -> [String] {
+        kind == .mariadb ? ["mysqldump"] : []
     }
 
     /// The major version from a server or `--version` string (e.g. "16.2" → 16,
@@ -89,6 +102,17 @@ public enum DumpTool {
               /opt/homebrew/opt/mysql-client/bin/mysqldump   (Apple Silicon)
               /usr/local/opt/mysql-client/bin/mysqldump      (Intel)
             """
+        case .mariadb:
+            """
+            Install mariadb-dump — in Terminal, run:
+              brew install mariadb
+            Then Browse to it (or paste the path):
+              /opt/homebrew/bin/mariadb-dump   (Apple Silicon)
+              /usr/local/bin/mariadb-dump      (Intel)
+            mysqldump from mysql-client works as well.
+            """
+        case .sqlite:
+            "SQLite databases are single files — no dump tool is needed."
         }
     }
 
@@ -97,8 +121,12 @@ public enum DumpTool {
     public static func arguments(kind: DatabaseKind, host: String, port: Int, user: String,
                                  database: String, options: DumpOptions) -> [String] {
         switch kind {
-        case .postgres: postgresArguments(host: host, port: port, user: user, database: database, options: options)
-        case .mysql: mysqlArguments(host: host, port: port, user: user, database: database, options: options)
+        case .postgres:
+            postgresArguments(host: host, port: port, user: user, database: database, options: options)
+        case .mysql, .mariadb:
+            mysqlArguments(host: host, port: port, user: user, database: database, options: options)
+        case .sqlite:
+            []   // unreachable: export is disabled for file-based engines
         }
     }
 
@@ -107,7 +135,8 @@ public enum DumpTool {
         guard let password, !password.isEmpty else { return [:] }
         switch kind {
         case .postgres: return ["PGPASSWORD": password]
-        case .mysql: return ["MYSQL_PWD": password]
+        case .mysql, .mariadb: return ["MYSQL_PWD": password]   // mariadb clients honour it too
+        case .sqlite: return [:]
         }
     }
 

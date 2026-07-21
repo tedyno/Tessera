@@ -15,6 +15,8 @@ let package = Package(
         // Database drivers implementing DBKit's DatabaseDriver.
         .library(name: "DBDriverPostgres", targets: ["DBDriverPostgres"]),
         .library(name: "DBDriverMySQL", targets: ["DBDriverMySQL"]),
+        // File-based SQLite on the system libsqlite3 — no external dependency.
+        .library(name: "DBDriverSQLite", targets: ["DBDriverSQLite"]),
         // SSH local port forwarding.
         .library(name: "DBTunnel", targets: ["DBTunnel"]),
     ],
@@ -41,6 +43,10 @@ let package = Package(
                 "DBKit",
                 .product(name: "MySQLNIO", package: "mysql-nio"),
             ]
+        ),
+        .target(
+            name: "DBDriverSQLite",
+            dependencies: ["DBKit"]
         ),
         .target(
             name: "DBTunnel",
@@ -81,6 +87,10 @@ let package = Package(
         .testTarget(
             name: "DBDriverMySQLTests",
             dependencies: ["DBDriverMySQL", "DBKit"]
+        ),
+        .testTarget(
+            name: "DBDriverSQLiteTests",
+            dependencies: ["DBDriverSQLite", "DBKit"]
         ),
     ]
 )

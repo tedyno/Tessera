@@ -5,17 +5,14 @@ import Foundation
 /// reserved names survive.
 public enum SchemaDDL {
 
-    /// Quotes an identifier: backticks for MySQL, double quotes elsewhere.
+    /// Quotes an identifier the way the engine's dialect does.
     public static func quote(_ identifier: String, for engine: DatabaseKind) -> String {
-        switch engine {
-        case .mysql: "`" + identifier.replacingOccurrences(of: "`", with: "``") + "`"
-        case .postgres: "\"" + identifier.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-        }
+        engine.dialect.quote(identifier)
     }
 
-    /// `schema.table`, or just the table when no schema applies (MySQL).
+    /// `schema.table`, or just the table when the engine has no schema layer.
     public static func qualified(schema: String?, table: String, for engine: DatabaseKind) -> String {
-        guard let schema, !schema.isEmpty, engine == .postgres else { return quote(table, for: engine) }
+        guard let schema, !schema.isEmpty, engine.dialect.hasSchemaLayer else { return quote(table, for: engine) }
         return "\(quote(schema, for: engine)).\(quote(table, for: engine))"
     }
 
@@ -70,8 +67,12 @@ public enum SchemaDDL {
         case .postgres:
             return "ALTER TABLE \(target) ALTER COLUMN \(quote(column.name, for: engine)) "
                 + "TYPE \(column.dataType);"
-        case .mysql:
+        case .mysql, .mariadb:
             return "ALTER TABLE \(target) MODIFY COLUMN \(column.definition(for: engine));"
+        case .sqlite:
+            // SQLite can't retype a column without rebuilding the table; the UI
+            // hides this operation (see supports(_:for:)).
+            return "-- SQLite cannot change a column's type without a table rebuild"
         }
     }
 
@@ -83,9 +84,11 @@ public enum SchemaDDL {
         case .postgres:
             let action = isNullable ? "DROP NOT NULL" : "SET NOT NULL"
             return "ALTER TABLE \(target) ALTER COLUMN \(quote(name, for: engine)) \(action);"
-        case .mysql:
+        case .mysql, .mariadb:
             let spec = ColumnSpec(name: name, dataType: dataType, isNullable: isNullable)
             return "ALTER TABLE \(target) MODIFY COLUMN \(spec.definition(for: engine));"
+        case .sqlite:
+            return "-- SQLite cannot change a column's nullability without a table rebuild"
         }
     }
 
@@ -107,9 +110,12 @@ public enum SchemaDDL {
                 ? "\(quote(schema!, for: engine)).\(quote(name, for: engine))"
                 : quote(name, for: engine)
             return "DROP INDEX \(qualifiedIndex);"
-        case .mysql:
+        case .mysql, .mariadb:
             return "ALTER TABLE \(qualified(schema: schema, table: table, for: engine)) "
                 + "DROP INDEX \(quote(name, for: engine));"
+        case .sqlite:
+            // Indexes live in the single namespace — never table-qualified.
+            return "DROP INDEX \(quote(name, for: engine));"
         }
     }
 
@@ -136,14 +142,35 @@ public enum SchemaDDL {
                                    for engine: DatabaseKind) -> String {
         let target = qualified(schema: schema, table: oldName, for: engine)
         switch engine {
-        case .postgres:
+        case .postgres, .sqlite:
             return "ALTER TABLE \(target) RENAME TO \(quote(newName, for: engine));"
-        case .mysql:
+        case .mysql, .mariadb:
             return "RENAME TABLE \(target) TO \(quote(newName, for: engine));"
         }
     }
 
     public static func truncateTable(name: String, schema: String?, for engine: DatabaseKind) -> String {
-        "TRUNCATE TABLE \(qualified(schema: schema, table: name, for: engine));"
+        engine == .sqlite
+            ? "DELETE FROM \(qualified(schema: schema, table: name, for: engine));"
+            : "TRUNCATE TABLE \(qualified(schema: schema, table: name, for: engine));"
+    }
+
+    // MARK: Capability
+
+    /// Schema operations an engine can express with plain ALTER statements.
+    public enum Operation: Sendable {
+        case addColumn, dropColumn, renameColumn, changeColumnType, setNullability
+        case createIndex, dropIndex, createTable, dropTable, renameTable, truncate
+    }
+
+    /// SQLite's ALTER TABLE is deliberately minimal: changing a column's type or
+    /// nullability needs a table rebuild, which Tessera doesn't generate — the UI
+    /// hides those operations instead.
+    public static func supports(_ operation: Operation, for engine: DatabaseKind) -> Bool {
+        guard engine == .sqlite else { return true }
+        switch operation {
+        case .changeColumnType, .setNullability: return false
+        default: return true
+        }
     }
 }

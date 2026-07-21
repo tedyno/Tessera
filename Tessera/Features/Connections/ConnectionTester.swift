@@ -3,6 +3,7 @@ import DBKit
 import DBTunnel
 import DBDriverPostgres
 import DBDriverMySQL
+import DBDriverSQLite
 
 /// Runs a connection test in the two stages it actually happens in — SSH tunnel
 /// first, then the database through it — so a failure points at the stage that
@@ -100,7 +101,11 @@ final class ConnectionTester {
         let target = endpoint
         do {
             let version = try await attempt(.database, describing: String(localized: "Connecting to \(via)…")) {
-                let driver: any DatabaseDriver = profile.kind == .postgres ? PostgresDriver() : MySQLDriver()
+                let driver: any DatabaseDriver = switch profile.kind {
+                case .postgres: PostgresDriver()
+                case .mysql, .mariadb: MySQLDriver()
+                case .sqlite: SQLiteDriver()
+                }
                 try await driver.connect(profile: profile, secrets: secrets, endpoint: target)
                 let version = (try? await driver.serverVersion()) ?? ""
                 await driver.close()

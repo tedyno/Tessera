@@ -4,20 +4,32 @@ import Foundation
 public enum DatabaseKind: String, Codable, Sendable, CaseIterable, Hashable {
     case postgres
     case mysql
+    case mariadb
+    case sqlite
 
     public var displayName: String {
         switch self {
         case .postgres: "PostgreSQL"
         case .mysql: "MySQL"
+        case .mariadb: "MariaDB"
+        case .sqlite: "SQLite"
         }
     }
 
     public var defaultPort: Int {
         switch self {
         case .postgres: 5432
-        case .mysql: 3306
+        case .mysql, .mariadb: 3306
+        case .sqlite: 0   // file-based, no port
         }
     }
+
+    /// MariaDB speaks the MySQL wire protocol and SQL dialect — most engine
+    /// branches treat the two identically.
+    public var isMySQLFamily: Bool { self == .mysql || self == .mariadb }
+
+    /// SQLite connects to a file, not a server: no host/port/user/TLS/SSH.
+    public var isFileBased: Bool { self == .sqlite }
 }
 
 /// Connection TLS mode (naming follows libpq / MySQL `sslmode`).

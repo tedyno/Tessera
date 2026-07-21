@@ -90,7 +90,20 @@ struct NewConnectionView: View {
     }
 
     private var canSave: Bool {
-        !name.isEmpty && !host.isEmpty && !database.isEmpty && !username.isEmpty
+        if kind.isFileBased { return !name.isEmpty && !database.isEmpty }
+        return !name.isEmpty && !host.isEmpty && !database.isEmpty && !username.isEmpty
+    }
+
+    /// SQLite: picks (or names) the database file — `database` carries the path.
+    private func browseForDatabaseFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        // No type filter: SQLite files come as .sqlite/.db/.sqlite3 or extensionless.
+        if panel.runModal() == .OK, let url = panel.url {
+            database = url.path
+        }
     }
 
     var body: some View {
@@ -115,16 +128,27 @@ struct NewConnectionView: View {
                         ForEach(DatabaseKind.allCases, id: \.self) { Text($0.displayName).tag($0) }
                     }
                     .pickerStyle(.segmented)
-                    HStack {
-                        TextField("Host", text: $host)
-                        TextField("Port", text: $port, prompt: Text("\(kind.defaultPort)"))
-                            .frame(width: 80)
-                    }
-                    TextField("Database", text: $database)
-                    TextField("User", text: $username)
-                    revealableField("Password", text: $password, reveal: $revealPassword)
-                    Picker("TLS", selection: $tlsMode) {
-                        ForEach(TLSMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    if kind.isFileBased {
+                        // SQLite: a file, not a server — the path lives in `database`.
+                        HStack {
+                            TextField("Database file", text: $database,
+                                      prompt: Text(verbatim: "~/Databases/app.sqlite"))
+                            Button("Browse…") { browseForDatabaseFile() }
+                        }
+                        Text("Typing a new path creates the file on first connect.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        HStack {
+                            TextField("Host", text: $host)
+                            TextField("Port", text: $port, prompt: Text("\(kind.defaultPort)"))
+                                .frame(width: 80)
+                        }
+                        TextField("Database", text: $database)
+                        TextField("User", text: $username)
+                        revealableField("Password", text: $password, reveal: $revealPassword)
+                        Picker("TLS", selection: $tlsMode) {
+                            ForEach(TLSMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }
                     }
                     LabeledContent("Colour") { colorPicker }
                     Toggle("Read-only (warn before writing)", isOn: $readOnly)

@@ -511,9 +511,7 @@ final class QueryConsoleModel {
         for insert in tab.pendingInserts {
             let cols = result.columns.map(\.name).filter { !autoInc.contains($0) && insert.values[$0] != nil }
             if cols.isEmpty {
-                statements.append(session.engine == .mysql
-                    ? "INSERT INTO \(table) () VALUES ();"
-                    : "INSERT INTO \(table) DEFAULT VALUES;")
+                statements.append(session.engine.dialect.emptyInsert(table: table))
             } else {
                 let colList = cols.map { session.quote($0) }.joined(separator: ", ")
                 let valList = cols.map { literal(insert.values[$0]!, columnName: $0, result: result) }
@@ -550,8 +548,7 @@ final class QueryConsoleModel {
             let cols = result.columns.map(\.name).filter { !autoInc.contains($0) && insert.values[$0] != nil }
             let statement: String
             if cols.isEmpty {
-                statement = session.engine == .mysql ? "INSERT INTO \(table) () VALUES ();"
-                                                     : "INSERT INTO \(table) DEFAULT VALUES;"
+                statement = session.engine.dialect.emptyInsert(table: table)
             } else {
                 let colList = cols.map { session.quote($0) }.joined(separator: ", ")
                 let valList = cols.map { literal(insert.values[$0]!, columnName: $0, result: result) }

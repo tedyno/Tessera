@@ -44,7 +44,15 @@ public enum RestoreTool {
         switch engine {
         case .postgres: input == .pgCustom ? "pg_restore" : "psql"
         case .mysql: "mysql"
+        case .mariadb: "mariadb"
+        case .sqlite: "sqlite3"   // unreachable via the UI; kept total for safety
         }
+    }
+
+    /// Alternative binaries worth trying when the preferred one is missing (the
+    /// `mysql` client restores MariaDB dumps and vice versa).
+    public static func fallbackBinaryNames(for engine: DatabaseKind) -> [String] {
+        engine == .mariadb ? ["mysql"] : []
     }
 
     public static func installHint(for engine: DatabaseKind) -> String {
@@ -65,6 +73,17 @@ public enum RestoreTool {
               /opt/homebrew/opt/mysql-client/bin/mysql   (Apple Silicon)
               /usr/local/opt/mysql-client/bin/mysql      (Intel)
             """
+        case .mariadb:
+            """
+            Install the mariadb client — in Terminal, run:
+              brew install mariadb
+            Then Browse to it (or paste the path):
+              /opt/homebrew/bin/mariadb   (Apple Silicon)
+              /usr/local/bin/mariadb      (Intel)
+            The mysql client from mysql-client works as well.
+            """
+        case .sqlite:
+            "SQLite databases are single files — no restore tool is needed."
         }
     }
 
@@ -85,8 +104,10 @@ public enum RestoreTool {
                                      filePath: filePath, options: options)
                 : psqlArguments(host: host, port: port, user: user, database: database,
                                 input: input, filePath: filePath, options: options)
-        case .mysql:
+        case .mysql, .mariadb:
             ["--host=\(host)", "--port=\(port)", "--user=\(user)", database]
+        case .sqlite:
+            []   // unreachable: import is disabled for file-based engines
         }
     }
 

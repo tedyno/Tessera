@@ -3,6 +3,7 @@ import DBKit
 import DBPersistence
 import DBDriverPostgres
 import DBDriverMySQL
+import DBDriverSQLite
 import DBTunnel
 
 /// One live database connection: its driver (and SSH tunnel), status, server
@@ -117,12 +118,15 @@ final class ConnectionSession: Identifiable {
 
             let driver: any DatabaseDriver = switch profile.kind {
             case .postgres: PostgresDriver()
-            case .mysql: MySQLDriver()
+            case .mysql, .mariadb: MySQLDriver()   // same wire protocol
+            case .sqlite: SQLiteDriver()
             }
             self.driver = driver
 
             log?.record(profile.name, .connect,
-                        "Connecting to \(endpoint.host):\(endpoint.port)/\(effective.database)",
+                        profile.kind.isFileBased
+                            ? "Opening \(effective.database)"
+                            : "Connecting to \(endpoint.host):\(endpoint.port)/\(effective.database)",
                         detail: Self.connectDetail(effective, endpoint: endpoint, secrets: secrets))
             try await withTimeout(Self.stageTimeout) {
                 try await driver.connect(profile: effective, secrets: secrets, endpoint: endpoint)
@@ -179,19 +183,7 @@ final class ConnectionSession: Identifiable {
 
     /// Lists the databases on the server (excluding templates/system schemas).
     private func fetchDatabases() async -> [String] {
-        guard let driver else { return [] }
-        let sql: String
-        switch engine {
-        case .postgres:
-            sql = "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
-        case .mysql:
-            sql = """
-                SELECT schema_name FROM information_schema.schemata
-                WHERE schema_name NOT IN
-                  ('information_schema', 'performance_schema', 'mysql', 'sys')
-                ORDER BY schema_name
-                """
-        }
+        guard let driver, let sql = engine.dialect.listDatabasesSQL else { return [] }
         guard let result = try? await driver.execute(sql, maxRows: nil) else { return [] }
         return result.rows.compactMap { $0.first?.text }
     }
@@ -243,12 +235,7 @@ final class ConnectionSession: Identifiable {
 
     /// Quotes an identifier for this engine so mixed-case / reserved names work.
     func quote(_ identifier: String) -> String {
-        switch engine {
-        case .mysql:
-            return "`" + identifier.replacingOccurrences(of: "`", with: "``") + "`"
-        default:
-            return "\"" + identifier.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-        }
+        engine.dialect.quote(identifier)
     }
 
     static func message(for error: Error) -> String {
