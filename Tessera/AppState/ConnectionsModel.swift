@@ -213,6 +213,10 @@ final class ConnectionsModel {
     /// close their sessions and tabs. Injected because this store knows nothing about
     /// the query console.
     var onProfilesRemoved: ([UUID]) -> Void = { _ in }
+    /// Fired after a profile mutates in place (rename, recolor, edited
+    /// parameters) so live state derived from it — session name/color shown in
+    /// tabs and the status bar — can follow without a reconnect.
+    var onProfileChanged: (ConnectionProfile) -> Void = { _ in }
 
     /// Deletes a container, either taking its contents with it or keeping them by
     /// moving them up a level (into another workspace, for a workspace).
@@ -309,6 +313,7 @@ final class ConnectionsModel {
         guard let index = profiles.firstIndex(where: { $0.id == profileID }) else { return }
         profiles[index].color = color
         try? profileStore.save(profiles)
+        onProfileChanged(profiles[index])
     }
 
     /// Updates an existing profile in place (parameters + secrets).
@@ -320,6 +325,7 @@ final class ConnectionsModel {
             profiles.append(profile)
         }
         try? profileStore.save(profiles)
+        onProfileChanged(profile)
     }
 
     func path(forProfile profileID: UUID) -> [String] {

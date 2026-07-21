@@ -39,6 +39,15 @@ final class AppModel {
         }
         schemaCache = schemaCacheStore.load()
 
+        // Recoloring or renaming a connection must show up in the open tabs'
+        // chips and the status bar immediately, not on the next reconnect.
+        connections.onProfileChanged = { [weak self] profile in
+            guard let self, let session = self.console.session(for: profile.id) else { return }
+            session.name = profile.name
+            session.colorName = profile.color
+            session.location = self.connections.path(forProfile: profile.id)
+        }
+
         // Deleting a connection must take its live session and tabs with it.
         connections.onProfilesRemoved = { [weak self] profileIDs in
             guard let self else { return }

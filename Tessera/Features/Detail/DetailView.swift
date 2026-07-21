@@ -947,7 +947,9 @@ struct DetailView: View {
         }
         .font(.caption)
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 12)
+        // Clear of the window's rounded bottom corners — 12 pt let the first
+        // item hug the curve.
+        .padding(.horizontal, 18)
         .padding(.vertical, 4)
         .background(.bar)
     }
