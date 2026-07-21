@@ -2,25 +2,25 @@ import AppKit
 
 /// A floating, non-activating list of completion suggestions. It only displays —
 /// it never edits the text. The text view drives selection (arrow keys) and commits
-/// (Tab); this popup just shows candidates and reports clicks.
+/// (Tab/Return); this popup just shows candidates and reports clicks.
 final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private var panel: NSPanel?
     private var tableView: NSTableView?
-    private var items: [String] = []
+    private var items: [SQLCompletionItem] = []
     private var selectedIndex = 0
 
     /// Called when the user clicks a row (commit by mouse).
     var onClickCommit: (() -> Void)?
 
-    private let rowHeight: CGFloat = 18
+    private let rowHeight: CGFloat = 20
     private let maxVisibleRows = 10
-    private let width: CGFloat = 260
+    private let width: CGFloat = 320
 
     var isVisible: Bool { panel?.isVisible ?? false }
-    var selectedItem: String? { items.indices.contains(selectedIndex) ? items[selectedIndex] : nil }
+    var selectedItem: SQLCompletionItem? { items.indices.contains(selectedIndex) ? items[selectedIndex] : nil }
 
     /// Shows the list anchored so its top-left sits at `belowPoint` (screen coords).
-    func show(items: [String], belowPoint: NSPoint, parent: NSWindow) {
+    func show(items: [SQLCompletionItem], belowPoint: NSPoint, parent: NSWindow) {
         self.items = items
         selectedIndex = 0
         let panel = panel ?? makePanel()
@@ -107,16 +107,96 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let identifier = NSUserInterfaceItemIdentifier("cell")
-        let field = (tableView.makeView(withIdentifier: identifier, owner: self) as? NSTextField)
+        let cell = (tableView.makeView(withIdentifier: identifier, owner: self) as? CompletionRowView)
             ?? {
-                let f = NSTextField(labelWithString: "")
-                f.identifier = identifier
-                f.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-                f.lineBreakMode = .byTruncatingTail
-                f.drawsBackground = false
-                return f
+                let view = CompletionRowView()
+                view.identifier = identifier
+                return view
             }()
-        field.stringValue = items.indices.contains(row) ? items[row] : ""
-        return field
+        if items.indices.contains(row) { cell.configure(with: items[row]) }
+        return cell
+    }
+}
+
+/// One suggestion row: kind icon, name, grey detail — with colors that flip when
+/// the row is the (emphasized) selection.
+private final class CompletionRowView: NSTableCellView {
+    private let icon = NSImageView()
+    private let title = NSTextField(labelWithString: "")
+    private let detail = NSTextField(labelWithString: "")
+
+    init() {
+        super.init(frame: .zero)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+        title.translatesAutoresizingMaskIntoConstraints = false
+        title.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        title.lineBreakMode = .byTruncatingTail
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        detail.translatesAutoresizingMaskIntoConstraints = false
+        detail.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+        detail.lineBreakMode = .byTruncatingTail
+        detail.setContentHuggingPriority(.required, for: .horizontal)
+        addSubview(icon)
+        addSubview(title)
+        addSubview(detail)
+        NSLayoutConstraint.activate([
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 14),
+            title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 5),
+            title.centerYAnchor.constraint(equalTo: centerYAnchor),
+            detail.leadingAnchor.constraint(greaterThanOrEqualTo: title.trailingAnchor, constant: 8),
+            detail.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            detail.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    private var iconKind: SQLCompletionItem.Kind = .keyword
+
+    func configure(with item: SQLCompletionItem) {
+        iconKind = item.kind
+        icon.image = NSImage(systemSymbolName: Self.symbol(for: item.kind), accessibilityDescription: nil)
+        title.stringValue = item.label
+        detail.stringValue = item.detail ?? ""
+        applyColors()
+    }
+
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet { applyColors() }
+    }
+
+    private func applyColors() {
+        let emphasized = backgroundStyle == .emphasized
+        title.textColor = emphasized ? .alternateSelectedControlTextColor : .labelColor
+        detail.textColor = emphasized
+            ? NSColor.alternateSelectedControlTextColor.withAlphaComponent(0.75)
+            : .secondaryLabelColor
+        icon.contentTintColor = emphasized
+            ? .alternateSelectedControlTextColor
+            : Self.tint(for: iconKind)
+    }
+
+    private static func symbol(for kind: SQLCompletionItem.Kind) -> String {
+        switch kind {
+        case .keyword: "textformat"
+        case .function: "function"
+        case .table: "tablecells"
+        case .column: "rectangle.split.3x1"
+        case .schema: "circle.grid.2x2"
+        }
+    }
+
+    private static func tint(for kind: SQLCompletionItem.Kind) -> NSColor {
+        switch kind {
+        case .keyword: .systemPink
+        case .function: .systemBlue
+        case .table: .systemTeal
+        case .column: .secondaryLabelColor
+        case .schema: .systemPurple
+        }
     }
 }

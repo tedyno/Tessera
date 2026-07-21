@@ -1,15 +1,29 @@
 import AppKit
 
+/// One completion candidate: what to insert, what to show, and how to badge it.
+struct SQLCompletionItem {
+    enum Kind { case keyword, function, table, column, schema }
+    /// The text written into the editor (identifiers arrive pre-quoted if needed).
+    let insert: String
+    /// The name shown in the popup (unquoted).
+    let label: String
+    /// Grey annotation: a column's type, a table's schema, a column's table.
+    let detail: String?
+    let kind: Kind
+}
+
 /// NSTextView with a fully custom completion popup. The popup only *shows*
-/// suggestions — the text is never modified until the user presses Tab (or clicks a
-/// row). Arrow keys move the selection, Escape hides, and everything else types
-/// normally. Automatic capitalization is also undone at the source.
+/// suggestions — the text is never modified until the user presses Tab/Return (or
+/// clicks a row). Arrow keys move the selection, Escape hides, ⌃Space asks for
+/// suggestions explicitly, and everything else types normally. Automatic
+/// capitalization is also undone at the source.
 final class CompletingTextView: NSTextView {
     var placeholder: String?
 
     /// Supplies the range to replace and the candidate list for the current caret.
+    /// `forced` marks an explicit ⌃Space request (suggest even with no prefix).
     /// Return an empty list to hide the popup.
-    var completionSource: ((_ text: String, _ caret: Int) -> (range: NSRange, items: [String]))?
+    var completionSource: ((_ text: String, _ caret: Int, _ forced: Bool) -> (range: NSRange, items: [SQLCompletionItem]))?
 
     private var completionRange = NSRange(location: 0, length: 0)
     private var suppressNextUpdate = false
@@ -46,12 +60,13 @@ final class CompletingTextView: NSTextView {
             switch event.keyCode {
             case 125: popup.moveSelection(1); return            // ↓
             case 126: popup.moveSelection(-1); return           // ↑
-            case 48:  commitCompletion(); return                // Tab
+            case 48, 36: commitCompletion(); return             // Tab / Return
             case 53:  popup.hide(); return                      // Esc
             case 123, 124: popup.hide(); super.keyDown(with: event); return  // ← →
-            case 36:  popup.hide(); super.keyDown(with: event); return       // Return
             default:  super.keyDown(with: event)                // typing → updateCompletion()
             }
+        } else if event.keyCode == 49, event.modifierFlags.contains(.control) {
+            updateCompletion(forced: true)                      // ⌃Space
         } else {
             super.keyDown(with: event)
         }
@@ -74,11 +89,11 @@ final class CompletingTextView: NSTextView {
 
     // MARK: Completion
 
-    private func updateCompletion() {
+    private func updateCompletion(forced: Bool = false) {
         if suppressNextUpdate { suppressNextUpdate = false; popup.hide(); return }
         guard let completionSource, selectedRange().length == 0, let window else { popup.hide(); return }
         let caret = selectedRange().location
-        let (range, items) = completionSource(string, caret)
+        let (range, items) = completionSource(string, caret, forced)
         guard !items.isEmpty else { popup.hide(); return }
         completionRange = range
         // Anchor the popup just below the caret.
@@ -89,16 +104,17 @@ final class CompletingTextView: NSTextView {
 
     private func commitCompletion() {
         guard let item = popup.selectedItem else { popup.hide(); return }
+        let insert = item.insert
         let range = completionRange.location + completionRange.length <= (string as NSString).length
             ? completionRange
             : NSRange(location: selectedRange().location, length: 0)
         popup.hide()
         suppressNextUpdate = true
-        if shouldChangeText(in: range, replacementString: item) {
-            replaceCharacters(in: range, with: item)
+        if shouldChangeText(in: range, replacementString: insert) {
+            replaceCharacters(in: range, with: insert)
             didChangeText()
         }
-        setSelectedRange(NSRange(location: range.location + (item as NSString).length, length: 0))
+        setSelectedRange(NSRange(location: range.location + (insert as NSString).length, length: 0))
     }
 
     // MARK: Placeholder

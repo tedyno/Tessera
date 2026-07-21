@@ -36,8 +36,9 @@ struct FilterField: NSViewRepresentable {
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                        height: CGFloat.greatestFiniteMagnitude)
         textView.string = text
-        textView.completionSource = { [weak c = context.coordinator] text, caret in
-            c?.completion(text: text, caret: caret) ?? (NSRange(location: caret, length: 0), [])
+        textView.completionSource = { [weak c = context.coordinator] text, caret, forced in
+            c?.completion(text: text, caret: caret, forced: forced)
+                ?? (NSRange(location: caret, length: 0), [])
         }
 
         scrollView.documentView = textView
@@ -86,16 +87,23 @@ struct FilterField: NSViewRepresentable {
 
         /// Candidates for the caret: the table's columns plus WHERE operators, unless
         /// the caret is inside a string literal.
-        func completion(text: String, caret: Int) -> (NSRange, [String]) {
+        func completion(text: String, caret: Int, forced: Bool) -> (NSRange, [SQLCompletionItem]) {
             let ns = text as NSString
             guard caret > 0, caret <= ns.length,
                   !SQLText.isInsideStringLiteral(ns.substring(to: caret)) else {
                 return (NSRange(location: caret, length: 0), [])
             }
             let range = SQLText.identifierRange(in: text, caret: caret)
-            guard range.length > 0 else { return (range, []) }
-            let partial = ns.substring(with: range)
-            return (range, SQLText.completions(for: partial, in: columns + Self.keywords))
+            guard range.length > 0 || forced else { return (range, []) }
+            let partial = range.length > 0 ? ns.substring(with: range) : ""
+            let names = partial.isEmpty
+                ? columns + Self.keywords   // ⌃Space with no prefix: offer everything
+                : SQLText.completions(for: partial, in: columns + Self.keywords)
+            let columnSet = Set(columns)
+            return (range, names.map {
+                SQLCompletionItem(insert: $0, label: $0, detail: nil,
+                                  kind: columnSet.contains($0) ? .column : .keyword)
+            })
         }
 
         // Reject automatic case-only substitutions that bypass the field editor.

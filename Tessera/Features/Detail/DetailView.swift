@@ -337,7 +337,8 @@ struct DetailView: View {
     }
 
     private var editor: some View {
-        SQLEditor(text: sqlBinding, schema: model.schema, focusTrigger: focusTrigger, cursor: cursor)
+        SQLEditor(text: sqlBinding, schema: model.schema, focusTrigger: focusTrigger, cursor: cursor,
+                  engine: model.engine)
             .frame(height: 150)
     }
 
