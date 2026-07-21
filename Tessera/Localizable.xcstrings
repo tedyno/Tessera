@@ -1342,6 +1342,17 @@
         }
       }
     },
+    "Duplicate Connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplikovat připojení"
+          }
+        }
+      }
+    },
     "Duplicate Row": {
       "extractionState": "manual",
       "localizations": {
@@ -1349,6 +1360,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Duplikovat řádek"
+          }
+        }
+      }
+    },
+    "Duplicate…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplikovat…"
           }
         }
       }

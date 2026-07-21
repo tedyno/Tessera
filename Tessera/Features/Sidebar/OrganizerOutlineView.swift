@@ -94,6 +94,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
     var onSetColor: (UUID, String?) -> Void
     var onSetConnectionColor: (UUID, String?) -> Void
     var onEditConnection: (UUID) -> Void
+    /// Opens the form prefilled from the connection at the given node, saving a copy.
+    var onDuplicateConnection: (UUID) -> Void = { _ in }
     /// Connection lifecycle actions, keyed by profile id.
     var onConnectProfile: (UUID) -> Void = { _ in }
     var onDisconnect: (UUID) -> Void = { _ in }
@@ -161,6 +163,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
     private func applyClosures(to coordinator: Coordinator) {
         coordinator.connectionDot = connectionDot
+        coordinator.onDuplicateConnection = onDuplicateConnection
         coordinator.onConnectProfile = onConnectProfile
         coordinator.onDisconnect = onDisconnect
         coordinator.onReconnect = onReconnect
@@ -192,6 +195,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
         let onSetColor: (UUID, String?) -> Void
         let onSetConnectionColor: (UUID, String?) -> Void
         let onEditConnection: (UUID) -> Void
+        var onDuplicateConnection: (UUID) -> Void = { _ in }
         var onConnectProfile: (UUID) -> Void = { _ in }
         var onDisconnect: (UUID) -> Void = { _ in }
         var onReconnect: (UUID) -> Void = { _ in }
@@ -580,6 +584,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 add(menu, String(localized: "Export…"), #selector(actionExport), item)
                 add(menu, String(localized: "Import…"), #selector(actionImport), item)
                 add(menu, String(localized: "Edit…"), #selector(actionEdit), item)
+                add(menu, String(localized: "Duplicate…"), #selector(actionDuplicate), item)
                 menu.addItem(colorMenuItem(for: item))
             }
             add(menu, String(localized: "Delete"), #selector(actionDelete), item)
@@ -711,6 +716,10 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         @objc private func actionEdit(_ sender: NSMenuItem) {
             if let item = sender.representedObject as? OrganizerItem { onEditConnection(item.id) }
+        }
+
+        @objc private func actionDuplicate(_ sender: NSMenuItem) {
+            if let item = sender.representedObject as? OrganizerItem { onDuplicateConnection(item.id) }
         }
 
         @objc private func actionNewQueryTab(_ sender: NSMenuItem) {

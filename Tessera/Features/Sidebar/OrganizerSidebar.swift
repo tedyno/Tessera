@@ -12,6 +12,7 @@ struct OrganizerSidebar: View {
     var onNewConnection: (UUID?) -> Void
     /// Opens the editor for the connection at the given tree node id.
     var onEditConnection: (UUID) -> Void = { _ in }
+    var onDuplicateConnection: (UUID) -> Void = { _ in }
     var onConnectProfile: (UUID) -> Void = { _ in }
     var onDisconnect: (UUID) -> Void = { _ in }
     var onReconnect: (UUID) -> Void = { _ in }
@@ -46,6 +47,7 @@ struct OrganizerSidebar: View {
             onSetColor: { id, color in model.setFolderColor(color, folderID: id) },
             onSetConnectionColor: { profileID, color in model.setProfileColor(color, profileID: profileID) },
             onEditConnection: onEditConnection,
+            onDuplicateConnection: onDuplicateConnection,
             onConnectProfile: onConnectProfile,
             onDisconnect: onDisconnect,
             onReconnect: onReconnect,

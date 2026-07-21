@@ -8,6 +8,9 @@ import DBDriverMySQL
 /// profile store and the password/SSH secrets to the Keychain (via the caller).
 struct NewConnectionView: View {
     let editing: ConnectionProfile?
+    /// Duplicate mode: the form is seeded from an existing connection like editing,
+    /// but saving creates a new one (the caller re-ids the returned profile).
+    let duplicating: Bool
     let onSave: (ConnectionProfile, Secrets) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -46,8 +49,10 @@ struct NewConnectionView: View {
     @State private var tester = ConnectionTester()
 
     init(editing: ConnectionProfile? = nil, secrets: Secrets = Secrets(),
+         duplicating: Bool = false,
          onSave: @escaping (ConnectionProfile, Secrets) -> Void) {
         self.editing = editing
+        self.duplicating = duplicating
         self.onSave = onSave
         _name = State(initialValue: editing?.name ?? "")
         _kind = State(initialValue: editing?.kind ?? .postgres)
@@ -87,7 +92,18 @@ struct NewConnectionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(editing == nil ? "New Connection" : "Edit Connection").font(.headline).padding(.top, 16)
+            // Separate Text literals, not a ternary producing a String — a String
+            // argument renders verbatim and would skip localization.
+            Group {
+                if duplicating {
+                    Text("Duplicate Connection")
+                } else if editing == nil {
+                    Text("New Connection")
+                } else {
+                    Text("Edit Connection")
+                }
+            }
+            .font(.headline).padding(.top, 16)
 
             Form {
                 Section {

@@ -857,6 +857,37 @@ final class AppModel {
         showingEditConnection = true
     }
 
+    // MARK: Duplicate connection
+
+    var showingDuplicateConnection = false
+    var duplicatingProfile: ConnectionProfile?
+    @ObservationIgnored var duplicatingSecrets = Secrets()
+    /// Where the copy lands: the same container the original sits in.
+    @ObservationIgnored private var duplicateParent: UUID?
+
+    /// Opens the connection form prefilled with an existing connection (including
+    /// its Keychain secrets). Saving — changed or not — creates a new connection
+    /// next to the original.
+    func duplicateConnection(nodeID: UUID) {
+        guard let profileID = connections.profileID(forNode: nodeID),
+              let profile = connections.profile(id: profileID) else { return }
+        duplicatingProfile = profile
+        duplicatingSecrets = connections.secrets(for: profile)
+        duplicateParent = connections.organizer.location(of: nodeID)?.parent
+        showingDuplicateConnection = true
+    }
+
+    func finishDuplicate(_ profile: ConnectionProfile, secrets: Secrets) {
+        // The form carries the original's id (it was seeded from it) — the copy
+        // needs its own, or it would share sessions and Keychain entries.
+        var copy = profile
+        copy.id = UUID()
+        let nodeID = connections.addConnection(copy, secrets: secrets, into: duplicateParent)
+        duplicateParent = nil
+        duplicatingProfile = nil
+        selection = nodeID
+    }
+
     func focusEditor() { editorFocusRequests += 1 }
 
     /// The commands offered by the ⌘K palette (rebuilt each time it opens so the

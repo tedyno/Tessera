@@ -18,6 +18,7 @@ struct ContentView: View {
                         app.showingNewConnection = true
                     },
                     onEditConnection: { app.editConnection(nodeID: $0) },
+                    onDuplicateConnection: { app.duplicateConnection(nodeID: $0) },
                     onConnectProfile: { app.connectProfile(profileID: $0) },
                     onDisconnect: { app.disconnect(profileID: $0) },
                     onReconnect: { app.reconnect(profileID: $0) },
@@ -66,6 +67,14 @@ struct ContentView: View {
             if let profile = app.editingProfile {
                 NewConnectionView(editing: profile, secrets: app.editingSecrets) { updated, secrets in
                     app.connections.updateConnection(updated, secrets: secrets)
+                }
+            }
+        }
+        .sheet(isPresented: $app.showingDuplicateConnection) {
+            if let profile = app.duplicatingProfile {
+                NewConnectionView(editing: profile, secrets: app.duplicatingSecrets,
+                                  duplicating: true) { updated, secrets in
+                    app.finishDuplicate(updated, secrets: secrets)
                 }
             }
         }
