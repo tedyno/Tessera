@@ -679,42 +679,44 @@ final class QueryConsoleModel {
         await reloadData(tab, refreshCount: true)
     }
 
-    /// Opens (or refocuses) the ER-diagram tab for one schema on a connection.
-    /// Pure canvas over the already-introspected schema — no query runs.
-    func openDiagram(schema: String, focusTable: String? = nil,
+    /// Opens (or refocuses) an ER-diagram tab on a connection. A table scope
+    /// shows just that table and its direct FK neighbors; the schema scope
+    /// shows everything. Pure canvas over the already-introspected schema — no
+    /// query runs.
+    func openDiagram(schema: String, scope: DiagramModel.Scope = .schema,
                      on session: ConnectionSession? = nil) {
         guard let session = session ?? activeSession else { return }
         let namespace = session.schema?.schemas.first(where: { $0.name == schema })
         if let existing = tabs.first(where: {
-            $0.session === session && $0.kind == .diagram && $0.diagram?.schemaName == schema
+            $0.session === session && $0.kind == .diagram
+                && $0.diagram?.schemaName == schema && $0.diagram?.scope == scope
         }) {
             // Re-introspection (DDL, ⌘R, database switch) invalidates the
             // snapshot — rebuild rather than focus a table that isn't in it.
             if let namespace, existing.diagram?.entities != namespace.tables {
-                existing.diagram = DiagramModel(schemaName: schema, namespace: namespace)
+                existing.diagram = DiagramModel(schemaName: schema, namespace: namespace,
+                                                scope: scope)
             }
-            focus(existing.diagram, on: focusTable)
+            focus(existing.diagram)
             activate(existing)
             return
         }
         guard let namespace else { return }
-        let tab = QueryTab(title: schema)
+        let title: String = if case .table(let table) = scope { table } else { schema }
+        let tab = QueryTab(title: title)
         tab.session = session
         tab.kind = .diagram
-        tab.diagram = DiagramModel(schemaName: schema, namespace: namespace)
-        focus(tab.diagram, on: focusTable)
+        tab.diagram = DiagramModel(schemaName: schema, namespace: namespace, scope: scope)
+        focus(tab.diagram)
         tabs.append(tab)
         activate(tab)
     }
 
-    private func focus(_ diagram: DiagramModel?, on table: String?) {
-        guard let diagram, let table, diagram.entitiesByName[table] != nil else { return }
+    private func focus(_ diagram: DiagramModel?) {
+        guard let diagram, case .table(let table) = diagram.scope,
+              diagram.entitiesByName[table] != nil else { return }
         diagram.focusTable = table
         diagram.selectedTable = table
-        // The target may be hidden by the connected-only filter.
-        if !diagram.visibleEntities.contains(where: { $0.name == table }) {
-            diagram.showOnlyConnected = false
-        }
     }
 
     /// The generated `SELECT *` for a data view, folding in the filter, sort, and page limit.

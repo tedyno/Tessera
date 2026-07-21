@@ -22,7 +22,15 @@ final class DiagramModel {
         var id: String { "\(fromTable).\(fromColumn)→\(toTable).\(toColumn)" }
     }
 
+    /// What the diagram covers: the whole schema, or one table plus the tables
+    /// it directly references / is referenced by.
+    enum Scope: Equatable {
+        case schema
+        case table(String)
+    }
+
     let schemaName: String
+    let scope: Scope
     let entities: [SchemaTable]
     let entitiesByName: [String: SchemaTable]
     let edges: [Edge]
@@ -43,8 +51,9 @@ final class DiagramModel {
         didSet { performLayout(keepingExisting: true) }
     }
 
-    init(schemaName: String, namespace: SchemaNamespace) {
+    init(schemaName: String, namespace: SchemaNamespace, scope: Scope = .schema) {
         self.schemaName = schemaName
+        self.scope = scope
         self.entities = namespace.tables
         self.entitiesByName = Dictionary(namespace.tables.map { ($0.name, $0) },
                                          uniquingKeysWith: { first, _ in first })
@@ -63,7 +72,8 @@ final class DiagramModel {
             }
         }
         let connected = Set(edges.flatMap { [$0.fromTable, $0.toTable] })
-        self.showOnlyConnected = namespace.tables.count > 150 && !connected.isEmpty
+        self.showOnlyConnected = scope == .schema
+            && namespace.tables.count > 150 && !connected.isEmpty
         performLayout()
     }
 
@@ -72,6 +82,12 @@ final class DiagramModel {
     }
 
     var visibleEntities: [SchemaTable] {
+        if case .table(let name) = scope {
+            let neighbors = Set(edges
+                .filter { $0.fromTable == name || $0.toTable == name }
+                .flatMap { [$0.fromTable, $0.toTable] })
+            return entities.filter { $0.name == name || neighbors.contains($0.name) }
+        }
         guard showOnlyConnected else { return entities }
         let connected = connectedTables
         // With no edges at all the filter would blank the diagram — ignore it.

@@ -230,7 +230,7 @@ struct ContentView: View {
                 app.console.openDiagram(schema: schema)
             },
             onShowTableInDiagram: { schema, table in
-                app.console.openDiagram(schema: schema, focusTable: table)
+                app.console.openDiagram(schema: schema, scope: .table(table))
             },
             onDDL: { app.startDDL($0) },
             onOpenTables: { tables in

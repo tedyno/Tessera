@@ -48,9 +48,13 @@ struct DetailView: View {
                 emptyState
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let tab = model.activeTab, tab.kind == .diagram, let diagram = tab.diagram {
-                DiagramTabView(model: diagram, onOpenTable: { schema, table in
-                    Task { await model.openTable(schema: schema, table: table, on: tab.session) }
-                })
+                DiagramTabView(model: diagram,
+                               onOpenTable: { schema, table in
+                                   Task { await model.openTable(schema: schema, table: table, on: tab.session) }
+                               },
+                               onShowWholeSchema: {
+                                   model.openDiagram(schema: diagram.schemaName, on: tab.session)
+                               })
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 if let tab = model.activeTab, tab.kind == .data {

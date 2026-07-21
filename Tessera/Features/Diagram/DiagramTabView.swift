@@ -6,6 +6,8 @@ import DBKit
 struct DiagramTabView: View {
     @Bindable var model: DiagramModel
     var onOpenTable: (String, String) -> Void
+    /// Table-scoped diagrams offer a jump to the full schema diagram.
+    var onShowWholeSchema: () -> Void = { }
 
     @State private var zoomToFitToken = 0
     @State private var canvas: DiagramCanvasView?
@@ -49,9 +51,14 @@ struct DiagramTabView: View {
             }
             .font(.callout.weight(.semibold))
             Spacer()
-            Toggle("Only connected tables", isOn: $model.showOnlyConnected)
-                .toggleStyle(.checkbox)
-                .font(.caption)
+            if model.scope == .schema {
+                Toggle("Only connected tables", isOn: $model.showOnlyConnected)
+                    .toggleStyle(.checkbox)
+                    .font(.caption)
+            } else {
+                Button("Show Whole Schema") { onShowWholeSchema() }
+                    .font(.caption)
+            }
             Button("Re-layout") { model.performLayout() }
                 .font(.caption)
             Button("Zoom to Fit") { zoomToFitToken += 1 }

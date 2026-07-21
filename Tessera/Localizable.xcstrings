@@ -4474,6 +4474,17 @@
           }
         }
       }
+    },
+    "Show Whole Schema": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zobrazit celé schéma"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
