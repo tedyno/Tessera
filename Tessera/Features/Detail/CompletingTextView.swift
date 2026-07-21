@@ -65,8 +65,11 @@ final class CompletingTextView: NSTextView {
             case 123, 124: popup.hide(); super.keyDown(with: event); return  // ← →
             default:  super.keyDown(with: event)                // typing → updateCompletion()
             }
-        } else if event.keyCode == 49, event.modifierFlags.contains(.control) {
-            updateCompletion(forced: true)                      // ⌃Space
+        } else if (event.keyCode == 49 && event.modifierFlags.contains(.control))
+                    || (event.keyCode == 53 && event.modifierFlags.contains(.option)) {
+            // ⌃Space or ⌥Esc — ⌃Space is macOS's default input-source switcher, so
+            // the standard completion shortcut ⌥Esc works as well.
+            updateCompletion(forced: true)
         } else {
             super.keyDown(with: event)
         }

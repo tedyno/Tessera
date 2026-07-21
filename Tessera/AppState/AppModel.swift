@@ -620,7 +620,9 @@ final class AppModel {
 
     var canExplain: Bool {
         guard let tab = console.activeTab, tab.session != nil, !tab.isRunning else { return false }
-        return true
+        // Running anything replaces the result and clears pending edits — don't let
+        // a reflexive ⌘E eat unsaved changes.
+        return !tab.hasEdits
     }
 
     /// EXPLAIN (or EXPLAIN ANALYZE) for the statement under the cursor — the plan
@@ -628,7 +630,7 @@ final class AppModel {
     /// ANALYZE actually executes the statement, so it goes through the same
     /// destructive-statement confirmation as a normal run.
     func explainActiveQuery(analyze: Bool) {
-        guard let tab = console.activeTab, tab.session != nil, !tab.isRunning else { return }
+        guard let tab = console.activeTab, tab.session != nil, !tab.isRunning, !tab.hasEdits else { return }
         let sql: String
         if tab.kind == .data {
             sql = tab.sql   // the generated SELECT for this data view

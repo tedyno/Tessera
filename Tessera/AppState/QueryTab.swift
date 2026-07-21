@@ -132,6 +132,14 @@ final class QueryTab: Identifiable {
         redoStack.removeAll()
     }
 
+    /// Rolls back to the last snapshot without pushing the current state onto the
+    /// redo stack — for cancelling a live-preview session, whose half-typed state
+    /// must not be resurrectable via redo.
+    func revertLastSnapshot() {
+        guard let previous = undoStack.popLast() else { return }
+        apply(previous)
+    }
+
     private func apply(_ state: GridEditState) {
         edits = state.edits
         pendingDeletes = state.pendingDeletes
@@ -177,6 +185,10 @@ final class QueryTab: Identifiable {
     /// Seconds between automatic re-runs of this tab (nil = off).
     var autoRefreshInterval: TimeInterval?
     @ObservationIgnored var autoRefreshTask: Task<Void, Never>?
+
+    /// True while a grid cell is being edited — auto-refresh must not replace the
+    /// result mid-session, or the edit would commit against shifted row indices.
+    var isEditingCell = false
 
     /// The in-flight run, so a Stop button can cancel it.
     @ObservationIgnored var task: Task<Void, Never>?

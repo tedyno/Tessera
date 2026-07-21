@@ -113,7 +113,9 @@ final class GridTableView: NSTableView {
     /// cleared); when false, Escape falls through to its normal handling.
     var onEscape: (() -> Bool)?
     /// Arrow keys / Tab — moves the cell selection by (rows, cols); extend = Shift.
-    var onMoveSelection: ((Int, Int, Bool) -> Void)?
+    /// Returns false when there's nothing to move over (empty grid) so the key can
+    /// keep its normal meaning (e.g. Tab cycling window focus).
+    var onMoveSelection: ((Int, Int, Bool) -> Bool)?
     /// Return — starts editing the single selected cell; false when it can't.
     var onEditSelected: (() -> Bool)?
     /// ⌥⌫ / context menu — sets every selected cell to SQL NULL.
@@ -130,11 +132,12 @@ final class GridTableView: NSTableView {
     override func keyDown(with event: NSEvent) {
         let shift = event.modifierFlags.contains(.shift)
         switch event.keyCode {
-        case 123: onMoveSelection?(0, -1, shift)   // ←
-        case 124: onMoveSelection?(0, 1, shift)    // →
-        case 125: onMoveSelection?(1, 0, shift)    // ↓
-        case 126: onMoveSelection?(-1, 0, shift)   // ↑
-        case 48:  onMoveSelection?(0, shift ? -1 : 1, false)   // tab / ⇧-tab
+        case 123: if onMoveSelection?(0, -1, shift) != true { super.keyDown(with: event) }   // ←
+        case 124: if onMoveSelection?(0, 1, shift) != true { super.keyDown(with: event) }    // →
+        case 125: if onMoveSelection?(1, 0, shift) != true { super.keyDown(with: event) }    // ↓
+        case 126: if onMoveSelection?(-1, 0, shift) != true { super.keyDown(with: event) }   // ↑
+        case 48:  // tab / ⇧-tab — keeps focus-cycling when the grid has nothing to move over
+            if onMoveSelection?(0, shift ? -1 : 1, false) != true { super.keyDown(with: event) }
         case 36:  // return — edit the selected cell; otherwise keep normal handling
             if onEditSelected?() != true { super.keyDown(with: event) }
         case 53:  // escape
@@ -469,10 +472,12 @@ struct ResultsTableView: NSViewRepresentable {
 
         /// Arrow keys / Tab — steps the selection by (dRow, dCol), clamped to the
         /// grid; Shift extends the rectangle from the anchor instead of moving it.
-        func moveSelection(dRow: Int, dCol: Int, extend: Bool) {
-            guard let tableView, let result = tab.result, !result.columns.isEmpty else { return }
+        /// False = empty grid, let the key keep its normal meaning.
+        @discardableResult
+        func moveSelection(dRow: Int, dCol: Int, extend: Bool) -> Bool {
+            guard let tableView, let result = tab.result, !result.columns.isEmpty else { return false }
             let rowCount = visibleRowMap?.count ?? (result.rows.count + tab.pendingInserts.count)
-            guard rowCount > 0 else { return }
+            guard rowCount > 0 else { return false }
             let from = focus ?? anchor ?? selected.first ?? CellPos(row: 0, col: 0)
             let cell = selected.isEmpty
                 ? CellPos(row: 0, col: 0)   // nothing selected yet — land on the first cell
@@ -490,6 +495,7 @@ struct ResultsTableView: NSViewRepresentable {
             tableView.scrollRowToVisible(cell.row)
             tableView.scrollColumnToVisible(cell.col)
             updateInspector()
+            return true
         }
 
         /// Return — starts editing the focused cell when there's exactly one
@@ -621,6 +627,7 @@ struct ResultsTableView: NSViewRepresentable {
             let editor = field.currentEditor()
             editor?.selectAll(nil)
             isEditingActive = editor != nil
+            tab.isEditingCell = editor != nil   // pauses auto-refresh for this tab
             return editor
         }
 
@@ -1004,6 +1011,21 @@ struct ResultsTableView: NSViewRepresentable {
         private var result: QueryResult? { tab.result }
 
         func configure(for tab: QueryTab) {
+            // One coordinator serves every tab (the representable keeps its identity
+            // across tab switches). Switching tabs must first close out any live
+            // editing session — committing into the tab it belongs to, while
+            // `self.tab` still points there — and drop the old tab's selection, or
+            // an edit/Backspace would land on the new tab's rows by position.
+            if tab !== self.tab {
+                if isEditingActive {
+                    tableView?.window?.makeFirstResponder(tableView)
+                }
+                isEditingActive = false
+                self.tab.isEditingCell = false
+                bulkEditTargets = nil
+                selected = []
+                anchor = nil; focus = nil
+            }
             self.tab = tab
             guard let tableView, let result = tab.result else { return }
             visibleRowMap = tab.matchingRowIndices()
@@ -1221,13 +1243,19 @@ struct ResultsTableView: NSViewRepresentable {
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
+            // Reset the session flags before any early exit — a stuck
+            // `isEditingActive` would silently disable grid reloads for good.
+            isEditingActive = false
+            tab.isEditingCell = false
             guard let field = notification.object as? GridTextField,
-                  let result, field.rowIndex >= 0, field.columnIndex < result.columns.count else { return }
+                  let result, field.rowIndex >= 0, field.columnIndex < result.columns.count else {
+                bulkEditTargets = nil
+                return
+            }
             let row = field.rowIndex
             let columnName = result.columns[field.columnIndex].name
             let newValue = field.stringValue
             let movement = notification.userInfo?["NSTextMovement"] as? Int ?? 0
-            isEditingActive = false
             // Back to a plain label until the next explicit edit — an editable field
             // left behind would swallow the grid's own click handling.
             field.isEditable = false
@@ -1251,7 +1279,7 @@ struct ResultsTableView: NSViewRepresentable {
                 bulkEditTargets = nil
                 let editedCell = CellPos(row: row, col: field.columnIndex)
                 if movement == NSTextMovement.cancel.rawValue {
-                    tab.undoEdits()
+                    tab.revertLastSnapshot()   // not undoEdits — redo must not resurrect the preview
                 } else {
                     for cell in targets { setCell(cell, to: newValue) }
                 }

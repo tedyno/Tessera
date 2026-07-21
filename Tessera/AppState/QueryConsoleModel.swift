@@ -339,9 +339,11 @@ final class QueryConsoleModel {
 
     private func detectEditSource(sql: String, columns: [ColumnDescriptor], schema: DatabaseTree?) -> EditSource? {
         let upper = sql.uppercased()
-        // Only a plain full-table view is editable. A JOIN, aggregation, DISTINCT,
-        // or UNION makes a custom result whose rows don't map 1:1 to table rows.
-        guard upper.contains("SELECT"),
+        // Only a plain full-table view is editable — and it must *start* with
+        // SELECT: an EXPLAIN of the same query also "contains" it, and a MySQL plan
+        // happens to expose an `id` column, which would make the plan grid look
+        // editable and target the real table on commit.
+        guard upper.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("SELECT"),
               sql.range(of: #"(?i)\b(join|group\s+by|having|distinct|union)\b"#,
                         options: .regularExpression) == nil else { return nil }
         // The projection must be a star ("SELECT *" or "SELECT alias.*") — a custom
@@ -729,7 +731,10 @@ final class QueryConsoleModel {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(interval))
                 guard let self, let tab, !Task.isCancelled else { return }
-                guard !tab.isRunning, !tab.hasEdits else { continue }
+                // A live cell-edit session has no committed edits yet, so it needs
+                // its own guard — replacing the result under it would make the edit
+                // commit against shifted row indices.
+                guard !tab.isRunning, !tab.hasEdits, !tab.isEditingCell else { continue }
                 if tab.kind == .data {
                     await self.reloadData(tab, preserveSearch: true)
                 } else if let sql {

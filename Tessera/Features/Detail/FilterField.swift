@@ -3,7 +3,8 @@ import AppKit
 import DBKit
 
 /// Single-line WHERE-filter field for data views. Uses the same custom completion as
-/// the SQL editor (list shows while typing, only Tab commits) and submits on Return.
+/// the SQL editor (Tab/Return commit while the popup is open) and submits on Return
+/// once it's closed.
 struct FilterField: NSViewRepresentable {
     @Binding var text: String
     var columns: [String]

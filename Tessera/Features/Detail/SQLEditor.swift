@@ -284,6 +284,8 @@ struct SQLEditor: NSViewRepresentable {
 
             if trimmed.hasSuffix(".") {
                 let qualifier = Self.lastIdentifier(in: String(trimmed.dropLast())).lowercased()
+                // "1." is a decimal literal being typed, not a qualified reference.
+                guard let first = qualifier.first, !first.isNumber else { return [] }
                 if let info = context.aliases[qualifier] ?? tableByLower[qualifier] {
                     pool = info.columns.map { (columnItem($0.name, detail: $0.type), 0) }
                 } else if engine != .mysql, let tables = tablesBySchemaLower[qualifier] {
@@ -308,6 +310,11 @@ struct SQLEditor: NSViewRepresentable {
             }
 
             let query = partial.lowercased()
+            // A fully typed name means the user is done — hide the popup so Return
+            // makes a newline again instead of committing some cousin candidate.
+            if !query.isEmpty, pool.contains(where: { $0.item.label.lowercased() == query }) {
+                return []
+            }
             var seen: Set<String> = []
             return pool
                 .compactMap { entry -> (SQLCompletionItem, Int, Int)? in
@@ -401,6 +408,10 @@ struct SQLEditor: NSViewRepresentable {
         private static let reservedWords: Set<String> = keywords.union([
             "USER", "CHECK", "CONSTRAINT", "GRANT", "TO", "EXISTS", "ANY", "SOME",
             "BOTH", "DO", "ONLY", "COLLATE", "COLUMN", "CURRENT_DATE", "CURRENT_TIME",
+            // MySQL 8 additions that commonly appear as column names.
+            "ROWS", "RANK", "DENSE_RANK", "ROW_NUMBER", "INTERVAL", "GROUPS", "WINDOW",
+            "LATERAL", "OVER", "PARTITION", "RECURSIVE", "SYSTEM", "GENERATED",
+            "STORED", "VIRTUAL", "CUME_DIST", "NTILE", "LEAD", "LAG",
         ])
 
         private static func lastToken(in string: String) -> String {
