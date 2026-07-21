@@ -80,6 +80,19 @@ final class SQLDialectTests: XCTestCase {
         XCTAssertFalse(DatabaseKind.sqlite.dialect.hasSchemaLayer)
     }
 
+    func testBooleanLiteralsAreReservedEverywhere() {
+        for kind in [DatabaseKind.postgres, .mysql, .mariadb, .sqlite] {
+            XCTAssertTrue(kind.dialect.needsQuoting("true"), "\(kind)")
+            XCTAssertTrue(kind.dialect.needsQuoting("FALSE"), "\(kind)")
+        }
+    }
+
+    func testReturningIsReservedOnlyWhereTheServerReservesIt() {
+        XCTAssertTrue(DatabaseKind.mariadb.dialect.needsQuoting("returning"))
+        XCTAssertTrue(DatabaseKind.postgres.dialect.needsQuoting("returning"))
+        XCTAssertFalse(DatabaseKind.mysql.dialect.needsQuoting("returning"))
+    }
+
     func testMariaDBCompletionExtendsMySQLWithReturning() {
         let mysql = DatabaseKind.mysql.dialect.completionKeywords
         let maria = DatabaseKind.mariadb.dialect.completionKeywords

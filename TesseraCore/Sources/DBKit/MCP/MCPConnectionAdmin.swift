@@ -152,18 +152,30 @@ public enum MCPConnectionPolicy {
             throw MCPToolError("Unknown engine “\(spec.engine)”. Use postgres, mysql, mariadb or sqlite.")
         }
         let host = spec.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !spec.database.isEmpty else {
+        var database = spec.database
+        guard !database.isEmpty else {
             throw MCPToolError(kind.isFileBased ? "A SQLite connection needs a file path in “database”."
                                                 : "A connection needs a database.")
         }
-        if !kind.isFileBased {
+        if kind.isFileBased {
+            // The driver opens the path verbatim, so resolve ~ here and refuse a
+            // relative path — SQLITE_OPEN_CREATE would silently plant the file
+            // wherever the app's working directory happens to be.
+            database = (database as NSString).expandingTildeInPath
+            guard database.hasPrefix("/") else {
+                throw MCPToolError("The SQLite file path must be absolute (or start with ~).")
+            }
+        } else {
             guard !host.isEmpty else { throw MCPToolError("A connection needs a host.") }
             guard !spec.user.isEmpty else { throw MCPToolError("A connection needs a user.") }
         }
 
         return ConnectionProfile(
-            name: name, kind: kind, host: host, port: spec.port, database: spec.database,
-            username: spec.user, tlsMode: tlsMode(spec.tls), ssh: spec.sshConfig,
+            name: name, kind: kind, host: host, port: spec.port, database: database,
+            username: spec.user, tlsMode: tlsMode(spec.tls),
+            // A file on disk has no tunnel to ride — silently attaching one would
+            // make open() try SSH to an empty host instead of opening the file.
+            ssh: kind.isFileBased ? nil : spec.sshConfig,
             readOnly: spec.readOnly ?? false)
         // mcpRead / mcpWrite / mcpWriteWithoutApproval deliberately left at their
         // defaults (off) — only the user turns those on, in the app.

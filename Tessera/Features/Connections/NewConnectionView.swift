@@ -57,7 +57,9 @@ struct NewConnectionView: View {
         _name = State(initialValue: editing?.name ?? "")
         _kind = State(initialValue: editing?.kind ?? .postgres)
         _host = State(initialValue: editing?.host ?? "")
-        _port = State(initialValue: editing.map { String($0.port) } ?? "")
+        // A sqlite profile carries port 0; seeding "0" would stick as a literal
+        // port if the user switches the Type to a server engine.
+        _port = State(initialValue: editing.flatMap { $0.port == 0 ? nil : String($0.port) } ?? "")
         _database = State(initialValue: editing?.database ?? "")
         _username = State(initialValue: editing?.username ?? "")
         _password = State(initialValue: secrets.databasePassword ?? "")
@@ -90,7 +92,11 @@ struct NewConnectionView: View {
     }
 
     private var canSave: Bool {
-        if kind.isFileBased { return !name.isEmpty && !database.isEmpty }
+        if kind.isFileBased {
+            // Only absolute (or ~-rooted) paths: a bare name like "appdb" left
+            // over from a server engine would resolve against the app's cwd.
+            return !name.isEmpty && (database.hasPrefix("/") || database.hasPrefix("~"))
+        }
         return !name.isEmpty && !host.isEmpty && !database.isEmpty && !username.isEmpty
     }
 
@@ -406,7 +412,11 @@ struct NewConnectionView: View {
     }
 
     private func makeSecrets() -> Secrets {
-        Secrets(
+        // Mirror makeProfile's gating: a file-based profile stores no ssh config,
+        // so storing leftover SSH secrets from a previously chosen server engine
+        // would orphan them in the Keychain.
+        guard !kind.isFileBased else { return Secrets() }
+        return Secrets(
             databasePassword: password.isEmpty ? nil : password,
             sshPassword: (sshEnabled && usesPassword && !sshPassword.isEmpty) ? sshPassword : nil,
             sshPassphrase: (sshEnabled && !usesPassword && !sshPassphrase.isEmpty) ? sshPassphrase : nil)

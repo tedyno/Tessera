@@ -175,8 +175,11 @@ final class AppModel {
     }
 
     /// Runs `sql` on the active tab, asking first when it looks destructive.
-    private func runChecked(_ sql: String, on tab: QueryTab) {
-        let warnings = SQLSafety.warnings(in: sql)
+    /// `checking` lets a caller vet a different string than the one that runs —
+    /// EXPLAIN ANALYZE executes the inner statement, but the safety patterns are
+    /// start-anchored and would never match once the prefix is glued on.
+    private func runChecked(_ sql: String, checking checkSQL: String? = nil, on tab: QueryTab) {
+        let warnings = SQLSafety.warnings(in: checkSQL ?? sql)
         guard warnings.isEmpty else {
             destructiveWarnings = warnings
             pendingDestructiveSQL = sql
@@ -654,7 +657,7 @@ final class AppModel {
         let (prefix, executes) = session.engine.dialect.explainPrefix(analyze: analyze)
         let prefixed = prefix + trimmed
         if executes {
-            runChecked(prefixed, on: tab)
+            runChecked(prefixed, checking: trimmed, on: tab)
         } else {
             tab.task = Task { await console.run(tab, sqlToRun: prefixed) }
         }

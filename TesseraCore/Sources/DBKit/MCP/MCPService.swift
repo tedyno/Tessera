@@ -203,10 +203,12 @@ public struct MCPService: Sendable {
             let spec = MCPConnectionSpec(
                 name: try string(arguments, "name"),
                 engine: try string(arguments, "engine"),
-                host: try string(arguments, "host"),
+                // host/user are validated per engine by MCPConnectionPolicy —
+                // file-based engines legitimately have neither.
+                host: arguments["host"]?.stringValue ?? "",
                 port: arguments["port"]?.intValue,
                 database: try string(arguments, "database"),
-                user: try string(arguments, "user"),
+                user: arguments["user"]?.stringValue ?? "",
                 password: arguments["password"]?.stringValue,
                 tls: arguments["tls"]?.stringValue,
                 parentID: arguments["parent_id"]?.stringValue,

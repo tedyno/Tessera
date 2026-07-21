@@ -39,7 +39,7 @@ final class MCPBridge: MCPDataSource {
 
     private func info(name: String, profile: ConnectionProfile) -> MCPConnectionInfo {
         MCPConnectionInfo(name: name,
-                          engine: profile.kind.displayName,
+                          engine: profile.kind.rawValue,
                           database: profile.database,
                           canWrite: profile.allowsMCPWrite,
                           isConnected: app.console.session(for: profile.id)?.isReady ?? false)

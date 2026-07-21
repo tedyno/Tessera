@@ -95,6 +95,16 @@ final class ConnectionTester {
         }
 
         // Stage 2 — the database, through whatever endpoint stage 1 produced.
+        // A file-based engine has no server to reach: testing must not create the
+        // file as a side effect (connect uses SQLITE_OPEN_CREATE), and a missing
+        // file is the answer, not an error — a typo'd path would otherwise "pass"
+        // by silently making a fresh empty database.
+        if profile.kind.isFileBased {
+            states[.database] = FileManager.default.fileExists(atPath: profile.database)
+                ? .ok(String(localized: "File exists — it will open on connect."))
+                : .ok(String(localized: "File doesn't exist yet — it will be created on first connect."))
+            return
+        }
         let via = profile.ssh == nil
             ? "\(profile.host):\(String(profile.port))"
             : String(localized: "the tunnel")

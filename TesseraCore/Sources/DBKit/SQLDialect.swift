@@ -59,7 +59,7 @@ private let commonReserved: Set<String> = [
     "CASE", "WHEN", "THEN", "ELSE", "END", "WITH", "PRIMARY", "KEY", "FOREIGN",
     "REFERENCES", "DEFAULT", "CHECK", "CONSTRAINT", "EXISTS", "ANY", "SOME",
     "TO", "DO", "USER", "GRANT", "BOTH", "ONLY", "COLLATE", "CURRENT_DATE",
-    "CURRENT_TIME", "CAST",
+    "CURRENT_TIME", "CAST", "TRUE", "FALSE",
 ]
 
 private func doubleQuote(_ identifier: String) -> String {
@@ -160,11 +160,16 @@ public struct MariaDBDialect: SQLDialect {
     public init() {}
 
     public func quote(_ identifier: String) -> String { base.quote(identifier) }
-    public func needsQuoting(_ identifier: String) -> Bool { base.needsQuoting(identifier) }
+    public func needsQuoting(_ identifier: String) -> Bool {
+        // Not delegated: the base would consult MySQL's reserved words and skip
+        // the ones MariaDB adds (RETURNING).
+        identifier.range(of: "^[A-Za-z_][A-Za-z0-9_$]*$", options: .regularExpression) == nil
+            || reservedWords.contains(identifier.uppercased())
+    }
     public var hasSchemaLayer: Bool { base.hasSchemaLayer }
     public func emptyInsert(table: String) -> String { base.emptyInsert(table: table) }
     public var listDatabasesSQL: String? { base.listDatabasesSQL }
-    public var reservedWords: Set<String> { base.reservedWords }
+    public var reservedWords: Set<String> { base.reservedWords.union(["RETURNING"]) }
 
     public func explainPrefix(analyze: Bool) -> (prefix: String, executes: Bool) {
         // MariaDB has no EXPLAIN ANALYZE; ANALYZE <statement> is its equivalent.

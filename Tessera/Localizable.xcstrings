@@ -1606,6 +1606,28 @@
         }
       }
     },
+    "File doesn't exist yet — it will be created on first connect.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soubor zatím neexistuje — vytvoří se při prvním připojení."
+          }
+        }
+      }
+    },
+    "File exists — it will open on connect.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soubor existuje — otevře se při připojení."
+          }
+        }
+      }
+    },
     "Filter tables & columns": {
       "extractionState": "manual",
       "localizations": {

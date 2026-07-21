@@ -396,7 +396,12 @@ struct DetailView: View {
     private var explainMenu: some View {
         Menu {
             Button("Explain") { onExplain(false) }
-            Button("Explain Analyze") { onExplain(true) }
+            // Hidden where the dialect has no separate analyzing form (SQLite) —
+            // it would silently produce the same plan as plain Explain.
+            if let dialect = model.activeTab?.session?.engine.dialect,
+               dialect.explainPrefix(analyze: true).prefix != dialect.explainPrefix(analyze: false).prefix {
+                Button("Explain Analyze") { onExplain(true) }
+            }
         } label: {
             Label("Explain", systemImage: "list.bullet.indent")
         }

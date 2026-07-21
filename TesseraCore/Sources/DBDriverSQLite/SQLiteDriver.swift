@@ -107,6 +107,10 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
         var rows: [[Cell]] = []
         var truncated = false
         var sawColumns = false
+        // sqlite3_changes64 keeps the count of the last DML ever run, so a script
+        // with no DML would report a stale number; the total-changes delta counts
+        // exactly this script's writes (summed across its statements).
+        let changesBefore = sqlite3_total_changes64(db)
 
         try sql.withCString { base in
             var cursor: UnsafePointer<CChar>? = base
@@ -169,7 +173,7 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
                                elapsed: clock.now - start, isTruncated: truncated)
         }
         return QueryResult(columns: [], rows: [],
-                           rowsAffected: Int(sqlite3_changes64(db)),
+                           rowsAffected: Int(sqlite3_total_changes64(db) - changesBefore),
                            elapsed: clock.now - start)
     }
 
@@ -202,7 +206,11 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
     }
 
     private static func queryError(_ db: OpaquePointer) -> DatabaseError {
-        .queryFailed(String(cString: sqlite3_errmsg(db)))
+        // A cancel can land while preparing the next statement of a script (or
+        // inside exec), not just mid-step — every path must read as Cancelled.
+        sqlite3_errcode(db) == SQLITE_INTERRUPT
+            ? .cancelled
+            : .queryFailed(String(cString: sqlite3_errmsg(db)))
     }
 
     // MARK: Introspection
@@ -246,14 +254,22 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
         }
         for row in fks.rows where row.count >= 5 {
             guard columnsPerKey[row[0].text ?? ""] == 1,
-                  let from = row[3].text, let table = row[2].text, let to = row[4].text else { continue }
+                  let from = row[3].text, let table = row[2].text else { continue }
+            // "REFERENCES parent" without a column list leaves `to` NULL — the
+            // constraint implicitly targets the parent's primary key.
+            guard let to = row[4].text ?? (try? primaryKeyColumn(of: table, on: db)) ?? nil
+            else { continue }
             referencesByColumn[from] = ForeignKeyTarget(schema: "main", table: table, column: to)
         }
 
         // table_info: cid, name, type, notnull, dflt_value, pk (1-based PK ordinal)
         let info = try run("PRAGMA table_info(\(quoted))", on: db, maxRows: nil)
         let primaryKeyCount = info.rows.filter { ($0.count > 5 ? $0[5].text : "0") != "0" }.count
-        let tableAutoIncrement = createSQL.uppercased().contains("AUTOINCREMENT")
+        let upperSQL = createSQL.uppercased()
+        let tableAutoIncrement = upperSQL.contains("AUTOINCREMENT")
+        // A WITHOUT ROWID table has no rowid to alias — its INTEGER PK is a
+        // plain column the user must supply.
+        let hasRowID = !upperSQL.contains("WITHOUT ROWID")
         var columns: [SchemaColumn] = []
         for row in info.rows where row.count >= 6 {
             guard let columnName = row[1].text else { continue }
@@ -261,7 +277,7 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
             let isPrimary = (row[5].text ?? "0") != "0"
             // A lone INTEGER PRIMARY KEY aliases the rowid: the database supplies
             // the value whether or not AUTOINCREMENT is spelled out.
-            let isRowIDAlias = isPrimary && primaryKeyCount == 1
+            let isRowIDAlias = isPrimary && primaryKeyCount == 1 && hasRowID
                 && declaredType.uppercased() == "INTEGER"
             columns.append(SchemaColumn(
                 name: columnName,
@@ -291,6 +307,15 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
 
         return SchemaTable(name: name, kind: isView ? .view : .table,
                            columns: columns, indexes: indexes)
+    }
+
+    /// The single primary-key column of a table, or nil when the key is
+    /// composite or absent — used to resolve implicit FK targets.
+    private static func primaryKeyColumn(of table: String, on db: OpaquePointer) throws -> String? {
+        let quoted = "\"" + table.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        let info = try run("PRAGMA table_info(\(quoted))", on: db, maxRows: nil)
+        let pkColumns = info.rows.filter { ($0.count > 5 ? $0[5].text : "0") != "0" }
+        return pkColumns.count == 1 ? pkColumns[0][1].text : nil
     }
 
     // MARK: Queue bridging

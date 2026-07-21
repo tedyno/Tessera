@@ -132,6 +132,45 @@ final class SQLiteDriverTests: XCTestCase {
 
     // MARK: Cancel
 
+    func testRowsAffectedIsScopedToTheScript() async throws {
+        _ = try await driver.execute("CREATE TABLE t (a TEXT)")
+        _ = try await driver.execute("INSERT INTO t VALUES ('x'), ('y'), ('z')")
+        _ = try await driver.execute("DELETE FROM t")
+
+        // No DML in this script — a stale last-DML counter must not leak in.
+        let ddl = try await driver.execute("CREATE TABLE u (b TEXT)")
+        XCTAssertEqual(ddl.rowsAffected, 0)
+
+        // Multi-DML script: counts sum across statements, not just the last one.
+        let script = try await driver.execute(
+            "INSERT INTO u VALUES ('a'), ('b'); INSERT INTO u VALUES ('c')")
+        XCTAssertEqual(script.rowsAffected, 3)
+    }
+
+    func testImplicitForeignKeyResolvesToParentPrimaryKey() async throws {
+        _ = try await driver.execute("CREATE TABLE parent (pid INTEGER PRIMARY KEY, label TEXT)")
+        // No target column: "REFERENCES parent" implicitly means parent's PK.
+        _ = try await driver.execute("CREATE TABLE child (id INTEGER PRIMARY KEY, pid INTEGER REFERENCES parent)")
+
+        let tree = try await driver.fetchSchema()
+        let child = tree.schemas[0].tables.first { $0.name == "child" }
+        let fk = child?.columns.first { $0.name == "pid" }
+        XCTAssertEqual(fk?.isForeignKey, true)
+        XCTAssertEqual(fk?.references?.table, "parent")
+        XCTAssertEqual(fk?.references?.column, "pid")
+    }
+
+    func testWithoutRowIDPrimaryKeyIsNotAutoIncrement() async throws {
+        _ = try await driver.execute(
+            "CREATE TABLE kv (k INTEGER PRIMARY KEY, v TEXT) WITHOUT ROWID")
+        let tree = try await driver.fetchSchema()
+        let key = tree.schemas[0].tables.first { $0.name == "kv" }?
+            .columns.first { $0.name == "k" }
+        XCTAssertEqual(key?.isPrimaryKey, true)
+        // No rowid to alias — the database will not supply this value.
+        XCTAssertEqual(key?.isAutoIncrement, false)
+    }
+
     func testInterruptCancelsARunningQuery() async throws {
         let slow = """
             WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 100000000)
