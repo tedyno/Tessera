@@ -346,6 +346,29 @@ public actor PostgresDriver: DatabaseDriver {
                 return try cell.decode(Date.self).ISO8601Format()
             case .text, .varchar, .bpchar, .name, .char, .json, .jsonb:
                 return try cell.decode(String.self)
+            // PostgresNIO delivers results in binary format, and it has no
+            // Swift decoders for these — read the wire layout directly, or the
+            // fallback below would render the raw bytes as UTF-8 garbage.
+            case .time:
+                if var buffer = cell.bytes,
+                   let micros = buffer.readInteger(endianness: .big, as: Int64.self) {
+                    return Self.timeOfDay(micros: micros)
+                }
+            case .timetz:
+                if var buffer = cell.bytes,
+                   let micros = buffer.readInteger(endianness: .big, as: Int64.self),
+                   let zone = buffer.readInteger(endianness: .big, as: Int32.self) {
+                    // The wire carries seconds WEST of UTC; display convention
+                    // is the opposite sign.
+                    return Self.timeOfDay(micros: micros) + Self.zoneOffset(seconds: -Int(zone))
+                }
+            case .interval:
+                if var buffer = cell.bytes,
+                   let micros = buffer.readInteger(endianness: .big, as: Int64.self),
+                   let days = buffer.readInteger(endianness: .big, as: Int32.self),
+                   let months = buffer.readInteger(endianness: .big, as: Int32.self) {
+                    return Self.intervalText(micros: micros, days: Int(days), months: Int(months))
+                }
             default:
                 break
             }
@@ -361,5 +384,48 @@ public actor PostgresDriver: DatabaseDriver {
 
     private static func typeName(_ dataType: PostgresDataType) -> String {
         String(describing: dataType)
+    }
+
+    // MARK: Binary time formatting (internal for tests)
+
+    /// Microseconds since midnight → `HH:mm:ss[.ffffff]`, fraction only when
+    /// nonzero and with trailing zeros trimmed — matching psql's text output.
+    static func timeOfDay(micros: Int64) -> String {
+        let totalSeconds = micros / 1_000_000
+        let fraction = Int(micros % 1_000_000)
+        var text = String(format: "%02d:%02d:%02d",
+                          totalSeconds / 3600, (totalSeconds / 60) % 60, totalSeconds % 60)
+        if fraction != 0 {
+            var digits = String(format: "%06d", fraction)
+            while digits.hasSuffix("0") { digits.removeLast() }
+            text += "." + digits
+        }
+        return text
+    }
+
+    /// Display offset (already sign-flipped from the wire) → `±HH[:MM]`.
+    static func zoneOffset(seconds: Int) -> String {
+        let sign = seconds < 0 ? "-" : "+"
+        let magnitude = abs(seconds)
+        let hours = magnitude / 3600
+        let minutes = (magnitude / 60) % 60
+        return minutes == 0 ? String(format: "%@%02d", sign, hours)
+                            : String(format: "%@%02d:%02d", sign, hours, minutes)
+    }
+
+    /// Postgres-style interval text (`1 year 2 mons 3 days 04:05:06`), zero
+    /// components omitted; a zero interval renders as `00:00:00`.
+    static func intervalText(micros: Int64, days: Int, months: Int) -> String {
+        var parts: [String] = []
+        let years = months / 12
+        let restMonths = months % 12
+        if years != 0 { parts.append("\(years) year\(abs(years) == 1 ? "" : "s")") }
+        if restMonths != 0 { parts.append("\(restMonths) mon\(abs(restMonths) == 1 ? "" : "s")") }
+        if days != 0 { parts.append("\(days) day\(abs(days) == 1 ? "" : "s")") }
+        if micros != 0 || parts.isEmpty {
+            let sign = micros < 0 ? "-" : ""
+            parts.append(sign + timeOfDay(micros: abs(micros)))
+        }
+        return parts.joined(separator: " ")
     }
 }
