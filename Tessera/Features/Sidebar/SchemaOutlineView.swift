@@ -119,6 +119,8 @@ struct SchemaOutlineView: NSViewRepresentable {
     var onDDL: (DDLOperation) -> Void = { _ in }
     /// Mirrors the speed search for the indicator bar: (term, position, matches).
     var onSpeedSearch: (String, Int, Int) -> Void = { _, _, _ in }
+    /// Bump to cancel a running speed search from outside (the bar's ✕ button).
+    var speedCancelToken: Int = 0
 
     func makeNSView(context: Context) -> NSScrollView {
         let outline = SchemaTreeView()
@@ -163,6 +165,10 @@ struct SchemaOutlineView: NSViewRepresentable {
         apply(to: context.coordinator)
         context.coordinator.sync(tree: tree, hidden: hiddenSchemas, query: query)
         context.coordinator.applyReveal(reveal)
+        if context.coordinator.lastCancelToken != speedCancelToken {
+            context.coordinator.lastCancelToken = speedCancelToken
+            context.coordinator.speedEnd()
+        }
     }
 
     private func apply(to coordinator: Coordinator) {
@@ -726,6 +732,8 @@ struct SchemaOutlineView: NSViewRepresentable {
         private(set) var speedTerm = ""
         private var speedMatches: [SchemaOutlineNode] = []
         private var speedIndex = 0
+        /// Last seen value of the representable's cancel token.
+        var lastCancelToken = 0
 
         /// Schema and table nodes in display order — including tables inside
         /// collapsed schemas; jumping expands the path, like PhpStorm.

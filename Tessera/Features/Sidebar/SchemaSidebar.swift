@@ -55,6 +55,8 @@ struct SchemaSidebar: View {
     @State private var speedTerm = ""
     @State private var speedPosition = 0
     @State private var speedCount = 0
+    /// Incremented by the bar's ✕ button; the outline cancels when it changes.
+    @State private var speedCancelCount = 0
 
     /// Lowercased, trimmed name filter; empty means "show everything".
     private var query: String {
@@ -96,7 +98,8 @@ struct SchemaSidebar: View {
                             speedTerm = term
                             speedPosition = position
                             speedCount = count
-                        })
+                        },
+                        speedCancelToken: speedCancelCount)
                 }
                 .safeAreaInset(edge: .top) { speedSearchBar }
                 .safeAreaInset(edge: .bottom) { filterBar(tree) }
@@ -147,6 +150,14 @@ struct SchemaSidebar: View {
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
+                Button {
+                    speedCancelCount += 1
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+                .help("Cancel search (Esc)")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
