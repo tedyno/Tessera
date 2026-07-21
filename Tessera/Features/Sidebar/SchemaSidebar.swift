@@ -94,8 +94,24 @@ struct SchemaSidebar: View {
     @State private var speedSearch = ""
     @State private var speedMatchIndex = 0
     @State private var speedMatchCount = 0
+    @State private var speedMatches: [SpeedTarget] = []
     @State private var speedScrollTarget: String?
     @State private var speedKeyMonitor: Any?
+    @State private var speedDebounce: Task<Void, Never>?
+
+    /// Row background doubling as a click catcher: `listRowBackground` spans the
+    /// full row including its insets, which the label content (even stretched to
+    /// full width) never covers — without this, clicks "between rows" hit nothing.
+    /// Hit-testing picks either the label or the background, never both, so the
+    /// duplicated gestures cannot fire twice for one click.
+    private func clickCatcher(_ background: Color,
+                              onSingle: (() -> Void)? = nil,
+                              onDouble: (() -> Void)? = nil) -> some View {
+        background
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture(count: 1).onEnded { onSingle?() })
+            .simultaneousGesture(TapGesture(count: 2).onEnded { onDouble?() })
+    }
 
     /// Whether the engine's ALTER can express this operation (defaults to yes
     /// while nothing is connected — the menu isn't reachable then anyway).
@@ -154,7 +170,8 @@ struct SchemaSidebar: View {
                             } label: {
                                 Label(tree.databaseName, systemImage: "cylinder.split.1x2")
                                     .foregroundStyle(.tint)
-                                    .listRowBackground(nodeBackground("db"))
+                                    .listRowBackground(clickCatcher(nodeBackground("db"),
+                                                                    onSingle: selectDatabase))
                                     .rowHitTarget()
                                     .pointerCursor()
                                     .simultaneousGesture(TapGesture(count: 1).onEnded { selectDatabase() })
@@ -198,11 +215,13 @@ struct SchemaSidebar: View {
                     .onChange(of: connectionName) { _, _ in clearTableSelection() }
                     .onChange(of: speedScrollTarget) { _, id in
                         guard let id else { return }
-                        // Next runloop turn, after the selection re-render — List
-                        // virtualizes rows, and an immediate scrollTo can miss a
-                        // target that isn't laid out yet.
+                        // Async: after the selection re-render (List virtualizes
+                        // rows). withAnimation is not cosmetic — without it,
+                        // List.scrollTo on macOS silently does nothing.
                         DispatchQueue.main.async {
-                            proxy.scrollTo(id, anchor: .center)
+                            withAnimation(.easeOut(duration: 0.1)) {
+                                proxy.scrollTo(id, anchor: .center)
+                            }
                             speedScrollTarget = nil
                         }
                     }
@@ -279,12 +298,6 @@ struct SchemaSidebar: View {
         return out
     }
 
-    private func speedMatches() -> [SpeedTarget] {
-        let term = speedSearch.lowercased()
-        guard !term.isEmpty else { return [] }
-        return speedCandidates().filter { $0.name.lowercased().contains(term) }
-    }
-
     private func installSpeedSearchMonitor() {
         guard speedKeyMonitor == nil else { return }
         speedKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -316,26 +329,31 @@ struct SchemaSidebar: View {
         switch event.keyCode {
         case 53:   // Esc — end the search; the selection stays where it landed
             guard active else { return false }
+            speedDebounce?.cancel()
             speedSearch = ""
             return true
         case 36, 76:   // Return — same: the match is already selected
             guard active else { return false }
+            speedDebounce?.cancel()
             speedSearch = ""
             return true
         case 51:   // Backspace
             guard active else { return false }
             speedSearch.removeLast()
-            if !speedSearch.isEmpty { retargetSpeedSearch() }
-            else { speedMatchCount = 0 }
+            if speedSearch.isEmpty {
+                speedDebounce?.cancel()
+                speedMatchCount = 0
+                speedMatches = []
+            } else {
+                scheduleSpeedRetarget()
+            }
             return true
         case 125, 126:   // ↓ / ↑ — walk the matches, wrapping around
             guard active else { return false }
-            let matches = speedMatches()
-            speedMatchCount = matches.count
-            guard !matches.isEmpty else { return true }
+            guard !speedMatches.isEmpty else { return true }
             speedMatchIndex = (speedMatchIndex + (event.keyCode == 125 ? 1 : -1)
-                               + matches.count) % matches.count
-            selectSpeedTarget(matches[speedMatchIndex])
+                               + speedMatches.count) % speedMatches.count
+            selectSpeedTarget(speedMatches[speedMatchIndex])
             return true
         default:
             break
@@ -347,17 +365,31 @@ struct SchemaSidebar: View {
                 || "_$.".unicodeScalars.contains(scalar)
         else { return false }
         speedSearch.append(Character(scalar))
-        retargetSpeedSearch()
+        scheduleSpeedRetarget()
         return true
+    }
+
+    /// Typing only updates the search text (cheap); matching and moving the
+    /// selection — which re-renders the tree — waits for a short pause, so fast
+    /// typing doesn't fight the re-render for the main thread.
+    private func scheduleSpeedRetarget() {
+        speedDebounce?.cancel()
+        speedDebounce = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            retargetSpeedSearch()
+        }
     }
 
     /// Jumps to the best match for the current term: the first prefix match in
     /// display order, or the first substring match when no name starts with it.
     private func retargetSpeedSearch() {
-        let matches = speedMatches()
+        let term = speedSearch.lowercased()
+        guard !term.isEmpty else { return }
+        let matches = speedCandidates().filter { $0.name.lowercased().contains(term) }
+        speedMatches = matches
         speedMatchCount = matches.count
         guard !matches.isEmpty else { return }   // keep selection; the bar turns red
-        let term = speedSearch.lowercased()
         speedMatchIndex = matches.firstIndex { $0.name.lowercased().hasPrefix(term) } ?? 0
         selectSpeedTarget(matches[speedMatchIndex])
     }
@@ -416,7 +448,8 @@ struct SchemaSidebar: View {
         } label: {
             Label(namespace.name, systemImage: "circle.grid.2x2")
                 .id("s:\(namespace.name)")
-                .listRowBackground(nodeBackground("s:\(namespace.name)"))
+                .listRowBackground(clickCatcher(nodeBackground("s:\(namespace.name)"),
+                                                onSingle: { handleSchemaClick(namespace.name) }))
                 .rowHitTarget()
                 .pointerCursor()
                 .simultaneousGesture(TapGesture(count: 1).onEnded { handleSchemaClick(namespace.name) })
@@ -449,13 +482,24 @@ struct SchemaSidebar: View {
         if table.columns.isEmpty && table.indexes.isEmpty {
             tableLabel(namespace: namespace, table: table)
                 .id(tableKey)
-                .listRowBackground(tableBackground(tableKey, namespace: namespace, table: table.name))
+                .listRowBackground(clickCatcher(
+                    tableBackground(tableKey, namespace: namespace, table: table.name),
+                    onSingle: { handleTableClick(namespace: namespace, table: table.name) },
+                    onDouble: {
+                        let ref = TableRef(schema: namespace, table: table.name)
+                        selectedTables = [ref]
+                        selectionAnchor = ref
+                        onOpenTable(namespace, table.name)
+                    }))
         } else {
             DisclosureGroup(isExpanded: binding(tableKey)) {
                 ForEach(table.columns) { column in
                     columnRow(column)
                         .id("c:\(namespace).\(table.name).\(column.name)")
-                        .modifier(HighlightRow(active: highlightedID == "c:\(namespace).\(table.name).\(column.name)"))
+                        .listRowBackground(clickCatcher(
+                            highlightedID == "c:\(namespace).\(table.name).\(column.name)"
+                                ? Color.accentColor.opacity(0.25) : Color.clear,
+                            onDouble: { onOpenColumn(namespace, table.name, column.name) }))
                         .rowHitTarget()
                         .pointerCursor()
                         .simultaneousGesture(TapGesture(count: 2).onEnded {
@@ -502,7 +546,15 @@ struct SchemaSidebar: View {
             } label: {
                 tableLabel(namespace: namespace, table: table)
                     .id(tableKey)
-                    .listRowBackground(tableBackground(tableKey, namespace: namespace, table: table.name))
+                    .listRowBackground(clickCatcher(
+                    tableBackground(tableKey, namespace: namespace, table: table.name),
+                    onSingle: { handleTableClick(namespace: namespace, table: table.name) },
+                    onDouble: {
+                        let ref = TableRef(schema: namespace, table: table.name)
+                        selectedTables = [ref]
+                        selectionAnchor = ref
+                        onOpenTable(namespace, table.name)
+                    }))
             }
         }
     }
