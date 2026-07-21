@@ -229,6 +229,11 @@ public struct MCPService: Sendable {
             return try encodeJSON(await source.updateConnection(
                 id: try string(arguments, "connection_id"), changes: changes))
 
+        case "duplicate_connection":
+            return try encodeJSON(await source.duplicateConnection(
+                id: try string(arguments, "connection_id"),
+                name: arguments["name"]?.stringValue))
+
         case "delete_connection":
             return try encodeJSON(await source.deleteConnection(
                 id: try string(arguments, "connection_id")))

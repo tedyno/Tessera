@@ -34,6 +34,36 @@ final class MCPConnectionPolicyTests: XCTestCase {
         XCTAssertFalse(edited.allowsMCPWrite)
     }
 
+    func testDuplicateDropsMCPAccessEvenWhenTheOriginalHadItAll() {
+        let original = profile(mcpRead: true, mcpWrite: true, noApproval: true)
+        let copy = MCPConnectionPolicy.duplicateProfile(original, name: nil)
+        XCTAssertFalse(copy.allowsMCPRead)
+        XCTAssertFalse(copy.allowsMCPWrite)
+        XCTAssertFalse(copy.allowsMCPWriteWithoutApproval)
+        // Nothing lingers underneath the computed accessors either.
+        XCTAssertNil(copy.mcpRead)
+        XCTAssertNil(copy.mcpWrite)
+        XCTAssertNil(copy.mcpWriteWithoutApproval)
+        XCTAssertNil(copy.mcpAccess)
+    }
+
+    func testDuplicateGetsAFreshIdButKeepsTheTarget() {
+        let original = profile()
+        let copy = MCPConnectionPolicy.duplicateProfile(original, name: nil)
+        XCTAssertNotEqual(copy.id, original.id)
+        XCTAssertEqual(copy.host, original.host)
+        XCTAssertEqual(copy.port, original.port)
+        XCTAssertEqual(copy.database, original.database)
+        XCTAssertEqual(copy.username, original.username)
+        XCTAssertEqual(copy.name, original.name, "no name given keeps the original's")
+    }
+
+    func testDuplicateHonoursAnExplicitNameButIgnoresBlankOnes() {
+        let original = profile()
+        XCTAssertEqual(MCPConnectionPolicy.duplicateProfile(original, name: "Shop copy").name, "Shop copy")
+        XCTAssertEqual(MCPConnectionPolicy.duplicateProfile(original, name: "   ").name, original.name)
+    }
+
     // MARK: A password must never follow a connection to a new target
 
     func testRetargetingIsDetectedForEveryTargetField() throws {

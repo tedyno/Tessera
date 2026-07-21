@@ -261,6 +261,9 @@ public protocol MCPDataSource: Sendable {
     func organizer() async -> [MCPOrganizerNode]
     func createConnection(_ spec: MCPConnectionSpec) async throws -> MCPConnectionSummary
     func updateConnection(id: String, changes: MCPConnectionChanges) async throws -> MCPConnectionSummary
+    /// Copies an existing connection, secrets and all, beside the original. The copy's
+    /// MCP access is always off, so this can never propagate access to the client.
+    func duplicateConnection(id: String, name: String?) async throws -> MCPConnectionSummary
     func deleteConnection(id: String) async throws -> MCPConnectionSummary
     func restoreConnection(id: String) async throws -> MCPConnectionSummary
     func moveConnection(id: String, parentID: String, index: Int?) async throws -> MCPConnectionSummary
@@ -277,6 +280,7 @@ public extension MCPDataSource {
     func organizer() async -> [MCPOrganizerNode] { [] }
     func createConnection(_ spec: MCPConnectionSpec) async throws -> MCPConnectionSummary { throw unmanaged }
     func updateConnection(id: String, changes: MCPConnectionChanges) async throws -> MCPConnectionSummary { throw unmanaged }
+    func duplicateConnection(id: String, name: String?) async throws -> MCPConnectionSummary { throw unmanaged }
     func deleteConnection(id: String) async throws -> MCPConnectionSummary { throw unmanaged }
     func restoreConnection(id: String) async throws -> MCPConnectionSummary { throw unmanaged }
     func moveConnection(id: String, parentID: String, index: Int?) async throws -> MCPConnectionSummary { throw unmanaged }

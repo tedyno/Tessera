@@ -164,6 +164,23 @@ public enum MCPConnectionPolicy {
         // defaults (off) — only the user turns those on, in the app.
     }
 
+    /// Builds a copy of an existing profile for duplication. The copy gets a fresh id
+    /// (its own Keychain account and sessions) and MCP access forced off: duplicating
+    /// over MCP must never carry the original's access flags to the copy, or a client
+    /// could clone its way into a connection the user only ever meant to use by hand.
+    public static func duplicateProfile(_ original: ConnectionProfile, name: String?) -> ConnectionProfile {
+        var copy = original
+        copy.id = UUID()
+        copy.mcpRead = nil
+        copy.mcpWrite = nil
+        copy.mcpWriteWithoutApproval = nil
+        copy.mcpAccess = nil
+        if let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty {
+            copy.name = trimmed
+        }
+        return copy
+    }
+
     /// Applies changes to an existing profile. Everything the client may not touch —
     /// the id, the MCP flags, the SSH settings — is carried over untouched.
     public static func apply(_ changes: MCPConnectionChanges,

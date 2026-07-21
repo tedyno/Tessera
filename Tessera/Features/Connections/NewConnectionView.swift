@@ -64,9 +64,12 @@ struct NewConnectionView: View {
         _tlsMode = State(initialValue: editing?.tlsMode ?? .prefer)
         _readOnly = State(initialValue: editing?.isReadOnly ?? false)
         _color = State(initialValue: editing?.color)
-        _mcpRead = State(initialValue: editing?.allowsMCPRead ?? false)
-        _mcpWrite = State(initialValue: editing?.mcpWrite ?? false)
-        _mcpWriteNoApproval = State(initialValue: editing?.mcpWriteWithoutApproval ?? false)
+        // A duplicate starts with MCP access off so it never silently inherits the
+        // original's — the toggles are right here to switch back on if wanted. Editing
+        // keeps the flags as the user set them.
+        _mcpRead = State(initialValue: duplicating ? false : (editing?.allowsMCPRead ?? false))
+        _mcpWrite = State(initialValue: duplicating ? false : (editing?.mcpWrite ?? false))
+        _mcpWriteNoApproval = State(initialValue: duplicating ? false : (editing?.mcpWriteWithoutApproval ?? false))
         if let ssh = editing?.ssh {
             _sshEnabled = State(initialValue: true)
             _sshUseConfig = State(initialValue: ssh.usesConfigAlias)

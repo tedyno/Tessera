@@ -143,6 +143,16 @@ enum MCPTools {
                           "color": stringSchema("Dot colour, or empty to clear.")],
              required: ["connection_id"]),
 
+        tool(name: "duplicate_connection",
+             description: "Copy a connection, secrets and all, into the same place as the "
+                        + "original. MCP access is always off on the copy — even when the "
+                        + "original had it — so duplicating can never hand a client access "
+                        + "the user didn't grant. The user turns it on in Tessera.",
+             properties: ["connection_id": stringSchema("Connection id from list_organizer."),
+                          "name": stringSchema("Optional name for the copy; defaults to the "
+                                               + "original's name.")],
+             required: ["connection_id"]),
+
         tool(name: "delete_connection",
              description: "Delete a connection. It goes to a small trash first, so it can be put "
                         + "back with restore_connection until the trash is purged.",

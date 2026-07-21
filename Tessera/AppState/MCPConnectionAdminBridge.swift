@@ -85,6 +85,21 @@ extension MCPBridge {
                        : nil)
     }
 
+    func duplicateConnection(id: String, name: String?) async throws -> MCPConnectionSummary {
+        let original = try existingProfile(id)
+        let copy = MCPConnectionPolicy.duplicateProfile(original, name: name)
+        // The copy points at the same server as the original, so its stored secrets
+        // come along — copied straight between Keychain accounts, never over the wire.
+        // MCP access is off on the copy regardless, so nothing sensitive is granted.
+        let secrets = app.connections.secrets(for: original)
+        // Land it in the same container as the original, matching the ⌘D duplicate.
+        let parent = app.connections.firstNodeID(forProfile: original.id)
+            .flatMap { app.connections.organizer.location(of: $0)?.parent }
+        app.connections.addConnection(copy, secrets: secrets, into: parent)
+        audit("duplicate_connection", copy.name, "copied from “\(original.name)” — MCP access off on the copy")
+        return summary(copy, note: String(localized: "MCP access is off on the copy; turn it on in Tessera if you want it."))
+    }
+
     func moveConnection(id: String, parentID: String, index: Int?) async throws -> MCPConnectionSummary {
         let profile = try existingProfile(id)
         guard let parent = UUID(uuidString: parentID), containerExists(parent) else {
