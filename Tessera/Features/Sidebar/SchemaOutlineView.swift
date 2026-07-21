@@ -835,7 +835,24 @@ struct SchemaOutlineView: NSViewRepresentable {
             let row = outlineView.row(forItem: node)
             guard row >= 0 else { return }
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            outlineView.scrollRowToVisible(row)
+            scrollKeepingClear(of: node)
+        }
+
+        /// Scrolls so the item sits clear of both edges. The SwiftUI bars (speed
+        /// search on top, the filter bar below) overlay the scroll view as
+        /// safe-area insets that `scrollRowToVisible` ignores — a minimal scroll
+        /// parks the row exactly underneath them, looking like it scrolled to the
+        /// wrong item. Async because the speed bar appears with the first
+        /// keystroke and shifts the layout right after a synchronous scroll.
+        private func scrollKeepingClear(of item: AnyObject) {
+            guard let outlineView else { return }
+            DispatchQueue.main.async {
+                let row = outlineView.row(forItem: item)
+                guard row >= 0 else { return }
+                let padded = outlineView.rect(ofRow: row)
+                    .insetBy(dx: 0, dy: -3 * outlineView.rowHeight)
+                outlineView.scrollToVisible(padded)
+            }
         }
 
         // MARK: Reveal (from spotlight)
@@ -864,7 +881,7 @@ struct SchemaOutlineView: NSViewRepresentable {
             let row = outlineView.row(forItem: node)
             guard row >= 0 else { return }
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            outlineView.scrollRowToVisible(row)
+            scrollKeepingClear(of: node)
         }
     }
 }

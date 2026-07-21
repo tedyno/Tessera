@@ -347,7 +347,16 @@ struct OrganizerOutlineView: NSViewRepresentable {
             let row = outlineView.row(forItem: item)
             guard row >= 0 else { return }
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-            outlineView.scrollRowToVisible(row)
+            // Async + padded: the SwiftUI bars overlay the scroll edges as insets
+            // scrollRowToVisible ignores, and the speed bar appearing with the
+            // first keystroke shifts the layout right after a synchronous scroll.
+            DispatchQueue.main.async {
+                let row = outlineView.row(forItem: item)
+                guard row >= 0 else { return }
+                let padded = outlineView.rect(ofRow: row)
+                    .insetBy(dx: 0, dy: -3 * outlineView.rowHeight)
+                outlineView.scrollToVisible(padded)
+            }
         }
 
         /// Root-to-item chain, for expanding a match's ancestors.
