@@ -885,6 +885,10 @@ final class AppModel {
         let nodeID = connections.addConnection(copy, secrets: secrets, into: duplicateParent)
         duplicateParent = nil
         duplicatingProfile = nil
+        // Drops our reference to the password so it isn't reachable through the
+        // model for the rest of the app's run. Not scrubbing — String contents
+        // can't be zeroed in place; the Keychain remains the real store.
+        duplicatingSecrets = Secrets()
         selection = nodeID
     }
 

@@ -39,8 +39,9 @@ final class ContextualOutlineView: NSOutlineView {
     /// ⌘↩ — connects every selected connection, the keyboard equivalent of
     /// double-clicking one (a plain click never connects; see the Coordinator).
     var onCommandReturn: (() -> Void)?
-    /// ⌘D — duplicates the single selected connection.
-    var onDuplicate: (() -> Void)?
+    /// ⌘D — duplicates the single selected connection; false = nothing applicable
+    /// selected, let the key travel on.
+    var onDuplicate: (() -> Bool)?
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
@@ -54,8 +55,8 @@ final class ContextualOutlineView: NSOutlineView {
             onCommandReturn?()
             return true
         }
-        if modifiers == .command, event.charactersIgnoringModifiers == "d", isFocused {
-            onDuplicate?()
+        if modifiers == .command, event.charactersIgnoringModifiers == "d", isFocused,
+           onDuplicate?() == true {
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -733,12 +734,14 @@ struct OrganizerOutlineView: NSViewRepresentable {
         }
 
         /// ⌘D — duplicates the one selected connection (containers and
-        /// multi-selections have no obvious duplicate semantics).
-        func duplicateSelectedConnection() {
+        /// multi-selections have no obvious duplicate semantics; false lets the
+        /// key keep whatever meaning it has further down the responder chain).
+        func duplicateSelectedConnection() -> Bool {
             guard let outlineView, outlineView.selectedRowIndexes.count == 1,
                   let item = outlineView.item(atRow: outlineView.selectedRow) as? OrganizerItem,
-                  item.category == .connection else { return }
+                  item.category == .connection else { return false }
             onDuplicateConnection(item.id)
+            return true
         }
 
         @objc private func actionNewQueryTab(_ sender: NSMenuItem) {

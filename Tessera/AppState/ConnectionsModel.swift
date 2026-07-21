@@ -147,9 +147,13 @@ final class ConnectionsModel {
         profiles.append(profile)
         try? profileStore.save(profiles)
         let ref = ConnectionRef(profileID: profile.id)
+        let node = OrganizerNode.connection(.init(id: ref.id, profileID: profile.id))
         // No parent means no workspace: the connection sits loose above them all.
-        organizer.append(.connection(.init(id: ref.id, profileID: profile.id)),
-                         toParent: parentID ?? OrganizerDocument.looseParentID)
+        // The same fallback catches a parent that vanished while a sheet was open
+        // (e.g. deleted over MCP) — better loose than an invisible orphaned profile.
+        if !organizer.append(node, toParent: parentID ?? OrganizerDocument.looseParentID) {
+            organizer.append(node, toParent: OrganizerDocument.looseParentID)
+        }
         saveOrganizer()
         return ref.id
     }
