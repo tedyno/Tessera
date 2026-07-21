@@ -198,8 +198,13 @@ struct SchemaSidebar: View {
                     .onChange(of: connectionName) { _, _ in clearTableSelection() }
                     .onChange(of: speedScrollTarget) { _, id in
                         guard let id else { return }
-                        withAnimation { proxy.scrollTo(id, anchor: .center) }
-                        speedScrollTarget = nil
+                        // Next runloop turn, after the selection re-render — List
+                        // virtualizes rows, and an immediate scrollTo can miss a
+                        // target that isn't laid out yet.
+                        DispatchQueue.main.async {
+                            proxy.scrollTo(id, anchor: .center)
+                            speedScrollTarget = nil
+                        }
                     }
                 }
                 .safeAreaInset(edge: .bottom) { filterBar(tree) }
@@ -358,19 +363,19 @@ struct SchemaSidebar: View {
     }
 
     private func selectSpeedTarget(_ target: SpeedTarget) {
-        withAnimation(.easeOut(duration: 0.12)) {
-            switch target {
-            case .schema(let name):
-                selectedTables = []
-                selectionAnchor = nil
-                dbSelected = false
-                selectedSchemas = [name]
-            case .table(let ref):
-                selectedSchemas = []
-                dbSelected = false
-                selectedTables = [ref]
-                selectionAnchor = ref
-            }
+        // No animation: animating the selection tint re-renders every row of a
+        // large tree per keystroke, which made the search feel sluggish.
+        switch target {
+        case .schema(let name):
+            selectedTables = []
+            selectionAnchor = nil
+            dbSelected = false
+            selectedSchemas = [name]
+        case .table(let ref):
+            selectedSchemas = []
+            dbSelected = false
+            selectedTables = [ref]
+            selectionAnchor = ref
         }
         speedScrollTarget = target.rowID
     }

@@ -306,7 +306,8 @@ struct DetailView: View {
     }
 
     private var savedQueriesMenu: some View {
-        Menu {
+        let queries = model.savedQueriesForActiveConnection
+        return Menu {
             Button {
                 saveQueryTitle = suggestedSaveTitle
                 showingSaveQuery = true
@@ -315,14 +316,14 @@ struct DetailView: View {
             }
             .disabled((model.activeTab?.sql ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-            if !model.savedQueries.isEmpty {
+            if !queries.isEmpty {
                 Divider()
-                ForEach(model.savedQueries) { query in
+                ForEach(queries) { query in
                     Button(query.title) { model.loadIntoActiveTab(query.sql) }
                 }
                 Divider()
                 Menu {
-                    ForEach(model.savedQueries) { query in
+                    ForEach(queries) { query in
                         Button(query.title, role: .destructive) { model.deleteSavedQuery(query.id) }
                     }
                 } label: {
@@ -556,15 +557,18 @@ struct DetailView: View {
 
                             Circle().fill(color(for: change.target)).frame(width: 6, height: 6)
                             // Newlines inside a value literal would end the one-line
-                            // preview at the first line — collapse them visibly; the
-                            // tooltip carries the exact SQL.
-                            Text(change.statement.replacingOccurrences(of: "\n", with: " ⏎ "))
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .help(change.statement)
+                            // preview at the first line — collapse them visibly; a
+                            // long statement scrolls horizontally instead of being
+                            // truncated, and the tooltip carries the exact SQL.
+                            ScrollView(.horizontal) {
+                                Text(change.statement.replacingOccurrences(of: "\n", with: " ⏎ "))
+                                    .font(.system(.caption, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .lineLimit(1)
+                            }
+                            .scrollIndicators(.hidden)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .help(change.statement)
                         }
                     }
                 }

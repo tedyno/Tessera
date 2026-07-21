@@ -874,15 +874,24 @@ final class QueryConsoleModel {
 
     // MARK: Saved queries
 
-    /// Bookmarks `sql` under `title` (newest first) and persists.
+    /// Bookmarks `sql` under `title` (newest first) and persists, bound to the
+    /// active tab's connection — a query only makes sense against its schema.
     func saveQuery(title: String, sql: String) {
         let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let body = sql.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return }
         let entry = SavedQuery(title: name.isEmpty ? String(localized: "Untitled") : name,
-                               sql: sql, createdAt: Date())
+                               sql: sql, createdAt: Date(),
+                               connectionID: activeTab?.session?.id)
         savedQueries.insert(entry, at: 0)
         persistSavedQueries()
+    }
+
+    /// Saved queries for the active tab's connection, plus legacy entries saved
+    /// before queries were connection-bound (connectionID == nil).
+    var savedQueriesForActiveConnection: [SavedQuery] {
+        let current = activeTab?.session?.id
+        return savedQueries.filter { $0.connectionID == nil || $0.connectionID == current }
     }
 
     func deleteSavedQuery(_ id: UUID) {

@@ -6,12 +6,17 @@ public struct SavedQuery: Codable, Sendable, Identifiable, Hashable {
     public var title: String
     public var sql: String
     public var createdAt: Date
+    /// Profile the query was saved on; nil on entries from before this field
+    /// existed — those stay visible on every connection.
+    public var connectionID: UUID?
 
-    public init(id: UUID = UUID(), title: String, sql: String, createdAt: Date) {
+    public init(id: UUID = UUID(), title: String, sql: String, createdAt: Date,
+                connectionID: UUID? = nil) {
         self.id = id
         self.title = title
         self.sql = sql
         self.createdAt = createdAt
+        self.connectionID = connectionID
     }
 }
 
