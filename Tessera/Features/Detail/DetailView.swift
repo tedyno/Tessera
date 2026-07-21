@@ -134,15 +134,6 @@ struct DetailView: View {
                     .buttonStyle(.borderedProminent)
             } else {
                 Button("New Query Tab") { model.addTab() }
-                // Jump straight back into a known database — the empty state is
-                // most often "I just opened the app".
-                ForEach(connectionOptions.prefix(3)) { option in
-                    Button {
-                        onSelectConnection(option.id)
-                    } label: {
-                        Label(option.name, systemImage: "cylinder.split.1x2")
-                    }
-                }
             }
         }
     }
