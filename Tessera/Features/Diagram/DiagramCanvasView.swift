@@ -18,7 +18,10 @@ final class DiagramCanvasView: NSView {
     weak var model: DiagramModel?
     var onOpenTable: ((String, String) -> Void)?
     var edgeStyle: DiagramEdgeStyle = .curved {
-        didSet { if edgeStyle != oldValue { needsDisplay = true } }
+        didSet {
+            guard edgeStyle != oldValue else { return }
+            beginStyleTransition(from: oldValue)
+        }
     }
     var backgroundStyle: DiagramBackgroundStyle = .plain {
         didSet { if backgroundStyle != oldValue { needsDisplay = true } }
@@ -174,7 +177,9 @@ final class DiagramCanvasView: NSView {
         var path: EdgePath
     }
 
-    private func geometry(for edge: DiagramModel.Edge, lane: Int) -> EdgeGeometry? {
+    private func geometry(for edge: DiagramModel.Edge, lane: Int,
+                          style: DiagramEdgeStyle? = nil) -> EdgeGeometry? {
+        let style = style ?? edgeStyle
         guard let model,
               let fromFrame = nodeViews[edge.fromTable]?.frame,
               let toFrame = nodeViews[edge.toTable]?.frame,
@@ -197,7 +202,7 @@ final class DiagramCanvasView: NSView {
             let lineStart = markStart(at: start, dir: 1, edge: edge)
             let lineEnd = markEnd(at: end, dir: 1, edge: edge)
             let reach = fromFrame.maxX + 36 + abs(laneOffset)
-            let path: EdgePath = edgeStyle == .orthogonal
+            let path: EdgePath = style == .orthogonal
                 ? .polyline([lineStart, NSPoint(x: reach, y: start.y),
                              NSPoint(x: reach, y: end.y), lineEnd])
                 : .cubic(from: lineStart, c1: NSPoint(x: reach, y: start.y),
@@ -214,7 +219,7 @@ final class DiagramCanvasView: NSView {
         let lineEnd = markEnd(at: end, dir: endDir, edge: edge)
 
         let path: EdgePath
-        switch edgeStyle {
+        switch style {
         case .curved:
             let reach = max(30, abs(end.x - start.x) / 2) + abs(laneOffset)
             path = .cubic(from: lineStart,
@@ -232,6 +237,69 @@ final class DiagramCanvasView: NSView {
         return EdgeGeometry(start: start, end: end, startDir: startDir, endDir: endDir, path: path)
     }
 
+    // MARK: Edge-style transition
+
+    /// While set, edges draw as an interpolation between the old and the new
+    /// routing; driven by a short main-actor animation task.
+    private var styleTransition: (from: DiagramEdgeStyle, progress: CGFloat)?
+    private var styleAnimation: Task<Void, Never>?
+
+    private func beginStyleTransition(from old: DiagramEdgeStyle) {
+        styleAnimation?.cancel()
+        styleTransition = (old, 0)
+        needsDisplay = true
+        styleAnimation = Task { [weak self] in
+            let steps = 16   // ~0.26 s at 60 fps
+            for step in 1...steps {
+                try? await Task.sleep(for: .milliseconds(16))
+                guard !Task.isCancelled, let self else { return }
+                self.styleTransition = (old, CGFloat(step) / CGFloat(steps))
+                self.needsDisplay = true
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.styleTransition = nil
+            self.needsDisplay = true
+        }
+    }
+
+    /// `count` evenly spaced points along the connector, for morphing.
+    private static func samples(of path: EdgePath, count: Int) -> [NSPoint] {
+        switch path {
+        case .cubic(let p0, let c1, let c2, let p1):
+            return (0..<count).map { step in
+                let t = CGFloat(step) / CGFloat(count - 1)
+                let u = 1 - t
+                return NSPoint(
+                    x: u*u*u*p0.x + 3*u*u*t*c1.x + 3*u*t*t*c2.x + t*t*t*p1.x,
+                    y: u*u*u*p0.y + 3*u*u*t*c1.y + 3*u*t*t*c2.y + t*t*t*p1.y)
+            }
+        case .polyline(let points):
+            guard points.count > 1 else {
+                return Array(repeating: points.first ?? .zero, count: count)
+            }
+            let segments = zip(points, points.dropFirst())
+                .map { (a: $0, b: $1, length: hypot($1.x - $0.x, $1.y - $0.y)) }
+            let total = segments.reduce(0) { $0 + $1.length }
+            guard total > 0 else { return Array(repeating: points[0], count: count) }
+            return (0..<count).map { step in
+                var target = total * CGFloat(step) / CGFloat(count - 1)
+                for segment in segments {
+                    if target <= segment.length, segment.length > 0 {
+                        let t = target / segment.length
+                        return NSPoint(x: segment.a.x + (segment.b.x - segment.a.x) * t,
+                                       y: segment.a.y + (segment.b.y - segment.a.y) * t)
+                    }
+                    target -= segment.length
+                }
+                return points[points.count - 1]
+            }
+        }
+    }
+
+    private static func mix(_ a: NSPoint, _ b: NSPoint, _ t: CGFloat) -> NSPoint {
+        NSPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+    }
+
     /// Crow's-foot edge: the referencing (FK) end carries the "many" claw —
     /// or a single tick when the FK is unique (1:1) — and the referenced end a
     /// "one" tick, preceded by a circle when the FK is nullable (0..1).
@@ -241,21 +309,34 @@ final class DiagramCanvasView: NSView {
 
         let color = highlighted
             ? NSColor.controlAccentColor
-            : NSColor.secondaryLabelColor.withAlphaComponent(dimmed ? 0.18 : 0.4)
+            : NSColor.secondaryLabelColor.withAlphaComponent(dimmed ? 0.2 : 0.65)
         color.setStroke()
         color.setFill()
 
         let path = NSBezierPath()
         path.lineWidth = highlighted ? 2 : 1
         path.lineJoinStyle = .round
-        switch geo.path {
-        case .cubic(let from, let c1, let c2, let to):
-            path.move(to: from)
-            path.curve(to: to, controlPoint1: c1, controlPoint2: c2)
-        case .polyline(let points):
-            guard let first = points.first else { return }
-            path.move(to: first)
-            for point in points.dropFirst() { path.line(to: point) }
+        if let transition = styleTransition,
+           let fromGeo = geometry(for: edge, lane: lane, style: transition.from) {
+            // Mid-transition: morph between the two routings by interpolating
+            // equal-length point samples of both shapes.
+            let a = Self.samples(of: fromGeo.path, count: 33)
+            let b = Self.samples(of: geo.path, count: 33)
+            let t = transition.progress * transition.progress * (3 - 2 * transition.progress)
+            path.move(to: Self.mix(a[0], b[0], t))
+            for index in 1..<min(a.count, b.count) {
+                path.line(to: Self.mix(a[index], b[index], t))
+            }
+        } else {
+            switch geo.path {
+            case .cubic(let from, let c1, let c2, let to):
+                path.move(to: from)
+                path.curve(to: to, controlPoint1: c1, controlPoint2: c2)
+            case .polyline(let points):
+                guard let first = points.first else { return }
+                path.move(to: first)
+                for point in points.dropFirst() { path.line(to: point) }
+            }
         }
         path.stroke()
 
