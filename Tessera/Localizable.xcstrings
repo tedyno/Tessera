@@ -1771,6 +1771,28 @@
         }
       }
     },
+    "Copy SQL": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopírovat SQL"
+          }
+        }
+      }
+    },
+    "Copy all pending statements": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zkopírovat všechny čekající příkazy"
+          }
+        }
+      }
+    },
     "Now": {
       "extractionState": "manual",
       "localizations": {

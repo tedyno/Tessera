@@ -572,6 +572,13 @@ struct DetailView: View {
         return true
     }
 
+    /// Shared metrics for the pending panel's gutter/text alignment: gutter
+    /// row pitch = text line height + line spacing.
+    private static let pendingFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+    private static let pendingLineSpacing: CGFloat = 6
+    private static let pendingLinePitch =
+        NSLayoutManager().defaultLineHeight(for: pendingFont) + pendingLineSpacing
+
     private func pendingSummary(updates: Int, deletes: Int) -> String {
         var parts: [String] = []
         if updates > 0 { parts.append("\(updates) to update") }
@@ -589,6 +596,16 @@ struct DetailView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button {
+                    // The exact SQL the commit will run, one statement per line.
+                    let sql = model.pendingStatements(tab).joined(separator: "\n")
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(sql, forType: .string)
+                } label: {
+                    Label("Copy SQL", systemImage: "doc.on.doc")
+                }
+                .controlSize(.small)
+                .help("Copy all pending statements")
                 Button(role: .destructive) {
                     model.discardPending(tab)
                 } label: {
@@ -597,35 +614,42 @@ struct DetailView: View {
                 .controlSize(.small)
                 Text("⌘↩ to commit").font(.caption).foregroundStyle(.secondary)
             }
+            // One continuous Text for every statement, so a drag selects (and
+            // ⌘C copies) across all of them — per-row Texts limited selection
+            // to a single line. The discard buttons live in a gutter whose row
+            // pitch matches the text's line pitch.
             ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(changes) { change in
-                        HStack(spacing: 6) {
-                            Button {
-                                model.revert(tab, change.target)
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
+                HStack(alignment: .top, spacing: 6) {
+                    VStack(spacing: 0) {
+                        ForEach(changes) { change in
+                            HStack(spacing: 4) {
+                                Button {
+                                    model.revert(tab, change.target)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(.secondary)
+                                .help("Discard this change")
+                                Circle().fill(color(for: change.target)).frame(width: 6, height: 6)
                             }
-                            .buttonStyle(.borderless)
-                            .foregroundStyle(.secondary)
-                            .help("Discard this change")
-
-                            Circle().fill(color(for: change.target)).frame(width: 6, height: 6)
-                            // Newlines inside a value literal would end the one-line
-                            // preview at the first line — collapse them visibly; a
-                            // long statement scrolls horizontally instead of being
-                            // truncated, and the tooltip carries the exact SQL.
-                            ScrollView(.horizontal) {
-                                Text(change.statement.replacingOccurrences(of: "\n", with: " ⏎ "))
-                                    .font(.system(.caption, design: .monospaced))
-                                    .textSelection(.enabled)
-                                    .lineLimit(1)
-                            }
-                            .scrollIndicators(.hidden)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .help(change.statement)
+                            .frame(height: Self.pendingLinePitch)
                         }
                     }
+                    .offset(y: -Self.pendingLineSpacing / 2)
+                    ScrollView(.horizontal) {
+                        // Newlines inside a value literal would break the
+                        // line-per-statement pitch — collapse them visibly.
+                        Text(verbatim: changes
+                            .map { $0.statement.replacingOccurrences(of: "\n", with: " ⏎ ") }
+                            .joined(separator: "\n"))
+                            .font(Font(Self.pendingFont))
+                            .lineSpacing(Self.pendingLineSpacing)
+                            .textSelection(.enabled)
+                            .fixedSize()
+                    }
+                    .scrollIndicators(.hidden)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }

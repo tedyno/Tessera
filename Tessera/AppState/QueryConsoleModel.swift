@@ -543,26 +543,55 @@ final class QueryConsoleModel {
         return statements
     }
 
-    /// One entry per pending row (ungrouped), each independently revertible — backs
-    /// the pending-changes panel where every change has its own discard button.
+    /// The panel's entries — the exact statements ⌘↩ will run, grouped the
+    /// same way `pendingStatements` groups them (identical change-sets share
+    /// one `WHERE pk IN (…)` UPDATE); discarding a group reverts all its rows.
     func pendingChanges(_ tab: QueryTab) -> [PendingChange] {
         guard let session = tab.session, let source = tab.editSource, let result = tab.result else { return [] }
         let table = "\(session.quote(source.schema)).\(session.quote(source.table))"
         let keyColumns = source.primaryKeys.isEmpty ? result.columns.map(\.name) : source.primaryKeys
         var items: [PendingChange] = []
 
-        for row in tab.pendingDeletes.sorted() {
-            let clause = rowWhere(row, keyColumns: keyColumns, result: result, session: session)
-            items.append(PendingChange(id: "d\(row)", target: .delete(row: row),
-                                       statement: "DELETE FROM \(table) WHERE \(clause);"))
+        /// One item when the rows collapsed into a single IN clause, else one
+        /// per row — mirroring what `whereClauses` produced.
+        func append(rows: [Int], clauses: [String], id: (String) -> String,
+                    target: ([Int]) -> PendingChange.Target, statement: (String) -> String) {
+            if clauses.count == 1, rows.count > 1 {
+                items.append(PendingChange(id: id(rows.map(String.init).joined(separator: "-")),
+                                           target: target(rows), statement: statement(clauses[0])))
+            } else {
+                for (row, clause) in zip(rows, clauses) {
+                    items.append(PendingChange(id: id(String(row)), target: target([row]),
+                                               statement: statement(clause)))
+                }
+            }
         }
-        for (row, changes) in tab.edits.sorted(by: { $0.key < $1.key }) where !tab.pendingDeletes.contains(row) {
-            let setClause = changes.sorted { $0.key < $1.key }
+
+        let deleteRows = tab.pendingDeletes.sorted()
+        if !deleteRows.isEmpty {
+            append(rows: deleteRows,
+                   clauses: whereClauses(rows: deleteRows, keyColumns: keyColumns,
+                                         result: result, session: session),
+                   id: { "d\($0)" }, target: { .delete(rows: $0) },
+                   statement: { "DELETE FROM \(table) WHERE \($0);" })
+        }
+
+        var groups: [String: (changes: [String: String?], rows: [Int])] = [:]
+        for (row, changes) in tab.edits where !tab.pendingDeletes.contains(row) {
+            let key = changes.sorted { $0.key < $1.key }
+                .map { "\($0.key)\u{1}\($0.value.map { "s\($0)" } ?? "n")" }.joined(separator: "\u{2}")
+            groups[key, default: (changes, [])].rows.append(row)
+        }
+        for group in groups.values.sorted(by: { ($0.rows.min() ?? 0) < ($1.rows.min() ?? 0) }) {
+            let setClause = group.changes.sorted { $0.key < $1.key }
                 .map { "\(session.quote($0.key)) = \(literal($0.value, columnName: $0.key, result: result))" }
                 .joined(separator: ", ")
-            let clause = rowWhere(row, keyColumns: keyColumns, result: result, session: session)
-            items.append(PendingChange(id: "u\(row)", target: .update(row: row),
-                                       statement: "UPDATE \(table) SET \(setClause) WHERE \(clause);"))
+            let rows = group.rows.sorted()
+            append(rows: rows,
+                   clauses: whereClauses(rows: rows, keyColumns: keyColumns,
+                                         result: result, session: session),
+                   id: { "u\($0)" }, target: { .update(rows: $0) },
+                   statement: { "UPDATE \(table) SET \(setClause) WHERE \($0);" })
         }
         let autoInc = Set(source.autoIncrementColumns)
         for insert in tab.pendingInserts {
@@ -581,12 +610,13 @@ final class QueryConsoleModel {
         return items
     }
 
-    /// Discards a single pending change (from the panel's per-row × button).
+    /// Discards one pending change (from the panel's × button) — a grouped
+    /// statement reverts every row it covers, in one undo step.
     func revert(_ tab: QueryTab, _ target: PendingChange.Target) {
         tab.captureEditSnapshot()
         switch target {
-        case .update(let row): tab.edits[row] = nil
-        case .delete(let row): tab.pendingDeletes.remove(row)
+        case .update(let rows): for row in rows { tab.edits[row] = nil }
+        case .delete(let rows): for row in rows { tab.pendingDeletes.remove(row) }
         case .insert(let id): tab.pendingInserts.removeAll { $0.id == id }
         }
     }

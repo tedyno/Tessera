@@ -29,8 +29,10 @@ struct PendingInsert: Identifiable, Equatable {
 /// One revertible entry shown in the pending-changes panel (one per row).
 struct PendingChange: Identifiable {
     enum Target: Equatable {
-        case update(row: Int)
-        case delete(row: Int)
+        /// One statement may cover several rows (same change-set → one
+        /// `WHERE pk IN (…)`); discarding reverts them together.
+        case update(rows: [Int])
+        case delete(rows: [Int])
         case insert(id: UUID)
     }
     let id: String
