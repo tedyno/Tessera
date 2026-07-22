@@ -53,6 +53,20 @@ final class CenteredTextFieldCell: NSTextFieldCell {
         return inset
     }
 
+    /// Editing uses the raw cell frame, pinning the field editor's text to the
+    /// top — hand it the same centred rect drawing uses.
+    override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText,
+                       delegate: Any?, event: NSEvent?) {
+        super.edit(withFrame: drawingRect(forBounds: rect), in: controlView,
+                   editor: textObj, delegate: delegate, event: event)
+    }
+
+    override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText,
+                         delegate: Any?, start selStart: Int, length selLength: Int) {
+        super.select(withFrame: drawingRect(forBounds: rect), in: controlView,
+                     editor: textObj, delegate: delegate, start: selStart, length: selLength)
+    }
+
     /// The default implementation fills the background only inside
     /// `drawingRect` — shrunk to the text line above — which left the
     /// selection highlight as a thin band. Fill the whole cell frame instead.
@@ -512,6 +526,12 @@ struct ResultsTableView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
+        // Late width: the first configure happens before layout gives the clip
+        // its real size, so re-spread the columns when the frame settles.
+        scrollView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            context.coordinator, selector: #selector(Coordinator.scrollFrameChanged(_:)),
+            name: NSView.frameDidChangeNotification, object: scrollView)
 
         context.coordinator.tableView = tableView
         context.coordinator.onSort = onSort
@@ -1257,10 +1277,9 @@ struct ResultsTableView: NSViewRepresentable {
                     column.resizingMask = [.userResizingMask, .autoresizingMask]
                     tableView.addTableColumn(column)
                 }
-                // A handful of columns must still span the grid — without an
-                // explicit fit the last column stops at its default width.
-                tableView.sizeLastColumnToFit()
+                resetColumnSpread()
             }
+            spreadColumnsIfNeeded()
             // Reload only when the data under the grid actually changed. SwiftUI
             // re-invokes updateNSView on every observed mutation — including ones a
             // reload must NOT interrupt, like the inspector update from the click
@@ -1327,6 +1346,72 @@ struct ResultsTableView: NSViewRepresentable {
                     tab.localSortAscending = true
                 }
             }
+        }
+
+        /// Column-spread state: hands off once the user resizes any column.
+        private var userAdjustedColumns = false
+        private var suppressColumnResizeTracking = false
+        private var lastSpreadKey = ""
+
+        /// Content-aware column widths: each column gets what its widest
+        /// sampled value (or header) needs, and any leftover viewport space is
+        /// split evenly — never dumped into one bloated last column while
+        /// values elsewhere stay truncated. Wider-than-viewport content keeps
+        /// its fitted widths and scrolls. Re-run when the viewport or the data
+        /// changes, until the user resizes a column by hand.
+        func spreadColumnsIfNeeded() {
+            guard let tableView, !userAdjustedColumns,
+                  let clip = tableView.enclosingScrollView?.contentView,
+                  let result else { return }
+            let width = clip.bounds.width
+            let count = tableView.tableColumns.count
+            guard width > 0, count > 0, count == result.columns.count else { return }
+            let key = "\(Int(width))-\(tab.resultVersion)-\(count)"
+            guard key != lastSpreadKey else { return }
+            lastSpreadKey = key
+
+            let charWidth = ("0" as NSString).size(withAttributes: [.font: Self.mono]).width
+            var ideal: [CGFloat] = []
+            for (index, column) in result.columns.enumerated() {
+                var characters = 0
+                for row in result.rows.prefix(300) where index < row.count {
+                    characters = max(characters, row[index].text?.count ?? 4)
+                }
+                let content = CGFloat(characters) * charWidth + 14
+                let header = CGFloat(column.name.count) * 7
+                    + CGFloat(column.typeName.count) * 6 + 34
+                ideal.append(min(max(content, header, 60), 420))
+            }
+            let total = ideal.reduce(0, +) + tableView.intercellSpacing.width * CGFloat(count)
+            if total < width {
+                let extra = (width - total) / CGFloat(count)
+                for index in ideal.indices { ideal[index] += extra }
+            }
+            suppressColumnResizeTracking = true
+            for (index, column) in tableView.tableColumns.enumerated() where index < ideal.count {
+                column.width = ideal[index].rounded(.down)
+            }
+            suppressColumnResizeTracking = false
+        }
+
+        /// Fired by the scroll view's frame-change notification.
+        @objc func scrollFrameChanged(_ notification: Notification) {
+            spreadColumnsIfNeeded()
+        }
+
+        func tableViewColumnDidResize(_ notification: Notification) {
+            // Programmatic width changes (autoresizing, the spread itself)
+            // post the same notification — only a live drag in the header
+            // counts as the user taking over.
+            guard !suppressColumnResizeTracking,
+                  let header = tableView?.headerView, header.resizedColumn != -1 else { return }
+            userAdjustedColumns = true
+        }
+
+        /// New column set: the spread starts over from scratch.
+        func resetColumnSpread() {
+            userAdjustedColumns = false
+            lastSpreadKey = ""
         }
 
         /// Orders display rows by one column: numeric columns compare as
