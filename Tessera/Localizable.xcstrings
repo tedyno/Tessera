@@ -4314,6 +4314,28 @@
         }
       }
     },
+    "Zoom in": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Přiblížit"
+          }
+        }
+      }
+    },
+    "Zoom out": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oddálit"
+          }
+        }
+      }
+    },
     "Export PNG…": {
       "extractionState": "manual",
       "localizations": {

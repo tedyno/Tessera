@@ -39,10 +39,24 @@ final class DiagramCanvasView: NSView {
     /// two diagram tabs reuses this canvas) must not reuse boxes by bare table
     /// name, or `users` would keep another schema's columns.
     private weak var renderedModel: DiagramModel?
+    /// Empty pannable space kept around the content on every side — the
+    /// "infinite canvas" feel: the diagram floats mid-canvas instead of being
+    /// pinned to the top-left corner.
+    private static let canvasMargin: CGFloat = 1600
+    /// Where the actual diagram content sits within the padded canvas, in view
+    /// coordinates. Zoom-to-fit and PNG export target this, never `bounds`.
+    private(set) var contentRect = NSRect.zero
+    /// Scroll to the content centre once per shown model, so a fresh diagram
+    /// opens centred in its margin.
+    private var didInitialCenter = false
     /// Shift applied to model positions so every frame stays in positive
     /// coordinates (dragging can push boxes past the origin).
     private var contentOffset = CGPoint.zero
     private var dragged: (table: String, grabOffset: CGPoint)?
+    /// A drag that started on empty canvas pans the scroll view like a map.
+    private var panning = false
+    /// Whether the closed-hand pan cursor is currently pushed (drag moved).
+    private var panCursorPushed = false
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -57,6 +71,7 @@ final class DiagramCanvasView: NSView {
             for view in nodeViews.values { view.removeFromSuperview() }
             nodeViews = [:]
             renderedModel = model
+            didInitialCenter = false
         }
 
         let visible = model.visibleEntities
@@ -67,8 +82,12 @@ final class DiagramCanvasView: NSView {
         }
 
         let bounds = model.contentBounds()
-        contentOffset = CGPoint(x: -bounds.origin.x, y: -bounds.origin.y)
-        setFrameSize(bounds.size)
+        contentOffset = CGPoint(x: Self.canvasMargin - bounds.origin.x,
+                                y: Self.canvasMargin - bounds.origin.y)
+        contentRect = NSRect(x: Self.canvasMargin, y: Self.canvasMargin,
+                             width: bounds.width, height: bounds.height)
+        setFrameSize(NSSize(width: bounds.width + 2 * Self.canvasMargin,
+                            height: bounds.height + 2 * Self.canvasMargin))
 
         for table in visible {
             let view = nodeViews[table.name] ?? {
@@ -82,6 +101,16 @@ final class DiagramCanvasView: NSView {
             view.keysOnly = model.showKeysOnly
         }
         needsDisplay = true
+
+        if !didInitialCenter, window != nil, let scroll = enclosingScrollView {
+            didInitialCenter = true
+            let clip = scroll.contentView
+            let origin = NSPoint(x: contentRect.midX - clip.bounds.width / 2,
+                                 y: contentRect.midY - clip.bounds.height / 2)
+            clip.setBoundsOrigin(clip.constrainBoundsRect(
+                NSRect(origin: origin, size: clip.bounds.size)).origin)
+            scroll.reflectScrolledClipView(clip)
+        }
 
         if let focus = model.focusTable {
             if let frame = frame(for: focus) {
@@ -547,6 +576,7 @@ final class DiagramCanvasView: NSView {
         guard let name = table(at: point) else {
             model.selectedTable = nil
             applySelection()
+            panning = true
             return
         }
         if event.clickCount == 2 {
@@ -565,6 +595,23 @@ final class DiagramCanvasView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if panning {
+            guard let scroll = enclosingScrollView else { return }
+            if !panCursorPushed {
+                panCursorPushed = true
+                NSCursor.closedHand.push()
+            }
+            let clip = scroll.contentView
+            // Window-point deltas divided by the magnification: one screen point
+            // of mouse travel moves the content one screen point at any zoom.
+            var origin = clip.bounds.origin
+            origin.x -= event.deltaX / scroll.magnification
+            origin.y -= event.deltaY / scroll.magnification
+            origin = clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin
+            clip.setBoundsOrigin(origin)
+            scroll.reflectScrolledClipView(clip)
+            return
+        }
         guard let model, let dragged, let view = nodeViews[dragged.table] else { return }
         let point = convert(event.locationInWindow, from: nil)
         let origin = NSPoint(x: point.x - dragged.grabOffset.x,
@@ -576,6 +623,14 @@ final class DiagramCanvasView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if panning {
+            panning = false
+            if panCursorPushed {
+                panCursorPushed = false
+                NSCursor.pop()
+            }
+            return
+        }
         guard dragged != nil else { return }
         dragged = nil
         // Reflow the canvas size around the box's new home. When the dragged
@@ -591,6 +646,49 @@ final class DiagramCanvasView: NSView {
             clip.setBoundsOrigin(origin)
             enclosingScrollView?.reflectScrolledClipView(clip)
         }
+    }
+
+    /// ⌘+ / ⌘− step the zoom, anchored under the mouse when it hovers the
+    /// canvas (map behaviour), falling back to the viewport centre.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard let window, !isHiddenOrHasHiddenAncestor,
+              event.modifierFlags.contains(.command),
+              let scroll = enclosingScrollView,
+              let characters = event.charactersIgnoringModifiers else {
+            return super.performKeyEquivalent(with: event)
+        }
+        let factor: CGFloat
+        switch characters {
+        case "+", "=": factor = 1.25
+        case "-", "_": factor = 1 / 1.25
+        default: return super.performKeyEquivalent(with: event)
+        }
+        let target = min(max(scroll.magnification * factor,
+                             scroll.minMagnification), scroll.maxMagnification)
+        let mouse = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        let anchor = visibleRect.contains(mouse)
+            ? mouse
+            : NSPoint(x: visibleRect.midX, y: visibleRect.midY)
+        scroll.setMagnification(target, centeredAt: anchor)
+        return true
+    }
+
+    /// ⌘ + scroll zooms around the cursor, matching the map convention; plain
+    /// scrolling (and trackpad pinch, via `allowsMagnification`) stays native.
+    override func scrollWheel(with event: NSEvent) {
+        guard event.modifierFlags.contains(.command),
+              let scroll = enclosingScrollView else {
+            super.scrollWheel(with: event)
+            return
+        }
+        let delta = event.hasPreciseScrollingDeltas
+            ? event.scrollingDeltaY
+            : event.scrollingDeltaY * 8
+        let proposed = scroll.magnification * pow(1.0035, delta)
+        let magnification = min(max(proposed, scroll.minMagnification),
+                                scroll.maxMagnification)
+        scroll.setMagnification(magnification,
+                                centeredAt: convert(event.locationInWindow, from: nil))
     }
 
     /// Selection changes redraw directly — `render()` is skipped mid-drag.

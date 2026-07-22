@@ -326,10 +326,10 @@ final class MCPBridge: MCPDataSource {
         canvas.edgeStyle = DiagramEdgeStyle(rawValue: edgeStyle) ?? .curved
         canvas.backgroundStyle = DiagramBackgroundStyle(rawValue: background) ?? .plain
         canvas.render()
-        guard let rep = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) else {
+        guard let rep = canvas.bitmapImageRepForCachingDisplay(in: canvas.contentRect) else {
             throw fail("The diagram could not be rendered.")
         }
-        canvas.cacheDisplay(in: canvas.bounds, to: rep)
+        canvas.cacheDisplay(in: canvas.contentRect, to: rep)
         guard let data = rep.representation(using: .png, properties: [:]) else {
             throw fail("The diagram could not be rendered.")
         }
