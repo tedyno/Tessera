@@ -808,7 +808,10 @@ final class AppModel {
         guard let tab = console.activeTab, let result = tab.result else { return }
         let panel = NSSavePanel()
         panel.directoryURL = ExportSettings.directory
-        let base = tab.dataTable ?? tab.title
+        // Connection name in the base, so `orders` from staging and production
+        // don't produce interchangeable files; ad-hoc results are just "query".
+        let subject = tab.dataTable ?? "query"
+        let base = tab.session.map { "\($0.name)_\(subject)" } ?? subject
         panel.nameFieldStringValue = ExportSettings.fileName(base: base, extension: format.fileExtension)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         // Qualify the table for generated INSERTs so they can be replayed elsewhere.
