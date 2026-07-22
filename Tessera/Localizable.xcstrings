@@ -4336,6 +4336,17 @@
         }
       }
     },
+    "Default Layout": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Výchozí rozložení"
+          }
+        }
+      }
+    },
     "Zoom to Fit": {
       "extractionState": "manual",
       "localizations": {

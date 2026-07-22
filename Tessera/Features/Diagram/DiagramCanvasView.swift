@@ -102,14 +102,11 @@ final class DiagramCanvasView: NSView {
         }
         needsDisplay = true
 
-        if !didInitialCenter, window != nil, let scroll = enclosingScrollView {
+        if !didInitialCenter, window != nil, enclosingScrollView != nil {
             didInitialCenter = true
-            let clip = scroll.contentView
-            let origin = NSPoint(x: contentRect.midX - clip.bounds.width / 2,
-                                 y: contentRect.midY - clip.bounds.height / 2)
-            clip.setBoundsOrigin(clip.constrainBoundsRect(
-                NSRect(origin: origin, size: clip.bounds.size)).origin)
-            scroll.reflectScrolledClipView(clip)
+            // The same fit Default Layout performs, so a freshly opened
+            // diagram and a reset one look identical.
+            fitContent()
         }
 
         if let focus = model.focusTable {
@@ -122,6 +119,29 @@ final class DiagramCanvasView: NSView {
                 model?.focusTable = nil
             }
         }
+    }
+
+    /// Fits the content into the viewport, never magnifying past 100 % — the
+    /// scale is computed here rather than via `magnify(toFit:)`, whose
+    /// animated application defeats any post-hoc clamp.
+    func fitContent() {
+        guard let scroll = enclosingScrollView else { return }
+        let viewport = scroll.contentView.frame.size
+        let content = contentRect.insetBy(dx: -24, dy: -24)
+        guard viewport.width > 0, viewport.height > 0,
+              content.width > 0, content.height > 0 else { return }
+        let scale = min(viewport.width / content.width,
+                        viewport.height / content.height, 1)
+        scroll.setMagnification(max(scale, scroll.minMagnification),
+                                centeredAt: NSPoint(x: content.midX, y: content.midY))
+        // Centre explicitly — setMagnification alone doesn't scroll when the
+        // magnification didn't change (the at-100 % case).
+        let clip = scroll.contentView
+        let origin = NSPoint(x: content.midX - clip.bounds.width / 2,
+                             y: content.midY - clip.bounds.height / 2)
+        clip.setBoundsOrigin(clip.constrainBoundsRect(
+            NSRect(origin: origin, size: clip.bounds.size)).origin)
+        scroll.reflectScrolledClipView(clip)
     }
 
     private func frame(for table: String) -> NSRect? {

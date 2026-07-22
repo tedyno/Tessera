@@ -73,8 +73,14 @@ struct DiagramTabView: View {
                 Button("Show Whole Schema") { onShowWholeSchema() }
                     .buttonStyle(.glassPill)
             }
-            Button("Re-layout") { model.performLayout() }
-                .buttonStyle(.glassPill)
+            Button("Default Layout") {
+                // Fresh layout AND a fit — on the infinite canvas the new
+                // arrangement can land outside the current viewport, which
+                // read as the button doing nothing.
+                model.performLayout()
+                zoomToFitToken += 1
+            }
+            .buttonStyle(.glassPill)
             Button("Zoom to Fit") { zoomToFitToken += 1 }
                 .buttonStyle(.glassPill)
             Button("Export PNG…") { exportPNG() }
@@ -276,7 +282,7 @@ private struct DiagramCanvasRepresentable: NSViewRepresentable {
         context.coordinator.zoom = $zoom
         if context.coordinator.lastZoomToken != zoomToFitToken {
             context.coordinator.lastZoomToken = zoomToFitToken
-            scroll.magnify(toFit: canvas.contentRect)
+            canvas.fitContent()
         } else if abs(scroll.magnification - zoom) > 0.0005 {
             // The slider (or ± buttons) moved: zoom around the viewport centre.
             scroll.setMagnification(zoom, centeredAt: NSPoint(x: canvas.visibleRect.midX,
