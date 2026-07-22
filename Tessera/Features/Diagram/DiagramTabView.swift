@@ -41,6 +41,7 @@ struct DiagramTabView: View {
                                                onCanvasReady: { canvas = $0 })
                     stylePill
                 }
+                .overlay(alignment: .trailing) { actionRail.padding(.trailing, 14) }
             }
         }
         .alert(Text("Export failed"), isPresented: Binding(
@@ -69,22 +70,7 @@ struct DiagramTabView: View {
                 Toggle("Only connected tables", isOn: $model.showOnlyConnected)
                     .toggleStyle(.checkbox)
                     .font(.caption)
-            } else {
-                Button("Show Whole Schema") { onShowWholeSchema() }
-                    .buttonStyle(.glassPill)
             }
-            Button("Default Layout") {
-                // Fresh layout AND a fit — on the infinite canvas the new
-                // arrangement can land outside the current viewport, which
-                // read as the button doing nothing.
-                model.performLayout()
-                zoomToFitToken += 1
-            }
-            .buttonStyle(.glassPill)
-            Button("Zoom to Fit") { zoomToFitToken += 1 }
-                .buttonStyle(.glassPill)
-            Button("Export PNG…") { exportPNG() }
-                .buttonStyle(.glassPill)
         }
         .controlSize(.small)
         .padding(.horizontal, 8)
@@ -134,6 +120,43 @@ struct DiagramTabView: View {
             .glassEffect(.regular, in: Capsule())
         }
         .padding(14)
+    }
+
+    /// The mockups' floating action rail: round glass buttons on the canvas'
+    /// right edge — layout, fit, whole-schema jump and export live here, the
+    /// top toolbar keeps only the display toggles.
+    private var actionRail: some View {
+        VStack(spacing: 10) {
+            railButton("square.grid.2x2", help: "Default Layout") {
+                // Fresh layout AND a fit — on the infinite canvas the new
+                // arrangement can land outside the current viewport.
+                model.performLayout()
+                zoomToFitToken += 1
+            }
+            railButton("arrow.down.right.and.arrow.up.left", help: "Zoom to Fit") {
+                zoomToFitToken += 1
+            }
+            if model.scope != .schema {
+                railButton("point.3.connected.trianglepath.dotted", help: "Show Whole Schema") {
+                    onShowWholeSchema()
+                }
+            }
+            railButton("square.and.arrow.up", help: "Export PNG…") { exportPNG() }
+        }
+    }
+
+    private func railButton(_ icon: String, help: LocalizedStringKey,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 34, height: 34)
+                .foregroundStyle(.primary)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Circle())
+        .help(help)
     }
 
     private var backdropIndex: Int {
