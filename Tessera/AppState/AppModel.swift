@@ -77,42 +77,11 @@ final class AppModel {
                                                object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.saveOpenTabs() }
         }
-        if DemoMode.isActive { seedDemoMCPActivity() }
-    }
-
-    /// The showcase build never runs the real MCP server, but its Activity
-    /// window still has a story to tell — a plausible session of an AI client
-    /// at work, so screenshots can show what the audit trail looks like.
-    private func seedDemoMCPActivity() {
-        mcpAudit.client = "Claude Code"
-        mcpClientName = "Claude Code"
-        mcpRunning = true
-        let story: [(tool: String, connection: String, detail: String, outcome: String)] = [
-            ("initialize", "", "Claude Code 2.1 identified itself", "ok"),
-            ("list_connections", "", "", "5 connections"),
-            ("list_schemas", "Acme Shop (Production)", "acme_shop", "1 schema"),
-            ("describe_table", "Acme Shop (Production)", "public.orders", "7 columns"),
-            ("run_query", "Acme Shop (Production)",
-             "SELECT status, count(*) FROM orders GROUP BY status", "5 rows"),
-            ("explain_query", "Acme Shop (Production)",
-             "SELECT * FROM orders WHERE status = 'paid'", "1 row"),
-            ("export_diagram", "Acme Shop (Production)", "schema “public”",
-             "wrote ~/Downloads/acme_shop-erd.png"),
-            ("run_query (write)", "Acme Shop (Staging)",
-             "UPDATE products SET stock = 12 WHERE id = 7", "applied"),
-        ]
-        // record() inserts at the top, so feeding chronologically leaves the
-        // newest call first — initialize ends up at the bottom, where it belongs.
-        for entry in story {
-            mcpAudit.record(tool: entry.tool, connection: entry.connection,
-                            detail: entry.detail, outcome: entry.outcome)
-        }
     }
 
     /// Brings the MCP server in line with the setting: running when enabled, stopped
-    /// otherwise. Safe to call repeatedly. The demo build never binds the port.
+    /// otherwise. Safe to call repeatedly.
     func syncMCPServer() {
-        guard !DemoMode.isActive else { return }
         Task { await applyMCPSetting() }
     }
 
