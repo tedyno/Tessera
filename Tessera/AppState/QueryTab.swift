@@ -154,6 +154,12 @@ final class QueryTab: Identifiable {
     var sortColumn: String?
     var sortAscending = true
 
+    /// Client-side header sort of an arbitrary query result: a display-order
+    /// permutation of the fetched rows, no re-query. Column index into
+    /// `result.columns`; the same click cycle as the server-side sort.
+    var localSortColumn: Int?
+    var localSortAscending = true
+
     /// ⌘F row filter over the current result: hides non-matching rows client-side,
     /// without re-running the query. Empty = no filter. Escape clears it.
     var searchQuery = ""

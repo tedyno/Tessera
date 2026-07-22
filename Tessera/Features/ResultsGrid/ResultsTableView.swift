@@ -122,6 +122,15 @@ final class TypedHeaderCell: NSTableHeaderCell {
 final class ClearHeaderView: NSTableHeaderView {
     override func draw(_ dirtyRect: NSRect) {
         guard let tableView else { return }
+        // Rows scroll *under* the header — a fully transparent header lets
+        // them bleed through the labels. Near-opaque in the backdrop's own
+        // navy/pale-blue (a grey fill would break the gradient's palette).
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let fill = dark
+            ? NSColor(red: 0.06, green: 0.08, blue: 0.19, alpha: 0.94)
+            : NSColor(red: 0.90, green: 0.93, blue: 0.99, alpha: 0.94)
+        fill.setFill()
+        dirtyRect.fill()
         for (index, column) in tableView.tableColumns.enumerated() {
             let rect = headerRect(ofColumn: index)
             guard rect.intersects(dirtyRect) else { continue }
@@ -1203,6 +1212,14 @@ struct ResultsTableView: NSViewRepresentable {
             self.tab = tab
             guard let tableView, let result = tab.result else { return }
             visibleRowMap = tab.matchingRowIndices()
+            // Client-side sort (console results): permute the display order on
+            // top of any ⌘F filter. Like the filter, it parks editing — the
+            // row juggling only makes sense over the raw result order.
+            if let sortColumn = tab.localSortColumn, sortColumn < result.columns.count {
+                let base = visibleRowMap ?? Array(result.rows.indices)
+                visibleRowMap = sortedRows(base, by: sortColumn,
+                                           ascending: tab.localSortAscending, result: result)
+            }
             if let grid = tableView as? GridTableView {
                 // Editing (and pending-insert rows) is unavailable while a ⌘F filter
                 // narrows what's on screen — the row indices it juggles only make
@@ -1240,6 +1257,9 @@ struct ResultsTableView: NSViewRepresentable {
                     column.resizingMask = [.userResizingMask, .autoresizingMask]
                     tableView.addTableColumn(column)
                 }
+                // A handful of columns must still span the grid — without an
+                // explicit fit the last column stops at its default width.
+                tableView.sizeLastColumnToFit()
             }
             // Reload only when the data under the grid actually changed. SwiftUI
             // re-invokes updateNSView on every observed mutation — including ones a
@@ -1256,6 +1276,8 @@ struct ResultsTableView: NSViewRepresentable {
             hasher.combine(tab.edits)
             hasher.combine(tab.sortColumn)
             hasher.combine(tab.sortAscending)
+            hasher.combine(tab.localSortColumn)
+            hasher.combine(tab.localSortAscending)
             for insert in tab.pendingInserts {
                 hasher.combine(insert.id)
                 hasher.combine(insert.values)
@@ -1289,22 +1311,70 @@ struct ResultsTableView: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
-            guard tab.isEditable, let result = tab.result,
+            guard let result = tab.result,
                   let index = Int(tableColumn.identifier.rawValue), index < result.columns.count else { return }
-            onSort(result.columns[index].name)
+            if tab.isEditable {
+                // Table-backed results re-run with ORDER BY on the server.
+                onSort(result.columns[index].name)
+            } else {
+                // Arbitrary query results sort the fetched rows client-side —
+                // ORDER BY can't be injected into hand-written SQL.
+                if tab.localSortColumn == index {
+                    if tab.localSortAscending { tab.localSortAscending = false }
+                    else { tab.localSortColumn = nil }
+                } else {
+                    tab.localSortColumn = index
+                    tab.localSortAscending = true
+                }
+            }
+        }
+
+        /// Orders display rows by one column: numeric columns compare as
+        /// numbers, NULLs sink to the end, ties keep the fetched order.
+        private func sortedRows(_ base: [Int], by column: Int, ascending: Bool,
+                                result: QueryResult) -> [Int] {
+            let numeric = isNumericColumnType(result.columns[column].typeName)
+            func text(_ row: Int) -> String? {
+                column < result.rows[row].count ? result.rows[row][column].text : nil
+            }
+            return base.sorted { a, b in
+                switch (text(a), text(b)) {
+                case (nil, nil): return a < b
+                case (nil, _): return false
+                case (_, nil): return true
+                case (let x?, let y?):
+                    let ordered: Bool
+                    if numeric, let dx = Double(x), let dy = Double(y) {
+                        if dx == dy { return a < b }
+                        ordered = dx < dy
+                    } else {
+                        let comparison = x.localizedStandardCompare(y)
+                        if comparison == .orderedSame { return a < b }
+                        ordered = comparison == .orderedAscending
+                    }
+                    return ascending ? ordered : !ordered
+                }
+            }
         }
 
         /// Draws the ascending/descending arrow on the sorted column's header.
         private func updateSortIndicator(_ tableView: NSTableView, _ result: QueryResult) {
             for column in tableView.tableColumns { tableView.setIndicatorImage(nil, in: column) }
-            guard let sortColumn = tab.sortColumn,
-                  let index = result.columns.firstIndex(where: { $0.name == sortColumn }),
-                  index < tableView.tableColumns.count else {
+            // Server-side sort (table views) wins; otherwise show the
+            // client-side sort of a plain query result.
+            var target: (index: Int, ascending: Bool)?
+            if let sortColumn = tab.sortColumn,
+               let index = result.columns.firstIndex(where: { $0.name == sortColumn }) {
+                target = (index, tab.sortAscending)
+            } else if let local = tab.localSortColumn {
+                target = (local, tab.localSortAscending)
+            }
+            guard let target, target.index < tableView.tableColumns.count else {
                 tableView.highlightedTableColumn = nil
                 return
             }
-            let column = tableView.tableColumns[index]
-            let arrow = tab.sortAscending ? "NSAscendingSortIndicator" : "NSDescendingSortIndicator"
+            let column = tableView.tableColumns[target.index]
+            let arrow = target.ascending ? "NSAscendingSortIndicator" : "NSDescendingSortIndicator"
             tableView.setIndicatorImage(NSImage(named: arrow), in: column)
             tableView.highlightedTableColumn = column
         }
