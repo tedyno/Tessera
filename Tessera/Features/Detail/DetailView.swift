@@ -227,11 +227,11 @@ struct DetailView: View {
         .padding(.vertical, 5)
         .background(
             tabChipFill(isActive: isActive, tint: connectionTint(tab), isHovered: hoveredTabID == tab.id),
-            in: RoundedRectangle(cornerRadius: 6))
+            in: RoundedRectangle(cornerRadius: 8))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(isActive ? (connectionTint(tab) ?? Color.primary).opacity(0.35) : .clear, lineWidth: 1))
-        .contentShape(RoundedRectangle(cornerRadius: 6))
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isActive ? (connectionTint(tab) ?? Color.accentColor).opacity(0.4) : .clear, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 8))
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.12)) {
                 if hovering { hoveredTabID = tab.id }

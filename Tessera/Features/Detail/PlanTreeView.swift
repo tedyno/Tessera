@@ -35,10 +35,10 @@ struct PlanResultView<Fallback: View>: View {
                     }
                 } else {
                     ScrollView(.vertical) {
-                        VStack(alignment: .leading, spacing: 1) {
+                        VStack(alignment: .leading, spacing: 6) {
                             PlanNodeRow(node: plan.root, isAnalyzed: plan.isAnalyzed)
                         }
-                        .padding(8)
+                        .padding(10)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         // Fresh plan, fresh expansion state — node ids repeat
                         // across plans, so carried-over @State would collapse
@@ -106,15 +106,19 @@ private struct PlanNodeRow: View {
     @State private var expanded = true
 
     var body: some View {
-        if node.children.isEmpty {
-            label
-        } else {
-            DisclosureGroup(isExpanded: $expanded) {
-                ForEach(node.children) { child in
-                    PlanNodeRow(node: child, isAnalyzed: isAnalyzed)
+        label
+        if expanded {
+            if node.children.count == 1 {
+                // Single-child chains stay on the same level — the staircase
+                // carried no information; only a real branch indents.
+                PlanNodeRow(node: node.children[0], isAnalyzed: isAnalyzed)
+            } else if !node.children.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(node.children) { child in
+                        PlanNodeRow(node: child, isAnalyzed: isAnalyzed)
+                    }
                 }
-            } label: {
-                label
+                .padding(.leading, 22)
             }
         }
     }
@@ -123,6 +127,20 @@ private struct PlanNodeRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
+                    // The disclosure lives inside the card — a gutter chevron
+                    // floats detached from what it collapses.
+                    if !node.children.isEmpty {
+                        Button {
+                            withAnimation(.snappy(duration: 0.15)) { expanded.toggle() }
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .rotationEffect(.degrees(expanded ? 90 : 0))
+                                .frame(width: 12)
+                        }
+                        .buttonStyle(.plain)
+                    }
                     ForEach(Array(node.warnings.enumerated()), id: \.offset) { _, warning in
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
@@ -149,13 +167,18 @@ private struct PlanNodeRow: View {
             metrics
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 2)
-        .padding(.horizontal, 4)
-        .background((node.shareOfTotal ?? 0) >= 0.2
-                    ? shareColor.opacity(0.12) : Color.clear,
-                    in: RoundedRectangle(cornerRadius: 4))
+        .padding(.vertical, 7)
+        .padding(.horizontal, 10)
+        // Rounded panel per node; heat shows as a tinted border with only a
+        // whisper of fill — a stronger wash turns muddy over the dark backdrop.
+        .background(isHot ? shareColor.opacity(0.07) : Color.primary.opacity(0.05),
+                    in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .strokeBorder(isHot ? shareColor.opacity(0.5) : Color.primary.opacity(0.08)))
         .help(extraHelp)
     }
+
+    private var isHot: Bool { (node.shareOfTotal ?? 0) >= 0.2 }
 
     private var metrics: some View {
         HStack(spacing: 10) {
@@ -190,9 +213,9 @@ private struct PlanNodeRow: View {
         return ZStack(alignment: .leading) {
             Capsule().fill(.quaternary)
             Capsule().fill(shareColor)
-                .frame(width: max(share * 60, share > 0 ? 2 : 0))
+                .frame(width: max(share * 90, share > 0 ? 2 : 0))
         }
-        .frame(width: 60, height: 5)
+        .frame(width: 90, height: 5)
         .help(Text(verbatim: share.formatted(.percent.precision(.fractionLength(0...1)))))
     }
 
