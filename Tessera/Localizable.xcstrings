@@ -1705,6 +1705,17 @@
         }
       }
     },
+    "Listening on 127.0.0.1:%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naslouchá na 127.0.0.1:%@"
+          }
+        }
+      }
+    },
     "Local Filter…": {
       "extractionState": "manual",
       "localizations": {
