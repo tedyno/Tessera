@@ -96,6 +96,31 @@ extension View {
     }
 }
 
+/// Backs a presented sheet with the app's window backdrop, so modals carry the
+/// chosen theme instead of the default flat sheet material. `.none` keeps the
+/// native material (the main window's frost has no gradient to echo).
+private struct TesseraModalBackground: ViewModifier {
+    @AppStorage(BackdropStyle.key) private var backdropRaw = BackdropStyle.monokai.rawValue
+
+    func body(content: Content) -> some View {
+        let style = BackdropStyle(rawValue: backdropRaw) ?? .monokai
+        return Group {
+            if style == .none {
+                content
+            } else {
+                content.presentationBackground {
+                    TesseraBackdrop(frosted: false).ignoresSafeArea()
+                }
+            }
+        }
+    }
+}
+
+extension View {
+    /// Gives a presented sheet the themed window backdrop.
+    func tesseraModalBackground() -> some View { modifier(TesseraModalBackground()) }
+}
+
 /// Capsule chrome for toolbar buttons over the gradient backdrop — the
 /// mockups' pill look. `prominent` fills with the accent colour (the primary
 /// action of a toolbar); the rest stay translucent.

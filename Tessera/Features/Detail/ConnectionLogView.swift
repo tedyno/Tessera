@@ -53,6 +53,7 @@ struct ConnectionLogView: View {
                     .frame(maxHeight: .infinity)
             } else {
                 List(entries) { entry in row(entry) }
+                    .scrollContentBackground(.hidden)
             }
         }
         .frame(width: 680, height: 520)

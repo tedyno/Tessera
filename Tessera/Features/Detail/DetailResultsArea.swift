@@ -41,6 +41,15 @@ struct DetailResultsArea: View {
                 }
             }
             .animation(.snappy(duration: 0.2), value: tab.errorMessage != nil)
+        } else if model.activeTab?.isRunning == true {
+            // A first run (opening a table, or Run with no prior result) is in
+            // flight — show progress rather than the "No results" empty state,
+            // which reads as "this query returned nothing".
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Loading…").font(.callout).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ContentUnavailableView("No results", systemImage: "tablecells",
                                    description: Text("Press Run to execute the query."))

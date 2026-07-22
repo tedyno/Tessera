@@ -99,6 +99,7 @@ struct HistoryView: View {
                         }
                     }
                 }
+                .scrollContentBackground(.hidden)
             }
         }
         .frame(width: 560, height: 480)

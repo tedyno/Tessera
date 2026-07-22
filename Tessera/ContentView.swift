@@ -41,12 +41,14 @@ struct ContentView: View {
                 app.selection = nodeID
                 app.connect(nodeID: nodeID)
             }
+            .tesseraModalBackground()
         }
         .sheet(isPresented: $app.showingEditConnection) {
             if let profile = app.editingProfile {
                 NewConnectionView(editing: profile, secrets: app.editingSecrets) { updated, secrets in
                     app.connections.updateConnection(updated, secrets: secrets)
                 }
+                .tesseraModalBackground()
             }
         }
         .sheet(isPresented: $app.showingDuplicateConnection) {
@@ -55,6 +57,7 @@ struct ContentView: View {
                                   duplicating: true) { updated, secrets in
                     app.finishDuplicate(updated, secrets: secrets)
                 }
+                .tesseraModalBackground()
             }
         }
         .confirmationDialog("Run which query?", isPresented: $app.showingRunChoice, presenting: app.pendingRun) { choice in
@@ -76,41 +79,52 @@ struct ContentView: View {
                           engine: app.currentEngine,
                           onRun: { await app.runDDL($0) },
                           onClose: { app.ddlOperation = nil })
+                .tesseraModalBackground()
         }
         .sheet(item: $app.importTarget) { target in
-            if let context = app.importContext(for: target) {
-                ImportView(context: context, service: app.dumpService) { app.importTarget = nil }
-            } else {
-                VStack(spacing: 12) {
-                    Text("Cannot import into this connection.")
-                    Button("Close") { app.importTarget = nil }
-                }.padding(30)
+            Group {
+                if let context = app.importContext(for: target) {
+                    ImportView(context: context, service: app.dumpService) { app.importTarget = nil }
+                } else {
+                    VStack(spacing: 12) {
+                        Text("Cannot import into this connection.")
+                        Button("Close") { app.importTarget = nil }
+                    }.padding(30)
+                }
             }
+            .tesseraModalBackground()
         }
         .sheet(item: $app.exportTarget) { target in
-            if let context = app.exportContext(for: target) {
-                ExportView(context: context, service: app.dumpService) { app.exportTarget = nil }
-            } else {
-                VStack(spacing: 12) {
-                    Text("Cannot export this connection.")
-                    Button("Close") { app.exportTarget = nil }
-                }.padding(30)
+            Group {
+                if let context = app.exportContext(for: target) {
+                    ExportView(context: context, service: app.dumpService) { app.exportTarget = nil }
+                } else {
+                    VStack(spacing: 12) {
+                        Text("Cannot export this connection.")
+                        Button("Close") { app.exportTarget = nil }
+                    }.padding(30)
+                }
             }
+            .tesseraModalBackground()
         }
         .sheet(item: $app.pendingParameterRun) { pending in
             QueryParametersSheet(names: pending.names,
                                  initial: app.lastParameterValues,
                                  onRun: { app.runPendingParameters($0) },
                                  onCancel: { app.pendingParameterRun = nil })
+                .tesseraModalBackground()
         }
         .sheet(isPresented: $app.showingMCPLog) {
             MCPAuditView(app: app)
+                .tesseraModalBackground()
         }
         .sheet(isPresented: $app.showingSpotlight) {
             SpotlightView(app: app)
+                .tesseraModalBackground()
         }
         .sheet(isPresented: $app.showingCommandPalette) {
             CommandPalette(app: app)
+                .tesseraModalBackground()
         }
         .confirmationDialog("This connection is read-only",
                             isPresented: $app.showingReadOnlyConfirm) {
@@ -150,6 +164,7 @@ struct ContentView: View {
             }
             .padding(20)
             .frame(width: 520)
+            .tesseraModalBackground()
         }
         .onAppear {
             app.installShiftMonitor()

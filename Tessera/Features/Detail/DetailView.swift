@@ -94,6 +94,7 @@ struct DetailView: View {
         .animation(.snappy(duration: 0.25), value: model.activeTab?.hasEdits ?? false)
         .sheet(isPresented: $showingConnectionLog) {
             ConnectionLogView(log: model.connectionLog)
+                .tesseraModalBackground()
         }
         .sheet(item: Binding(get: { model.activeTab?.valueEditor },
                              set: { model.activeTab?.valueEditor = $0 })) { target in
@@ -109,6 +110,7 @@ struct DetailView: View {
                 tab.captureEditSnapshot()
                 tab.setValue(newValue, row: target.row, columnName: target.columnName)
             }
+            .tesseraModalBackground()
         }
         // At body level, not on the editor toolbar: the data view saves queries too.
         .alert("Save Query", isPresented: $showingSaveQuery) {
@@ -132,6 +134,7 @@ struct DetailView: View {
                     showingHistory = false
                 },
                 onClear: { model.clearHistory() })
+                .tesseraModalBackground()
         }
     }
 

@@ -310,7 +310,12 @@ private struct DiagramCanvasRepresentable: NSViewRepresentable {
         context.coordinator.zoom = $zoom
         if context.coordinator.lastZoomToken != zoomToFitToken {
             context.coordinator.lastZoomToken = zoomToFitToken
-            canvas.fitContent()
+            // A fresh view on tab re-entry hasn't been sized yet, so fit on the
+            // next runloop turn(s) — otherwise the canvas sits at its origin and
+            // the schema is off-screen (top-left). Deferred (never synchronous)
+            // so fitContent()'s bounds-change notification can't re-enter this
+            // update and recurse.
+            context.coordinator.scheduleFit(canvas)
         } else if abs(scroll.magnification - zoom) > 0.0005 {
             // The slider (or ± buttons) moved: zoom around the viewport centre.
             scroll.setMagnification(zoom, centeredAt: NSPoint(x: canvas.visibleRect.midX,
@@ -328,6 +333,18 @@ private struct DiagramCanvasRepresentable: NSViewRepresentable {
         /// `nonisolated(unsafe)`: only ever touched on the main thread, but the
         /// (nonisolated) deinit must be able to remove the observer.
         nonisolated(unsafe) var boundsObserver: NSObjectProtocol?
+
+        /// Fit the canvas to frame the whole schema, retrying across runloop turns
+        /// until the scroll view has a real size. Always deferred, so fitContent()'s
+        /// synchronous bounds-change notification can't re-enter and recurse.
+        func scheduleFit(_ canvas: DiagramCanvasView, attempts: Int = 12) {
+            DispatchQueue.main.async { [weak self, weak canvas] in
+                guard let self, let canvas else { return }
+                if !canvas.fitContent() && attempts > 1 {
+                    self.scheduleFit(canvas, attempts: attempts - 1)
+                }
+            }
+        }
 
         /// Pushes the live magnification back into SwiftUI state. Deferred a
         /// tick: bounds changes can land mid-view-update (e.g. from
