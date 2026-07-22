@@ -423,7 +423,10 @@ struct DetailView: View {
                 columns: tab.result?.columns.map(\.name) ?? [],
                 placeholder: String(localized: "WHERE …"),
                 onSubmit: { clause in Task { await model.applyFilter(tab, where: clause) } })
-                .frame(width: 260, height: 24)
+                // Flexible: this is the one toolbar element that may shrink
+                // when the window narrows — the pills must never wrap.
+                .frame(minWidth: 100, idealWidth: 260, maxWidth: 260)
+                .frame(height: 24)
                 .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.primary.opacity(0.12)))
 

@@ -108,6 +108,9 @@ struct GlassPillButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.caption.weight(.medium))
+            // Never wrap: a squeezed toolbar must not fold the title into a
+            // one-letter-per-line column.
+            .fixedSize()
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .foregroundStyle(prominent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
@@ -130,6 +133,7 @@ struct PillChrome: ViewModifier {
     func body(content: Content) -> some View {
         content
             .font(.caption.weight(.medium))
+            .fixedSize()
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(.primary.opacity(0.06), in: Capsule())
