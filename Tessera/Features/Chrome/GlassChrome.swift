@@ -98,6 +98,49 @@ extension View {
     }
 }
 
+/// Capsule chrome for toolbar buttons over the gradient backdrop — the
+/// mockups' pill look. `prominent` fills with the accent colour (the primary
+/// action of a toolbar); the rest stay translucent.
+struct GlassPillButtonStyle: ButtonStyle {
+    var prominent = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .foregroundStyle(prominent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .background(prominent ? AnyShapeStyle(Color.accentColor)
+                                  : AnyShapeStyle(.primary.opacity(0.06)),
+                        in: Capsule())
+            .overlay(Capsule().strokeBorder(.primary.opacity(prominent ? 0 : 0.12)))
+            .opacity(!isEnabled ? 0.4 : configuration.isPressed ? 0.8 : 1)
+            .contentShape(Capsule())
+    }
+}
+
+extension ButtonStyle where Self == GlassPillButtonStyle {
+    static var glassPill: GlassPillButtonStyle { GlassPillButtonStyle() }
+    static var glassPillProminent: GlassPillButtonStyle { GlassPillButtonStyle(prominent: true) }
+}
+
+/// The same capsule chrome for `Menu` labels, which take no `ButtonStyle`.
+struct PillChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(.primary.opacity(0.06), in: Capsule())
+            .overlay(Capsule().strokeBorder(.primary.opacity(0.12)))
+    }
+}
+
+extension View {
+    func pillChrome() -> some View { modifier(PillChrome()) }
+}
+
 /// Renders an ERD canvas onto the app's gradient backdrop, so an exported PNG
 /// looks exactly like the diagram on screen.
 @MainActor

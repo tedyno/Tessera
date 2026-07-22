@@ -71,14 +71,14 @@ struct DiagramTabView: View {
                     .font(.caption)
             } else {
                 Button("Show Whole Schema") { onShowWholeSchema() }
-                    .font(.caption)
+                    .buttonStyle(.glassPill)
             }
             Button("Re-layout") { model.performLayout() }
-                .font(.caption)
+                .buttonStyle(.glassPill)
             Button("Zoom to Fit") { zoomToFitToken += 1 }
-                .font(.caption)
+                .buttonStyle(.glassPill)
             Button("Export PNG…") { exportPNG() }
-                .font(.caption)
+                .buttonStyle(.glassPill)
         }
         .controlSize(.small)
         .padding(.horizontal, 8)

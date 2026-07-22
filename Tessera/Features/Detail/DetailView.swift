@@ -292,6 +292,7 @@ struct DetailView: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .controlSize(.small)
+        .pillChrome()
         .help("Connection this tab runs against")
     }
 
@@ -305,8 +306,7 @@ struct DetailView: View {
                 let editing = model.activeTab?.hasEdits == true
                 Label(editing ? "Commit" : "Run", systemImage: editing ? "checkmark" : "play.fill")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+            .buttonStyle(.glassPillProminent)
             .disabled(model.status == .connecting || (model.activeTab?.isRunning ?? true)
                       || model.activeTab?.session == nil)
 
@@ -315,7 +315,7 @@ struct DetailView: View {
             } label: {
                 Label("Stop", systemImage: "stop.fill")
             }
-            .controlSize(.small)
+            .buttonStyle(.glassPill)
             .disabled(!(model.activeTab?.isRunning ?? false))
 
             explainMenu
@@ -327,7 +327,7 @@ struct DetailView: View {
                 } label: {
                     Label("Add Row", systemImage: "plus.rectangle")
                 }
-                .controlSize(.small)
+                .buttonStyle(.glassPill)
             }
 
             if let ms = model.activeTab?.elapsedMS, model.activeTab?.isRunning == false {
@@ -340,7 +340,7 @@ struct DetailView: View {
             } label: {
                 Label("History", systemImage: "clock.arrow.circlepath")
             }
-            .controlSize(.small)
+            .buttonStyle(.glassPill)
         }
         .padding(6)
     }
@@ -376,6 +376,7 @@ struct DetailView: View {
         .menuStyle(.borderlessButton)
         .controlSize(.small)
         .fixedSize()
+        .pillChrome()
     }
 
     /// A default bookmark name: the first non-empty line of the current SQL, trimmed.
@@ -404,8 +405,7 @@ struct DetailView: View {
                 Label(tab.hasEdits ? "Commit" : "Refresh",
                       systemImage: tab.hasEdits ? "checkmark" : "arrow.clockwise")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+            .buttonStyle(.glassPillProminent)
             .disabled(model.status == .connecting || tab.isRunning || tab.session == nil)
 
             if tab.isEditable {
@@ -414,7 +414,7 @@ struct DetailView: View {
                 } label: {
                     Label("Add Row", systemImage: "plus.rectangle")
                 }
-                .controlSize(.small)
+                .buttonStyle(.glassPill)
             }
 
             Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
@@ -440,7 +440,7 @@ struct DetailView: View {
             } label: {
                 Label("History", systemImage: "clock.arrow.circlepath")
             }
-            .controlSize(.small)
+            .buttonStyle(.glassPill)
         }
         .padding(6)
     }
@@ -461,6 +461,7 @@ struct DetailView: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .controlSize(.small)
+        .pillChrome()
         .disabled(model.activeTab?.session == nil || model.activeTab?.isRunning == true)
         .help("Show the query plan (Analyze also executes the statement)")
     }
@@ -492,6 +493,7 @@ struct DetailView: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .controlSize(.small)
+        .pillChrome()
         .foregroundStyle(tab.autoRefreshInterval != nil ? Color.accentColor : Color.secondary)
         .help("Re-run this query automatically")
     }
@@ -527,6 +529,7 @@ struct DetailView: View {
         .menuStyle(.borderlessButton)
         .fixedSize()
         .controlSize(.small)
+        .pillChrome()
         .help("Sort by a column")
     }
 
@@ -553,7 +556,10 @@ struct DetailView: View {
     private func dataSQLView(_ tab: QueryTab) -> some View {
         SQLEditor(text: .constant(tab.sql), schema: nil, focusTrigger: 0, cursor: nil, readOnly: true)
             .frame(height: 52)
-            .background(.quaternary.opacity(0.25))
+            .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.primary.opacity(0.08)))
+            .padding(.horizontal, 8)
+            .padding(.bottom, 4)
     }
 
     /// More rows are available when the page came back full and we're below the total.
