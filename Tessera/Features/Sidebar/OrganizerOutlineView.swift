@@ -223,6 +223,11 @@ struct OrganizerOutlineView: NSViewRepresentable {
         scrollView.drawsBackground = false
 
         context.coordinator.outlineView = outline
+        // Seed the relay tokens: SwiftUI @State outlives this coordinator, so
+        // a fresh one starting at 0 would replay stale keypresses.
+        context.coordinator.lastStepToken = keyboardStepToken
+        context.coordinator.lastCommitToken = keyboardCommitToken
+        context.coordinator.lastCancelToken = speedCancelToken
         context.coordinator.pasteboardType = Self.nodeType
         applyClosures(to: context.coordinator)
         context.coordinator.rebuild(expandingAll: true)
@@ -485,6 +490,15 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 isSyncingSelection = false
             }
             applySelection()
+            // The rebuild replaced every OrganizerItem; a running search would
+            // keep stepping over the stale objects. Deferred: retargeting
+            // reports through onSpeedSearch, which writes SwiftUI state.
+            if !speedTerm.isEmpty {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, !self.speedTerm.isEmpty else { return }
+                    self.speedRetarget()
+                }
+            }
         }
 
         /// Rebuilds only when the organizer changed; always re-syncs selection.

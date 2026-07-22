@@ -575,6 +575,12 @@ struct ResultsTableView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(tab: tab) }
 
+    /// The grid is being torn down (tab/window closed): release the app-wide
+    /// event monitor and popovers, or they'd outlive the coordinator.
+    static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
+        coordinator.teardown()
+    }
+
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
         private var tab: QueryTab
@@ -586,6 +592,9 @@ struct ResultsTableView: NSViewRepresentable {
         private var columnsSignature: [String] = []
         private var lastResultVersion = -1
         private var lastSearchQuery = ""
+        private var lastValueFilters: [String: Set<String?>] = [:]
+        private var lastLocalSortColumn: Int?
+        private var lastLocalSortAscending = true
         private var lastFingerprint: Int?
         /// True while a cell edit session is live — configure() must not reload the
         /// table then (the live-preview mutations would otherwise retrigger it and
@@ -862,6 +871,14 @@ struct ResultsTableView: NSViewRepresentable {
             return editor
         }
 
+        /// Called from `dismantleNSView` — the NSEvent monitor and popovers
+        /// are not tied to the view hierarchy and would leak past it.
+        func teardown() {
+            closeDatePopover()
+            filterPopover?.close()
+            filterPopover = nil
+        }
+
         // MARK: Local column filter
 
         private var filterPopover: NSPopover?
@@ -943,6 +960,9 @@ struct ResultsTableView: NSViewRepresentable {
         private var dateTargetRow = -1
         private var dateTargetColumn = ""
         private var dateSnapshotTaken = false
+        /// Result the popover was opened against — a commit against a newer
+        /// result would hit whatever row moved into `dateTargetRow`.
+        private var dateResultVersion = -1
         /// The picker's current value: shown as a cell preview while the
         /// popover is up, committed as ONE pending edit when it closes.
         private var datePendingValue: String?
@@ -953,6 +973,7 @@ struct ResultsTableView: NSViewRepresentable {
             dateTargetRow = dataRow(forDisplay: row)
             dateTargetColumn = result.columns[col].name
             dateSnapshotTaken = false
+            dateResultVersion = tab.resultVersion
             let type = typeName.lowercased()
             let picker = NSDatePicker()
             picker.datePickerStyle = .textFieldAndStepper
@@ -1053,6 +1074,7 @@ struct ResultsTableView: NSViewRepresentable {
             datePicker = nil
             dateEditor = nil
             guard hadPopover else { return }
+            if !isEditingActive { tab.isEditingCell = false }
             let previewed = datePendingValue
             datePendingValue = nil
             if commit, let previewed {
@@ -1079,6 +1101,9 @@ struct ResultsTableView: NSViewRepresentable {
         private func applyDateEdit(_ value: String) {
             let row = dateTargetRow
             let columnName = dateTargetColumn
+            // The result was replaced while the popover was up (auto-refresh,
+            // a late run) — the captured row would hit the wrong record now.
+            guard tab.resultVersion == dateResultVersion else { return }
             guard let result = tab.result, row >= 0 else { return }
 
             if isInsertRow(row) {
@@ -1560,6 +1585,11 @@ struct ResultsTableView: NSViewRepresentable {
                 bulkEditTargets = nil
                 selected = []
                 anchor = nil; focus = nil
+                // Popovers belong to the outgoing tab — a surviving date
+                // popover would commit into the new tab's rows.
+                closeDatePopover()
+                filterPopover?.close()
+                filterPopover = nil
             }
             self.tab = tab
             guard let tableView, let result = tab.result else { return }
@@ -1600,11 +1630,22 @@ struct ResultsTableView: NSViewRepresentable {
                 anchor = nil; focus = nil
             }
             // Display row indices shift whenever the ⌘F filter text changes, so a
-            // held selection would silently point at the wrong cells.
+            // held selection would silently point at the wrong cells. Local
+            // value filters and the client-side sort shift them identically.
             if tab.searchQuery != lastSearchQuery {
                 lastSearchQuery = tab.searchQuery
                 selected = []
                 anchor = nil; focus = nil
+            }
+            if tab.localValueFilters != lastValueFilters
+                || tab.localSortColumn != lastLocalSortColumn
+                || tab.localSortAscending != lastLocalSortAscending {
+                lastValueFilters = tab.localValueFilters
+                lastLocalSortColumn = tab.localSortColumn
+                lastLocalSortAscending = tab.localSortAscending
+                selected = []
+                anchor = nil; focus = nil
+                DispatchQueue.main.async { [weak self] in self?.updateInspector() }
             }
             let signature = result.columns.map(\.name)
             if signature != columnsSignature {
@@ -1946,8 +1987,10 @@ struct ResultsTableView: NSViewRepresentable {
             }
             // Reset the session flags before any early exit — a stuck
             // `isEditingActive` would silently disable grid reloads for good.
+            // An open date popover keeps the tab "editing": auto-refresh
+            // replacing the result under the preview would retarget the edit.
             isEditingActive = false
-            tab.isEditingCell = false
+            tab.isEditingCell = datePopover != nil
             guard let field = notification.object as? GridTextField,
                   let result, field.rowIndex >= 0, field.columnIndex < result.columns.count else {
                 bulkEditTargets = nil

@@ -220,14 +220,8 @@ struct SchemaOutlineView: NSViewRepresentable {
         outline.onSpeedBackspace = { [weak coordinator] in coordinator?.speedBackspace() }
         outline.onSpeedCancel = { [weak coordinator] in coordinator?.speedEnd() }
         outline.onSpeedStep = { [weak coordinator] in coordinator?.speedStep($0) }
-        outline.onSpeedCommit = { [weak coordinator, weak outline] in
-            // Return opens what the search landed on; with no selection it
-            // falls back to the first match, same as the field's submit.
-            if let outline, outline.selectedRow >= 0 {
-                coordinator?.openSelection()
-            } else {
-                coordinator?.onFilterCommit()
-            }
+        outline.onSpeedCommit = { [weak coordinator] in
+            coordinator?.openSpeedSelection()
         }
 
         let scrollView = NSScrollView()
@@ -236,6 +230,11 @@ struct SchemaOutlineView: NSViewRepresentable {
         scrollView.drawsBackground = false
 
         coordinator.outlineView = outline
+        // Seed the relay tokens: SwiftUI @State outlives this coordinator, so
+        // a fresh one starting at 0 would replay stale keypresses.
+        coordinator.lastStepToken = keyboardStepToken
+        coordinator.lastCommitToken = keyboardCommitToken
+        coordinator.lastCancelToken = speedCancelToken
         apply(to: coordinator)
         coordinator.sync(tree: tree, hidden: hiddenSchemas, query: query)
         return scrollView
@@ -274,11 +273,7 @@ struct SchemaOutlineView: NSViewRepresentable {
         if context.coordinator.lastCommitToken != keyboardCommitToken {
             context.coordinator.lastCommitToken = keyboardCommitToken
             DispatchQueue.main.async { [coordinator = context.coordinator] in
-                if let outline = coordinator.outlineView, outline.selectedRow >= 0 {
-                    coordinator.openSelection()
-                } else {
-                    coordinator.onFilterCommit()
-                }
+                coordinator.openSpeedSelection()
             }
         }
     }
@@ -679,6 +674,30 @@ struct SchemaOutlineView: NSViewRepresentable {
             let tables = selectedNodes().filter { $0.kind == .table }
             guard !tables.isEmpty else { return }
             onOpenTables(tables.compactMap { node in node.table.map { (node.schema, $0) } })
+        }
+
+        /// Return during a search: open whatever the search landed on —
+        /// a column match opens its table scrolled to the column; anything
+        /// non-openable falls back to the first-match commit.
+        func openSpeedSelection() {
+            guard let outlineView, outlineView.selectedRow >= 0,
+                  let node = outlineView.item(atRow: outlineView.selectedRow) as? SchemaOutlineNode
+            else {
+                onFilterCommit()
+                return
+            }
+            switch node.kind {
+            case .table:
+                onOpenTable(node.schema, node.table ?? node.title)
+            case .column:
+                if let table = node.table {
+                    onOpenColumn(node.schema, table, node.title)
+                } else {
+                    onFilterCommit()
+                }
+            default:
+                onFilterCommit()
+            }
         }
 
         private func selectedNodes() -> [SchemaOutlineNode] {

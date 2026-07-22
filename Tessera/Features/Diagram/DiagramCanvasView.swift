@@ -103,10 +103,10 @@ final class DiagramCanvasView: NSView {
         needsDisplay = true
 
         if !didInitialCenter, window != nil, enclosingScrollView != nil {
-            didInitialCenter = true
             // The same fit Default Layout performs, so a freshly opened
-            // diagram and a reset one look identical.
-            fitContent()
+            // diagram and a reset one look identical. The flag only burns on
+            // success — a pre-layout call (zero viewport) retries next render.
+            didInitialCenter = fitContent()
         }
 
         if let focus = model.focusTable {
@@ -123,13 +123,15 @@ final class DiagramCanvasView: NSView {
 
     /// Fits the content into the viewport, never magnifying past 100 % — the
     /// scale is computed here rather than via `magnify(toFit:)`, whose
-    /// animated application defeats any post-hoc clamp.
-    func fitContent() {
-        guard let scroll = enclosingScrollView else { return }
+    /// animated application defeats any post-hoc clamp. Returns false when
+    /// the viewport has no size yet (pre-layout), so callers can retry.
+    @discardableResult
+    func fitContent() -> Bool {
+        guard let scroll = enclosingScrollView else { return false }
         let viewport = scroll.contentView.frame.size
         let content = contentRect.insetBy(dx: -24, dy: -24)
         guard viewport.width > 0, viewport.height > 0,
-              content.width > 0, content.height > 0 else { return }
+              content.width > 0, content.height > 0 else { return false }
         let scale = min(viewport.width / content.width,
                         viewport.height / content.height, 1)
         scroll.setMagnification(max(scale, scroll.minMagnification),
@@ -142,6 +144,7 @@ final class DiagramCanvasView: NSView {
         clip.setBoundsOrigin(clip.constrainBoundsRect(
             NSRect(origin: origin, size: clip.bounds.size)).origin)
         scroll.reflectScrolledClipView(clip)
+        return true
     }
 
     private func frame(for table: String) -> NSRect? {
@@ -351,6 +354,18 @@ final class DiagramCanvasView: NSView {
         super.viewDidMoveToWindow()
         guard window != nil, backgroundStyle != .plain else { return }
         beginBackgroundTransition(from: .plain)
+    }
+
+    /// Torn down mid-pan (⌘W, schema refresh emptying the diagram): balance
+    /// the pushed closed-hand cursor, or it sticks app-wide.
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        guard newWindow == nil else { return }
+        panning = false
+        if panCursorPushed {
+            panCursorPushed = false
+            NSCursor.pop()
+        }
     }
 
     /// The connector's shape, kept as data so drawing and tooltip sampling
@@ -669,7 +684,10 @@ final class DiagramCanvasView: NSView {
             var origin = clip.bounds.origin
             origin.x += delta.x
             origin.y += delta.y
-            clip.setBoundsOrigin(origin)
+            // Constrained: a shrunken document must not leave the viewport
+            // hanging over undrawn space.
+            clip.setBoundsOrigin(clip.constrainBoundsRect(
+                NSRect(origin: origin, size: clip.bounds.size)).origin)
             enclosingScrollView?.reflectScrolledClipView(clip)
         }
     }
@@ -677,8 +695,11 @@ final class DiagramCanvasView: NSView {
     /// ⌘+ / ⌘− step the zoom, anchored under the mouse when it hovers the
     /// canvas (map behaviour), falling back to the viewport centre.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Exact modifier match (⇧ allowed for ⌘⇧+): a loose `.contains`
+        // would swallow ⌘⌥±/⌘⌃± meant for someone else.
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
         guard let window, !isHiddenOrHasHiddenAncestor,
-              event.modifierFlags.contains(.command),
+              modifiers == .command || modifiers == [.command, .shift],
               let scroll = enclosingScrollView,
               let characters = event.charactersIgnoringModifiers else {
             return super.performKeyEquivalent(with: event)

@@ -213,6 +213,8 @@ final class AppModel {
         var checkSQL: String?
         var names: [String]
         var tab: QueryTab
+        /// MySQL escapes `\'` inside strings; Postgres (standard strings) not.
+        var backslashEscapes: Bool
     }
     var pendingParameterRun: PendingParameterRun?
     /// Last values by parameter name, pre-filled on the next prompt.
@@ -223,17 +225,23 @@ final class AppModel {
         guard let pending = pendingParameterRun else { return }
         pendingParameterRun = nil
         lastParameterValues.merge(values) { _, new in new }
-        let sql = QueryParameters.substitute(pending.sql, values: values)
-        let checkSQL = pending.checkSQL.map { QueryParameters.substitute($0, values: values) }
+        let escapes = pending.backslashEscapes
+        let sql = QueryParameters.substitute(pending.sql, values: values,
+                                             backslashEscapes: escapes)
+        let checkSQL = pending.checkSQL.map {
+            QueryParameters.substitute($0, values: values, backslashEscapes: escapes)
+        }
         runChecked(sql, checking: checkSQL, on: pending.tab)
     }
 
     private func runChecked(_ sql: String, checking checkSQL: String? = nil, on tab: QueryTab) {
         // `:name` placeholders pause the run for their values first.
-        let parameterNames = QueryParameters.names(in: sql)
+        let backslashEscapes = tab.session?.engine == .mysql
+        let parameterNames = QueryParameters.names(in: sql, backslashEscapes: backslashEscapes)
         guard parameterNames.isEmpty else {
             pendingParameterRun = PendingParameterRun(sql: sql, checkSQL: checkSQL,
-                                                      names: parameterNames, tab: tab)
+                                                      names: parameterNames, tab: tab,
+                                                      backslashEscapes: backslashEscapes)
             return
         }
         let warnings = SQLSafety.warnings(in: checkSQL ?? sql)
@@ -379,15 +387,22 @@ final class AppModel {
     private func restoreOpenTabs() {
         guard console.tabs.isEmpty, let document = SavedTabsStore.load(),
               !document.tabs.isEmpty else { return }
+        // Saved index → restored tab (nil for entries that couldn't be
+        // recreated), so a dropped tab can't shift which one gets activated.
+        var restored: [QueryTab?] = []
         for saved in document.tabs {
             let session = saved.profileID
                 .flatMap { connections.profile(id: $0) }
                 .map { ensureSession(profile: $0) }
             switch saved.kind {
             case .diagram:
-                guard let session, let schema = saved.diagramSchema else { continue }
+                guard let session, let schema = saved.diagramSchema else {
+                    restored.append(nil)
+                    continue
+                }
                 let scope: DiagramModel.Scope = saved.diagramTable.map { .table($0) } ?? .schema
                 console.openDiagram(schema: schema, scope: scope, on: session)
+                restored.append(console.tabs.last)
             case .data:
                 let tab = QueryTab(title: saved.title, sql: saved.sql)
                 tab.session = session
@@ -399,14 +414,17 @@ final class AppModel {
                 tab.sortAscending = saved.sortAscending
                 tab.pageLimit = saved.pageLimit
                 console.tabs.append(tab)
+                restored.append(tab)
             case .console:
                 let tab = QueryTab(title: saved.title, sql: saved.sql)
                 tab.session = session
                 console.tabs.append(tab)
+                restored.append(tab)
             }
         }
-        if let index = document.activeIndex, console.tabs.indices.contains(index) {
-            console.activate(console.tabs[index])
+        if let index = document.activeIndex, restored.indices.contains(index),
+           let tab = restored[index] {
+            console.activate(tab)
         } else if let last = console.tabs.last {
             console.activate(last)
         }
