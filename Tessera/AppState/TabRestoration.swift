@@ -1,0 +1,50 @@
+import Foundation
+
+/// One open tab, reduced to what recreates it on the next launch — no results,
+/// no live connections, just the shape. Queries don't re-run on restore; a
+/// restored tab loads its data on the first explicit Run/Refresh.
+struct SavedTab: Codable {
+    enum Kind: String, Codable { case console, data, diagram }
+
+    var kind: Kind
+    var profileID: UUID?
+    var title: String
+    var sql: String
+    var dataSchema: String?
+    var dataTable: String?
+    var filterWhere: String
+    var sortColumn: String?
+    var sortAscending: Bool
+    var pageLimit: Int
+    var diagramSchema: String?
+    var diagramTable: String?
+}
+
+struct SavedTabsDocument: Codable {
+    var tabs: [SavedTab] = []
+    var activeIndex: Int?
+}
+
+/// Persists the open tabs as JSON in Application Support, so quitting and
+/// relaunching brings the workspace back.
+enum SavedTabsStore {
+    static var url: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                            in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let dir = base.appendingPathComponent(Bundle.main.bundleIdentifier ?? "Tessera",
+                                              isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("open-tabs.json")
+    }
+
+    static func load() -> SavedTabsDocument? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(SavedTabsDocument.self, from: data)
+    }
+
+    static func save(_ document: SavedTabsDocument) {
+        guard let data = try? JSONEncoder().encode(document) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+}

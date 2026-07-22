@@ -69,11 +69,50 @@ final class AppModel {
             MainActor.assumeIsolated { self?.syncMCPServer() }
         }
         startIdleDisconnectSweep()
+
+        // The workspace survives a relaunch: tabs are saved on quit and
+        // recreated (without running anything) on the next start.
+        restoreOpenTabs()
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.saveOpenTabs() }
+        }
+        if DemoMode.isActive { seedDemoMCPActivity() }
+    }
+
+    /// The showcase build never runs the real MCP server, but its Activity
+    /// window still has a story to tell — a plausible session of an AI client
+    /// at work, so screenshots can show what the audit trail looks like.
+    private func seedDemoMCPActivity() {
+        mcpAudit.client = "Claude Code"
+        mcpClientName = "Claude Code"
+        mcpRunning = true
+        let story: [(tool: String, connection: String, detail: String, outcome: String)] = [
+            ("initialize", "", "Claude Code 2.1 identified itself", "ok"),
+            ("list_connections", "", "", "5 connections"),
+            ("list_schemas", "Acme Shop (Production)", "acme_shop", "1 schema"),
+            ("describe_table", "Acme Shop (Production)", "public.orders", "7 columns"),
+            ("run_query", "Acme Shop (Production)",
+             "SELECT status, count(*) FROM orders GROUP BY status", "5 rows"),
+            ("explain_query", "Acme Shop (Production)",
+             "SELECT * FROM orders WHERE status = 'paid'", "1 row"),
+            ("export_diagram", "Acme Shop (Production)", "schema “public”",
+             "wrote ~/Downloads/acme_shop-erd.png"),
+            ("run_query (write)", "Acme Shop (Staging)",
+             "UPDATE products SET stock = 12 WHERE id = 7", "applied"),
+        ]
+        // record() inserts at the top, so feeding chronologically leaves the
+        // newest call first — initialize ends up at the bottom, where it belongs.
+        for entry in story {
+            mcpAudit.record(tool: entry.tool, connection: entry.connection,
+                            detail: entry.detail, outcome: entry.outcome)
+        }
     }
 
     /// Brings the MCP server in line with the setting: running when enabled, stopped
-    /// otherwise. Safe to call repeatedly.
+    /// otherwise. Safe to call repeatedly. The demo build never binds the port.
     func syncMCPServer() {
+        guard !DemoMode.isActive else { return }
         Task { await applyMCPSetting() }
     }
 
@@ -306,6 +345,75 @@ final class AppModel {
     /// that are just extending a multi-selection, since it never touches the network.
     /// Switching to an already-connected session this way still works exactly like
     /// before; only a genuinely new connection attempt is deferred to `connect`.
+    // MARK: Tab restoration
+
+    /// Snapshots the open tabs (shape only, no results) for the next launch.
+    private func saveOpenTabs() {
+        let document = SavedTabsDocument(
+            tabs: console.tabs.map { tab in
+                let kind: SavedTab.Kind = switch tab.kind {
+                case .console: .console
+                case .data: .data
+                case .diagram: .diagram
+                }
+                var diagramTable: String?
+                if case .table(let table)? = tab.diagram?.scope { diagramTable = table }
+                return SavedTab(kind: kind,
+                                profileID: tab.session?.id,
+                                title: tab.title,
+                                sql: tab.sql,
+                                dataSchema: tab.dataSchema,
+                                dataTable: tab.dataTable,
+                                filterWhere: tab.filterWhere,
+                                sortColumn: tab.sortColumn,
+                                sortAscending: tab.sortAscending,
+                                pageLimit: tab.pageLimit,
+                                diagramSchema: tab.diagram?.schemaName,
+                                diagramTable: diagramTable)
+            },
+            activeIndex: console.tabs.firstIndex(where: { $0.id == console.activeTabID }))
+        SavedTabsStore.save(document)
+    }
+
+    /// Recreates the previous launch's tabs. Nothing connects or runs — a
+    /// console/data tab loads on its first Run/Refresh, and diagrams render
+    /// from the cached schema.
+    private func restoreOpenTabs() {
+        guard console.tabs.isEmpty, let document = SavedTabsStore.load(),
+              !document.tabs.isEmpty else { return }
+        for saved in document.tabs {
+            let session = saved.profileID
+                .flatMap { connections.profile(id: $0) }
+                .map { ensureSession(profile: $0) }
+            switch saved.kind {
+            case .diagram:
+                guard let session, let schema = saved.diagramSchema else { continue }
+                let scope: DiagramModel.Scope = saved.diagramTable.map { .table($0) } ?? .schema
+                console.openDiagram(schema: schema, scope: scope, on: session)
+            case .data:
+                let tab = QueryTab(title: saved.title, sql: saved.sql)
+                tab.session = session
+                tab.kind = .data
+                tab.dataSchema = saved.dataSchema
+                tab.dataTable = saved.dataTable
+                tab.filterWhere = saved.filterWhere
+                tab.sortColumn = saved.sortColumn
+                tab.sortAscending = saved.sortAscending
+                tab.pageLimit = saved.pageLimit
+                console.tabs.append(tab)
+            case .console:
+                let tab = QueryTab(title: saved.title, sql: saved.sql)
+                tab.session = session
+                console.tabs.append(tab)
+            }
+        }
+        if let index = document.activeIndex, console.tabs.indices.contains(index) {
+            console.activate(console.tabs[index])
+        } else if let last = console.tabs.last {
+            console.activate(last)
+        }
+    }
+
     func viewConnection(nodeID: UUID?) {
         guard let nodeID, let profileID = connections.profileID(forNode: nodeID),
               let profile = connections.profile(id: profileID) else { return }
