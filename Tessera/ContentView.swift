@@ -97,6 +97,12 @@ struct ContentView: View {
                 }.padding(30)
             }
         }
+        .sheet(item: $app.pendingParameterRun) { pending in
+            QueryParametersSheet(names: pending.names,
+                                 initial: app.lastParameterValues,
+                                 onRun: { app.runPendingParameters($0) },
+                                 onCancel: { app.pendingParameterRun = nil })
+        }
         .sheet(isPresented: $app.showingMCPLog) {
             MCPAuditView(app: app)
         }

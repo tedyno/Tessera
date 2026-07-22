@@ -1705,6 +1705,28 @@
         }
       }
     },
+    "Query Parameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parametry dotazu"
+          }
+        }
+      }
+    },
+    "Empty values run as NULL; numbers stay unquoted.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prázdné hodnoty se spustí jako NULL; čísla zůstávají bez uvozovek."
+          }
+        }
+      }
+    },
     "Search": {
       "extractionState": "manual",
       "localizations": {

@@ -237,7 +237,36 @@ final class AppModel {
     /// `checking` lets a caller vet a different string than the one that runs —
     /// EXPLAIN ANALYZE executes the inner statement, but the safety patterns are
     /// start-anchored and would never match once the prefix is glued on.
+    /// A run waiting for its `:name` parameter values (the sheet is up).
+    struct PendingParameterRun: Identifiable {
+        let id = UUID()
+        var sql: String
+        var checkSQL: String?
+        var names: [String]
+        var tab: QueryTab
+    }
+    var pendingParameterRun: PendingParameterRun?
+    /// Last values by parameter name, pre-filled on the next prompt.
+    var lastParameterValues: [String: String] = [:]
+
+    /// Substitutes the collected values and sends the run on its way.
+    func runPendingParameters(_ values: [String: String]) {
+        guard let pending = pendingParameterRun else { return }
+        pendingParameterRun = nil
+        lastParameterValues.merge(values) { _, new in new }
+        let sql = QueryParameters.substitute(pending.sql, values: values)
+        let checkSQL = pending.checkSQL.map { QueryParameters.substitute($0, values: values) }
+        runChecked(sql, checking: checkSQL, on: pending.tab)
+    }
+
     private func runChecked(_ sql: String, checking checkSQL: String? = nil, on tab: QueryTab) {
+        // `:name` placeholders pause the run for their values first.
+        let parameterNames = QueryParameters.names(in: sql)
+        guard parameterNames.isEmpty else {
+            pendingParameterRun = PendingParameterRun(sql: sql, checkSQL: checkSQL,
+                                                      names: parameterNames, tab: tab)
+            return
+        }
         let warnings = SQLSafety.warnings(in: checkSQL ?? sql)
         guard warnings.isEmpty else {
             destructiveWarnings = warnings
