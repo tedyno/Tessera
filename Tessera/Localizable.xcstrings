@@ -1683,6 +1683,28 @@
         }
       }
     },
+    "Cached": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Z mezipaměti"
+          }
+        }
+      }
+    },
+    "Showing the last-known schema — connect to refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zobrazuje se poslední známé schéma — připoj se pro obnovení"
+          }
+        }
+      }
+    },
     "Search": {
       "extractionState": "manual",
       "localizations": {

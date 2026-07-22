@@ -22,6 +22,9 @@ struct SchemaSidebar: View {
     /// Distinguishes "still connecting" from "nothing selected" while `tree` is nil —
     /// otherwise a slow connection briefly looks like there's no database at all.
     var status: ConnectionSession.Status = .idle
+    /// The tree is the cached copy of a disconnected session — flagged in the
+    /// header so stale metadata never masquerades as live.
+    var isCached: Bool = false
     /// Engine of the active connection — gates DDL items the dialect can't express
     /// (SQLite's minimal ALTER) and swaps dumps for Reveal in Finder on files.
     var engine: DatabaseKind?
@@ -76,6 +79,12 @@ struct SchemaSidebar: View {
                         Text(connectionName ?? String(localized: "Schema"))
                             .font(.subheadline.weight(.semibold))
                         Spacer()
+                        if isCached {
+                            Label("Cached", systemImage: "clock")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .help("Showing the last-known schema — connect to refresh")
+                        }
                     }
                     .padding(.horizontal, 12)
                     .padding(.top, 10)

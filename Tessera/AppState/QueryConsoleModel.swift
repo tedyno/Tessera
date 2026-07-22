@@ -93,7 +93,19 @@ final class QueryConsoleModel {
 
     /// Connection state of the active tab's session, surfaced for the status bar.
     var status: ConnectionSession.Status { activeSession?.status ?? .idle }
-    var schema: DatabaseTree? { activeSession?.schema }
+    /// Fallback for sessions with no live schema: the persisted per-profile
+    /// schema cache (the one search already uses). Set by AppModel.
+    @ObservationIgnored var cachedSchemaProvider: ((UUID) -> DatabaseTree?)?
+    /// The live schema when connected, else the last introspected one from the
+    /// cache — the sidebar and diagrams work without a connection.
+    var schema: DatabaseTree? {
+        guard let session = activeSession else { return nil }
+        return session.schema ?? cachedSchemaProvider?(session.id)
+    }
+    /// True when `schema` comes from the cache, so the UI can say so.
+    var isShowingCachedSchema: Bool {
+        activeSession?.schema == nil && schema != nil
+    }
     var engine: DatabaseKind? { activeSession?.engine }
     var serverVersion: String? { activeSession?.serverVersion }
     var connectionName: String? { activeSession?.name }
@@ -686,7 +698,10 @@ final class QueryConsoleModel {
     func openDiagram(schema: String, scope: DiagramModel.Scope = .schema,
                      on session: ConnectionSession? = nil) {
         guard let session = session ?? activeSession else { return }
-        let namespace = session.schema?.schemas.first(where: { $0.name == schema })
+        // Disconnected sessions fall back to the cached schema — a diagram is
+        // a pure canvas over introspected metadata, no connection needed.
+        let tree = session.schema ?? cachedSchemaProvider?(session.id)
+        let namespace = tree?.schemas.first(where: { $0.name == schema })
         if let existing = tabs.first(where: {
             $0.session === session && $0.kind == .diagram
                 && $0.diagram?.schemaName == schema && $0.diagram?.scope == scope

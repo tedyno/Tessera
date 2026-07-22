@@ -232,6 +232,7 @@ struct ContentView: View {
             reveal: app.schemaReveal,
             connectionName: app.console.connectionName,
             status: app.console.status,
+            isCached: app.console.isShowingCachedSchema,
             engine: app.console.activeSession?.engine,
             onRevealDatabaseFile: {
                 if let path = app.console.activeSession?.database, !path.isEmpty {

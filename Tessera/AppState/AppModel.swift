@@ -38,6 +38,11 @@ final class AppModel {
             await self.openSession(session, profile: profile)
         }
         schemaCache = schemaCacheStore.load()
+        // Disconnected connections still browse (and diagram) their last
+        // introspected schema straight from the persisted cache.
+        console.cachedSchemaProvider = { [weak self] profileID in
+            self?.schemaCache[profileID]?.tree
+        }
 
         // Recoloring or renaming a connection must show up in the open tabs'
         // chips and the status bar immediately, not on the next reconnect.
