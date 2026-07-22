@@ -55,12 +55,13 @@ struct SchemaSidebar: View {
 
     @State private var showingFilter = false
     @State private var searchText = ""
-    /// Mirror of the outline's speed search, for the indicator bar.
-    @State private var speedTerm = ""
-    @State private var speedPosition = 0
-    @State private var speedCount = 0
-    /// Incremented by the bar's ✕ button; the outline cancels when it changes.
-    @State private var speedCancelCount = 0
+    /// Relay tokens: ↑/↓ and Return typed in the search field drive the tree.
+    @State private var keyboardStepToken = 0
+    @State private var keyboardStep = 0
+    @State private var keyboardCommitToken = 0
+    /// Current match position/count reported by the speed search.
+    @State private var matchPosition = 0
+    @State private var matchCount = 0
 
     /// Lowercased, trimmed name filter; empty means "show everything".
     private var query: String {
@@ -73,16 +74,15 @@ struct SchemaSidebar: View {
                 VStack(spacing: 0) {
                     HStack {
                         Text(connectionName ?? String(localized: "Schema"))
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .font(.subheadline.weight(.semibold))
                         Spacer()
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+                    .padding(.bottom, 6)
                     SchemaOutlineView(
                         tree: tree,
                         hiddenSchemas: hiddenSchemas,
-                        query: query,
                         reveal: reveal,
                         engine: engine,
                         databases: databases,
@@ -100,15 +100,22 @@ struct SchemaSidebar: View {
                         onOpenDiagram: onOpenDiagram,
                         onShowTableInDiagram: onShowTableInDiagram,
                         onDDL: onDDL,
+                        // The speed search and the bottom field are one thing:
+                        // tree-typed characters surface in the field, field
+                        // edits retarget the search — matches are jumped to
+                        // and tinted, never filtered out.
                         onSpeedSearch: { term, position, count in
-                            speedTerm = term
-                            speedPosition = position
-                            speedCount = count
+                            if searchText != term { searchText = term }
+                            matchPosition = position
+                            matchCount = count
                         },
-                        onRevealHandled: onRevealHandled,
-                        speedCancelToken: speedCancelCount)
+                        searchTerm: searchText,
+                        onFilterCommit: { openFirstMatch() },
+                        keyboardStepToken: keyboardStepToken,
+                        keyboardStep: keyboardStep,
+                        keyboardCommitToken: keyboardCommitToken,
+                        onRevealHandled: onRevealHandled)
                 }
-                .safeAreaInset(edge: .top) { speedSearchBar }
                 .safeAreaInset(edge: .bottom) { filterBar(tree) }
                 .transition(.opacity)
             } else if status == .connecting {
@@ -136,16 +143,6 @@ struct SchemaSidebar: View {
         // Connecting → loading schema → tree cross-fades instead of hard-swapping.
         .animation(.easeInOut(duration: 0.25), value: status)
         .animation(.easeInOut(duration: 0.25), value: tree == nil)
-    }
-
-    // MARK: Speed search indicator
-
-    @ViewBuilder
-    private var speedSearchBar: some View {
-        if !speedTerm.isEmpty {
-            SpeedSearchBar(term: speedTerm, position: speedPosition, count: speedCount,
-                           onCancel: { speedCancelCount += 1 })
-        }
     }
 
     // MARK: Filter
@@ -179,13 +176,29 @@ struct SchemaSidebar: View {
         VStack(spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
-                TextField("Filter tables & columns", text: $searchText)
+                TextField("Search", text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.caption)
-                    // Enter opens the first match, so connect → type → Enter lands
-                    // straight in the table without reaching for the mouse.
-                    .onSubmit { openFirstMatch() }
+                    // The field drives the tree: ↑/↓ walk the matched tables
+                    // and Return opens the picked row (or the first match) —
+                    // connect → type → arrows → Enter, no mouse needed.
+                    .onKeyPress(.downArrow) {
+                        keyboardStep = 1
+                        keyboardStepToken += 1
+                        return .handled
+                    }
+                    .onKeyPress(.upArrow) {
+                        keyboardStep = -1
+                        keyboardStepToken += 1
+                        return .handled
+                    }
+                    .onSubmit { keyboardCommitToken += 1 }
                 if !searchText.isEmpty {
+                    Text(verbatim: "\(matchPosition)/\(matchCount)")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(matchCount == 0 ? AnyShapeStyle(.red)
+                                                         : AnyShapeStyle(.secondary))
                     Button { searchText = "" } label: {
                         Image(systemName: "xmark.circle.fill")
                     }

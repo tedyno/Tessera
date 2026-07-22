@@ -87,7 +87,7 @@ final class SchemaTreeView: NSOutlineView {
         case 126 where active: onSpeedStep?(-1); return   // ↑
         default: break
         }
-        // A plain printable character starts (or extends) the speed search.
+        // A plain printable character starts (or extends) the filter.
         if event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty,
            let scalar = event.charactersIgnoringModifiers?.unicodeScalars.first,
            scalar.properties.isAlphabetic || CharacterSet.decimalDigits.contains(scalar)
@@ -171,6 +171,19 @@ struct SchemaOutlineView: NSViewRepresentable {
     var onDDL: (DDLOperation) -> Void = { _ in }
     /// Mirrors the speed search for the indicator bar: (term, position, matches).
     var onSpeedSearch: (String, Int, Int) -> Void = { _, _, _ in }
+    /// The sidebar's search-field text: it drives the speed search (jump and
+    /// tint matches, never filter), and tree-typed characters flow back into
+    /// it via `onSpeedSearch`.
+    var searchTerm: String = ""
+    /// Return with no selection: the sidebar's open-first-match fallback.
+    var onFilterCommit: () -> Void = { }
+    /// Bumped when ↑/↓ in the search field should move the tree selection;
+    /// `keyboardStep` carries the direction of the latest bump.
+    var keyboardStepToken: Int = 0
+    var keyboardStep: Int = 0
+    /// Bumped when Return in the search field should open the selected row
+    /// (falling back to the first match when nothing is selected).
+    var keyboardCommitToken: Int = 0
     /// Called once a reveal target has been applied — the owner clears it so the
     /// same target can be revealed again later.
     var onRevealHandled: () -> Void = { }
@@ -202,12 +215,20 @@ struct SchemaOutlineView: NSViewRepresentable {
         outline.target = coordinator
         outline.doubleAction = #selector(Coordinator.doubleClick(_:))
         outline.onCommandReturn = { coordinator.openSelection() }
-        outline.speedIsActive = { !coordinator.speedTerm.isEmpty }
-        outline.onSpeedChar = { coordinator.speedChar($0) }
-        outline.onSpeedBackspace = { coordinator.speedBackspace() }
-        outline.onSpeedCancel = { coordinator.speedEnd() }
-        outline.onSpeedCommit = { coordinator.speedEnd() }
-        outline.onSpeedStep = { coordinator.speedStep($0) }
+        outline.speedIsActive = { [weak coordinator] in coordinator?.speedTerm.isEmpty == false }
+        outline.onSpeedChar = { [weak coordinator] in coordinator?.speedChar($0) }
+        outline.onSpeedBackspace = { [weak coordinator] in coordinator?.speedBackspace() }
+        outline.onSpeedCancel = { [weak coordinator] in coordinator?.speedEnd() }
+        outline.onSpeedStep = { [weak coordinator] in coordinator?.speedStep($0) }
+        outline.onSpeedCommit = { [weak coordinator, weak outline] in
+            // Return opens what the search landed on; with no selection it
+            // falls back to the first match, same as the field's submit.
+            if let outline, outline.selectedRow >= 0 {
+                coordinator?.openSelection()
+            } else {
+                coordinator?.onFilterCommit()
+            }
+        }
 
         let scrollView = NSScrollView()
         scrollView.documentView = outline
@@ -232,6 +253,34 @@ struct SchemaOutlineView: NSViewRepresentable {
                 coordinator.speedEnd()
             }
         }
+        // The search field owns the term; push edits into the speed search.
+        // Deferred: retargeting reports back through onSpeedSearch, which
+        // writes SwiftUI state — illegal inside this update pass.
+        if context.coordinator.speedTerm != searchTerm {
+            let term = searchTerm
+            DispatchQueue.main.async { [coordinator = context.coordinator] in
+                coordinator.speedSet(term)
+            }
+        }
+        // Keyboard relays from the search field. Deferred: selection changes
+        // and open actions write SwiftUI state, illegal mid-update.
+        if context.coordinator.lastStepToken != keyboardStepToken {
+            context.coordinator.lastStepToken = keyboardStepToken
+            let delta = keyboardStep
+            DispatchQueue.main.async { [coordinator = context.coordinator] in
+                coordinator.speedStep(delta)
+            }
+        }
+        if context.coordinator.lastCommitToken != keyboardCommitToken {
+            context.coordinator.lastCommitToken = keyboardCommitToken
+            DispatchQueue.main.async { [coordinator = context.coordinator] in
+                if let outline = coordinator.outlineView, outline.selectedRow >= 0 {
+                    coordinator.openSelection()
+                } else {
+                    coordinator.onFilterCommit()
+                }
+            }
+        }
     }
 
     private func apply(to coordinator: Coordinator) {
@@ -252,6 +301,7 @@ struct SchemaOutlineView: NSViewRepresentable {
         coordinator.onShowTableInDiagram = onShowTableInDiagram
         coordinator.onDDL = onDDL
         coordinator.onSpeedSearch = onSpeedSearch
+        coordinator.onFilterCommit = onFilterCommit
         coordinator.onRevealHandled = onRevealHandled
     }
 
@@ -280,6 +330,7 @@ struct SchemaOutlineView: NSViewRepresentable {
         var onShowTableInDiagram: (_ schema: String, _ table: String) -> Void = { _, _ in }
         var onDDL: (DDLOperation) -> Void = { _ in }
         var onSpeedSearch: (String, Int, Int) -> Void = { _, _, _ in }
+        var onFilterCommit: () -> Void = { }
         /// Called after a reveal target was applied, so the source clears it.
         var onRevealHandled: () -> Void = { }
 
@@ -869,17 +920,30 @@ struct SchemaOutlineView: NSViewRepresentable {
         private var speedMatchKeys: Set<String> = []
         /// Last seen value of the representable's cancel token.
         var lastCancelToken = 0
+        var lastStepToken = 0
+        var lastCommitToken = 0
 
-        /// Database, schema and table nodes in display order — including tables
-        /// inside collapsed schemas; jumping expands the path, like PhpStorm.
+        /// Database, schema, table and column nodes in display order —
+        /// including ones inside collapsed parents; jumping expands the path,
+        /// like PhpStorm.
         private func speedCandidates() -> [SchemaOutlineNode] {
             guard let root else { return [] }
             var out: [SchemaOutlineNode] = [root]
             for schema in root.children {
                 out.append(schema)
-                out.append(contentsOf: schema.children.filter { $0.kind == .table })
+                for table in schema.children where table.kind == .table {
+                    out.append(table)
+                    out.append(contentsOf: table.children.filter { $0.kind == .column })
+                }
             }
             return out
+        }
+
+        /// Replaces the whole term at once (the sidebar's search field edits).
+        func speedSet(_ term: String) {
+            guard term != speedTerm else { return }
+            speedTerm = term
+            if term.isEmpty { speedEnd() } else { speedRetarget() }
         }
 
         func speedChar(_ character: Character) {
@@ -936,9 +1000,13 @@ struct SchemaOutlineView: NSViewRepresentable {
         private func jump(to node: SchemaOutlineNode) {
             guard let outlineView, let root else { return }
             outlineView.expandItem(root)
-            if node.kind == .table,
+            if node.kind == .table || node.kind == .column,
                let schema = root.children.first(where: { $0.key == "s:\(node.schema)" }) {
                 outlineView.expandItem(schema)
+                if node.kind == .column, let table = node.table,
+                   let tableNode = schema.children.first(where: { $0.key == "t:\(node.schema).\(table)" }) {
+                    outlineView.expandItem(tableNode)
+                }
             }
             let row = outlineView.row(forItem: node)
             guard row >= 0 else { return }
