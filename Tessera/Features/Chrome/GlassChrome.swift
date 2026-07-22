@@ -8,54 +8,52 @@ import AppKit
 /// the blur underneath lets the surroundings glow through it.
 struct TesseraBackdrop: View {
     @Environment(\.colorScheme) private var colorScheme
+    /// The chosen backdrop style; `.none` shows only the frosted blur.
+    @AppStorage(BackdropStyle.key) private var backdropRaw = BackdropStyle.monokai.rawValue
+    /// When false, skip the behind-window frost. Standard titled windows (the
+    /// Settings sheet) render that frost as an opaque band that clashes with the
+    /// toolbar strip, leaving a hard seam — there the gradient alone fills the
+    /// window edge to edge.
+    var frosted = true
 
     var body: some View {
+        let style = BackdropStyle(rawValue: backdropRaw) ?? .monokai
         ZStack {
-            BehindWindowBlur()
-            Self.gradient(for: colorScheme)
-                .opacity(0.8)
+            if frosted { BehindWindowBlur() }
+            if style == .none {
+                // No gradient. On the main window the frost is the surface; in a
+                // titled window (Settings) draw nothing and keep the native window
+                // appearance — a flat solid fill looked dull.
+                Color.clear
+            } else {
+                Self.gradient(for: colorScheme, style: style)
+                    // Over the frost the gradient is a translucent tint; without
+                    // it (Settings) the gradient is the opaque fill.
+                    .opacity(frosted ? 0.8 : 1)
+            }
         }
         .ignoresSafeArea()
     }
 
-    /// The bare gradient, reusable where the environment can't supply the
-    /// scheme (offscreen export rendering).
-    static func gradient(for scheme: ColorScheme) -> some View {
-        MeshGradient(
-            width: 3, height: 3,
-            points: [
-                [0, 0], [0.5, 0], [1, 0],
-                [0, 0.5], [0.55, 0.45], [1, 0.5],
-                [0, 1], [0.5, 1], [1, 1],
-            ],
-            colors: scheme == .dark ? dark : light)
+    /// The 3×3 mesh control points, shared by every style.
+    static let meshPoints: [SIMD2<Float>] = [
+        [0, 0], [0.5, 0], [1, 0],
+        [0, 0.5], [0.55, 0.45], [1, 0.5],
+        [0, 1], [0.5, 1], [1, 1],
+    ]
+
+    /// The bare gradient for a style, reusable where the environment can't supply
+    /// the scheme (offscreen export rendering). `.none` yields its solid fill.
+    @ViewBuilder
+    static func gradient(for scheme: ColorScheme,
+                         style: BackdropStyle = .current) -> some View {
+        if style == .none {
+            style.solidFill(for: scheme)
+        } else {
+            MeshGradient(width: 3, height: 3, points: meshPoints,
+                         colors: style.meshColors(for: scheme))
+        }
     }
-
-    // Deliberately narrow palettes — the backdrop should read as one deep
-    // colour with a faint drift of hue, not a rainbow.
-    private static let dark: [Color] = [
-        Color(red: 0.08, green: 0.11, blue: 0.26),  // hint of royal blue
-        Color(red: 0.06, green: 0.07, blue: 0.19),
-        Color(red: 0.12, green: 0.08, blue: 0.24),  // hint of purple
-        Color(red: 0.05, green: 0.07, blue: 0.19),
-        Color(red: 0.05, green: 0.06, blue: 0.15),  // navy centre
-        Color(red: 0.09, green: 0.07, blue: 0.20),
-        Color(red: 0.05, green: 0.08, blue: 0.20),
-        Color(red: 0.05, green: 0.08, blue: 0.21),
-        Color(red: 0.07, green: 0.10, blue: 0.26),  // soft blue glow
-    ]
-
-    private static let light: [Color] = [
-        Color(red: 0.86, green: 0.90, blue: 0.99),  // pale blue
-        Color(red: 0.91, green: 0.93, blue: 0.99),
-        Color(red: 0.96, green: 0.89, blue: 0.95),  // pale rose
-        Color(red: 0.89, green: 0.93, blue: 0.99),
-        Color(red: 0.94, green: 0.96, blue: 1.00),  // airy centre
-        Color(red: 0.95, green: 0.92, blue: 0.97),
-        Color(red: 0.87, green: 0.93, blue: 0.98),
-        Color(red: 0.91, green: 0.95, blue: 0.99),
-        Color(red: 0.89, green: 0.94, blue: 0.99),  // pale cyan
-    ]
 }
 
 /// Frosts whatever sits behind the window — other windows and the wallpaper.

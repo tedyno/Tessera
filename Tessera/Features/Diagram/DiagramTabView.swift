@@ -12,7 +12,12 @@ struct DiagramTabView: View {
     /// The scroll view's magnification range, shared with the zoom slider.
     static let zoomRange: ClosedRange<CGFloat> = 0.25...3.0
 
-    @State private var zoomToFitToken = 0
+    // Starts at 1 (the coordinator's `lastZoomToken` starts at 0) so the canvas
+    // fits to show the whole schema on first layout — and again every time the
+    // tab is revisited, since leaving the diagram tab tears this view down and
+    // recreates it fresh. Without this the reborn scroll view sits at its origin
+    // (top-left) and the schema is off-screen.
+    @State private var zoomToFitToken = 1
     /// Mirror of the scroll view's magnification — the slider writes it, and
     /// pinch/⌘-scroll/⌘± changes flow back via the clip-bounds observer.
     @State private var zoom: CGFloat = 1

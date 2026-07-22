@@ -1,6 +1,289 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Catppuccin": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "Dracula": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "Gruvbox": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "Nord": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "One Dark": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "Rosé Pine": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "Tokyo Night": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "Machine": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "Monokai": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "Octagon": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "Ristretto": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "Spectrum": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "Aurora": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polární záře"
+          }
+        }
+      }
+    },
+    "Dark": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tmavý"
+          }
+        }
+      }
+    },
+    "Dusk": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soumrak"
+          }
+        }
+      }
+    },
+    "Forest": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les"
+          }
+        }
+      }
+    },
+    "Graphite": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grafit"
+          }
+        }
+      }
+    },
+    "Light": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Světlý"
+          }
+        }
+      }
+    },
+    "Ocean": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oceán"
+          }
+        }
+      }
+    },
+    "Sunset": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Západ slunce"
+          }
+        }
+      }
+    },
+    "Theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motiv"
+          }
+        }
+      }
+    },
+    "Window": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno"
+          }
+        }
+      }
+    },
+    "Window backdrop": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozadí okna"
+          }
+        }
+      }
+    },
+    "Off by default. When on, Tessera listens on 127.0.0.1 so an MCP client such as Claude Code or Codex can query it — but only connections that individually allow MCP access are exposed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vypnuto ve výchozím stavu. Když je zapnutý, Tessera naslouchá na 127.0.0.1, takže se může dotazovat MCP klient jako Claude Code nebo Codex — ale zpřístupněná jsou jen připojení, která MCP přístup jednotlivě povolila."
+          }
+        }
+      }
+    },
+    "Paste the copied JSON into your MCP client. Generating a new token invalidates the old one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vlož zkopírovaný JSON do svého MCP klienta. Vygenerování nového tokenu zneplatní ten starý."
+          }
+        }
+      }
+    },
+    "Appearance": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vzhled"
+          }
+        }
+      }
+    },
+    "Canvas background": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozadí plátna"
+          }
+        }
+      }
+    },
+    "Comfortable": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pohodlná"
+          }
+        }
+      }
+    },
+    "Compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompaktní"
+          }
+        }
+      }
+    },
+    "Diagram": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagram"
+          }
+        }
+      }
+    },
+    "Diagram edges": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hrany diagramu"
+          }
+        }
+      }
+    },
+    "MCP": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    "Results grid": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mřížka výsledků"
+          }
+        }
+      }
+    },
+    "Row density": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hustota řádků"
+          }
+        }
+      }
+    },
     "": {
       "extractionState": "manual",
       "shouldTranslate": false
