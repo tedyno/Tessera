@@ -134,10 +134,16 @@ final class DiagramCanvasView: NSView {
 
     // MARK: Edges
 
+    /// Exports fill a real page background; the live canvas only washes the
+    /// app's gradient backdrop so the diagram floats on it.
+    var drawsOpaqueBackground = true
+
     override func draw(_ dirtyRect: NSRect) {
-        // A real background (not just the scroll view showing through), so a
-        // PNG export isn't transparent between the boxes.
-        NSColor.underPageBackgroundColor.setFill()
+        if drawsOpaqueBackground {
+            NSColor.underPageBackgroundColor.setFill()
+        } else {
+            NSColor.underPageBackgroundColor.withAlphaComponent(0.35).setFill()
+        }
         dirtyRect.fill()
         if let transition = backgroundTransition {
             let t = Self.ease(transition.progress)

@@ -6,6 +6,22 @@ import DBKit
 final class DirtyRowView: NSTableRowView {
     enum State { case none, update, delete, insert }
     var state: State = .none
+
+    /// Cell views keep their text-sized height, which reads as gaps between
+    /// rows in the comfortable density — stretch them to the full row height
+    /// (the centred text cell keeps the glyphs on the middle line).
+    override func layout() {
+        super.layout()
+        for view in subviews {
+            var frame = view.frame
+            if frame.height != bounds.height {
+                frame.origin.y = 0
+                frame.size.height = bounds.height
+                view.frame = frame
+            }
+        }
+    }
+
     override func drawBackground(in dirtyRect: NSRect) {
         super.drawBackground(in: dirtyRect)
         let color: NSColor? = switch state {
@@ -24,18 +40,46 @@ final class GridTextField: NSTextField {
     var columnIndex = -1
 }
 
+/// Vertically centres single-line text when the cell is taller than the text
+/// (comfortable row density) — the default cell pins it to the top.
+final class CenteredTextFieldCell: NSTextFieldCell {
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        var inset = super.drawingRect(forBounds: rect)
+        let height = cellSize(forBounds: rect).height
+        if inset.height > height {
+            inset.origin.y += (inset.height - height) / 2
+            inset.size.height = height
+        }
+        return inset
+    }
+
+    /// The default implementation fills the background only inside
+    /// `drawingRect` — shrunk to the text line above — which left the
+    /// selection highlight as a thin band. Fill the whole cell frame instead.
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
+        if drawsBackground, let backgroundColor {
+            backgroundColor.setFill()
+            cellFrame.fill()
+            drawsBackground = false
+            drawInterior(withFrame: cellFrame, in: controlView)
+            drawsBackground = true
+            return
+        }
+        drawInterior(withFrame: cellFrame, in: controlView)
+    }
+}
+
 /// Column header showing the name followed by its SQL type in small grey text, on
 /// one line so it always stays within the standard header height.
 final class TypedHeaderCell: NSTableHeaderCell {
     var typeName = ""
 
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
-        // Let AppKit draw the chrome (background, borders, sort indicator) but not its
-        // centered title — we render our own name + type instead.
-        let title = stringValue
-        stringValue = ""
-        super.draw(withFrame: cellFrame, in: controlView)
-        stringValue = title
+        // No system bezel: the header stays transparent over the gradient
+        // backdrop, separated from the rows by a hairline.
+        NSColor.separatorColor.withAlphaComponent(0.6).setFill()
+        NSRect(x: cellFrame.minX, y: cellFrame.maxY - 1,
+               width: cellFrame.width, height: 1).fill()
         drawTitle(in: cellFrame)
     }
 
@@ -61,15 +105,44 @@ final class TypedHeaderCell: NSTableHeaderCell {
 
     /// The sorted column is drawn via `highlight(_:withFrame:in:)`, not `draw(withFrame:in:)`
     /// — without this override, AppKit's own default implementation takes over for
-    /// that one column and shows only the plain name, dropping the type. Chrome
-    /// (including the pressed-state background, per `flag`) still comes from super,
-    /// with the title blanked out the same way `draw` does it.
+    /// that one column and shows only the plain name, dropping the type. The
+    /// pressed state gets a subtle translucent fill instead of system chrome.
     override func highlight(_ flag: Bool, withFrame cellFrame: NSRect, in controlView: NSView) {
-        let title = stringValue
-        stringValue = ""
-        super.highlight(flag, withFrame: cellFrame, in: controlView)
-        stringValue = title
-        drawTitle(in: cellFrame)
+        if flag {
+            NSColor.labelColor.withAlphaComponent(0.07).setFill()
+            cellFrame.fill()
+        }
+        draw(withFrame: cellFrame, in: controlView)
+    }
+}
+
+/// Header strip without the opaque system background: only the (transparent)
+/// column cells and the sort-indicator arrow draw, so the app's gradient
+/// backdrop shows through the header like everywhere else.
+final class ClearHeaderView: NSTableHeaderView {
+    override func draw(_ dirtyRect: NSRect) {
+        guard let tableView else { return }
+        for (index, column) in tableView.tableColumns.enumerated() {
+            let rect = headerRect(ofColumn: index)
+            guard rect.intersects(dirtyRect) else { continue }
+            column.headerCell.draw(withFrame: rect, in: self)
+            if let image = tableView.indicatorImage(in: column) {
+                // The system indicator is a template image — tint it, or it
+                // renders black on the dark backdrop.
+                let size = image.size
+                let tinted = NSImage(size: size, flipped: false) { frame in
+                    image.draw(in: frame)
+                    NSColor.secondaryLabelColor.set()
+                    frame.fill(using: .sourceAtop)
+                    return true
+                }
+                tinted.draw(in: NSRect(x: rect.maxX - size.width - 5,
+                                       y: rect.midY - size.height / 2,
+                                       width: size.width, height: size.height),
+                            from: .zero, operation: .sourceOver, fraction: 1,
+                            respectFlipped: true, hints: nil)
+            }
+        }
     }
 }
 
@@ -367,7 +440,12 @@ struct ResultsTableView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let tableView = GridTableView()
         tableView.style = .inset
-        tableView.usesAlternatingRowBackgroundColors = true
+        // Transparent grid: the app's gradient backdrop shows through, with
+        // hand-rolled translucent zebra striping (the system's alternating
+        // colours are opaque).
+        tableView.usesAlternatingRowBackgroundColors = false
+        tableView.backgroundColor = .clear
+        tableView.headerView = ClearHeaderView(frame: NSRect(x: 0, y: 0, width: 0, height: 24))
         // Let the last column fill any trailing space so its header (name + type)
         // never floats over an empty area with no data column beneath it.
         tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
@@ -424,6 +502,7 @@ struct ResultsTableView: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
 
         context.coordinator.tableView = tableView
         context.coordinator.onSort = onSort
@@ -1264,6 +1343,10 @@ struct ResultsTableView: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
             let rowView = DirtyRowView()
             rowView.state = rowState(row)
+            // Translucent zebra stripe — labelColor adapts to light/dark.
+            rowView.backgroundColor = row.isMultiple(of: 2)
+                ? .clear
+                : NSColor.labelColor.withAlphaComponent(0.04)
             return rowView
         }
 
@@ -1327,6 +1410,7 @@ struct ResultsTableView: NSViewRepresentable {
 
         private func makeField(identifier: NSUserInterfaceItemIdentifier) -> GridTextField {
             let field = GridTextField(labelWithString: "")
+            field.cell = CenteredTextFieldCell(textCell: "")
             field.identifier = identifier
             field.font = Self.mono
             field.lineBreakMode = .byTruncatingTail

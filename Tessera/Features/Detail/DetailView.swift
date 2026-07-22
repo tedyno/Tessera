@@ -170,7 +170,6 @@ struct DetailView: View {
             .animation(.snappy(duration: 0.2), value: model.tabs.map(\.id))
         }
         .frame(height: 34)
-        .background(.bar)
     }
 
     @State private var hoveredTabID: UUID?
@@ -425,6 +424,8 @@ struct DetailView: View {
                 placeholder: String(localized: "WHERE …"),
                 onSubmit: { clause in Task { await model.applyFilter(tab, where: clause) } })
                 .frame(width: 260, height: 24)
+                .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.primary.opacity(0.12)))
 
             sortMenu(tab)
             limitField(tab)
@@ -537,8 +538,12 @@ struct DetailView: View {
                 get: { tab.pageLimit },
                 set: { tab.pageLimit = max(1, $0) }
             ), format: .number)
-            .textFieldStyle(.roundedBorder)
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
             .frame(width: 64)
+            .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.primary.opacity(0.12)))
             .onSubmit { Task { await model.setLimit(tab, tab.pageLimit) } }
         }
     }
@@ -812,7 +817,7 @@ struct DetailView: View {
         }
         .padding(10)
         .frame(height: 150)
-        .background(.background)
+        .background(.ultraThinMaterial)
     }
 
     /// Pretty-prints a value that is valid JSON; otherwise returns it unchanged.
@@ -951,6 +956,5 @@ struct DetailView: View {
         // item hug the curve.
         .padding(.horizontal, 18)
         .padding(.vertical, 4)
-        .background(.bar)
     }
 }

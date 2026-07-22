@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import DBKit
 
 /// Serves the MCP core from the app's live state. Only connections that granted MCP
@@ -325,12 +326,13 @@ final class MCPBridge: MCPDataSource {
         canvas.model = model
         canvas.edgeStyle = DiagramEdgeStyle(rawValue: edgeStyle) ?? .curved
         canvas.backgroundStyle = DiagramBackgroundStyle(rawValue: background) ?? .plain
+        // Translucent canvas over the gradient backdrop — the export matches
+        // what the diagram tab looks like on screen.
+        canvas.drawsOpaqueBackground = false
         canvas.render()
-        guard let rep = canvas.bitmapImageRepForCachingDisplay(in: canvas.contentRect) else {
-            throw fail("The diagram could not be rendered.")
-        }
-        canvas.cacheDisplay(in: canvas.contentRect, to: rep)
-        guard let data = rep.representation(using: .png, properties: [:]) else {
+        let scheme: ColorScheme =
+            NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
+        guard let data = DiagramExportRenderer.png(canvas: canvas, colorScheme: scheme) else {
             throw fail("The diagram could not be rendered.")
         }
 

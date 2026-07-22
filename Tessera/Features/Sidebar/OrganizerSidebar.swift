@@ -108,7 +108,7 @@ struct OrganizerSidebar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(.bar)
+        .background(.ultraThinMaterial)
     }
 
     // MARK: Alert plumbing

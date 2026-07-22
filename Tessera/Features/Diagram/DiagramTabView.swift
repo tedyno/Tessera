@@ -20,6 +20,7 @@ struct DiagramTabView: View {
     @State private var exportError: String?
     @AppStorage("tessera.diagram.edgeStyle") private var edgeStyleRaw = DiagramEdgeStyle.curved.rawValue
     @AppStorage("tessera.diagram.background") private var backgroundRaw = DiagramBackgroundStyle.plain.rawValue
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 0) {
@@ -197,12 +198,9 @@ struct DiagramTabView: View {
         panel.nameFieldStringValue = ExportSettings.fileName(base: "\(model.schemaName)-erd",
                                                             extension: "png")
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let rep = canvas.bitmapImageRepForCachingDisplay(in: canvas.contentRect) else {
-            exportError = String(localized: "The diagram could not be rendered.")
-            return
-        }
-        canvas.cacheDisplay(in: canvas.contentRect, to: rep)
-        guard let data = rep.representation(using: .png, properties: [:]) else {
+        // Composite the translucent canvas over the gradient backdrop, so the
+        // file looks exactly like the diagram on screen.
+        guard let data = DiagramExportRenderer.png(canvas: canvas, colorScheme: colorScheme) else {
             exportError = String(localized: "The diagram could not be rendered.")
             return
         }
@@ -245,8 +243,9 @@ private struct DiagramCanvasRepresentable: NSViewRepresentable {
         scroll.allowsMagnification = true
         scroll.minMagnification = DiagramTabView.zoomRange.lowerBound
         scroll.maxMagnification = DiagramTabView.zoomRange.upperBound
-        scroll.drawsBackground = true
-        scroll.backgroundColor = .underPageBackgroundColor
+        // Transparent: the app's gradient backdrop shows through the canvas.
+        scroll.drawsBackground = false
+        canvas.drawsOpaqueBackground = false
 
         // Magnification has no direct change callback, but every zoom resizes
         // the clip view's bounds — observe those to keep the slider in sync

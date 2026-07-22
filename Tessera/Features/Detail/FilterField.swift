@@ -16,9 +16,13 @@ struct FilterField: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
-        scrollView.borderType = .bezelBorder
+        // Chrome comes from SwiftUI (translucent rounded background) — the
+        // system bezel would paint an opaque grey box over the backdrop.
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
 
         let textView = CompletingTextView(frame: .zero)
+        textView.drawsBackground = false
         textView.placeholder = placeholder
         textView.delegate = context.coordinator
         textView.isRichText = false

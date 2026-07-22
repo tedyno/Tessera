@@ -179,7 +179,8 @@ struct SchemaOutlineView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let outline = SchemaTreeView()
-        outline.style = .sourceList
+        outline.style = .inset
+        outline.backgroundColor = .clear
         outline.headerView = nil
         outline.rowHeight = 24
         // No dead zone between rows: the intercell gap belongs to no row, so a

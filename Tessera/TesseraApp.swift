@@ -12,6 +12,9 @@ struct TesseraApp: App {
         WindowGroup {
             ContentView(app: app)
         }
+        // Frameless chrome: the gradient backdrop and floating cards own the
+        // window; the traffic lights float over the top-left card area.
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1240, height: 760)
         .commands {
             TesseraCommands(app: app)

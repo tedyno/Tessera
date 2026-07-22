@@ -212,7 +212,7 @@ struct SchemaSidebar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(.bar)
+        .background(.ultraThinMaterial)
     }
 
     /// A checklist of schemas that stays open across clicks (dismisses on click-away),
@@ -268,7 +268,7 @@ struct SpeedSearchBar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(.bar)
+        .background(.ultraThinMaterial)
         .overlay(alignment: .bottom) { Divider() }
         .transition(.move(edge: .top).combined(with: .opacity))
     }

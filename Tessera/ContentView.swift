@@ -5,38 +5,14 @@ struct ContentView: View {
     @Bindable var app: AppModel
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $app.columnVisibility) {
-            // No GeometryReader here on purpose: deriving the panes' ideal height from
-            // the container made VSplitView re-apply it on every layout pass, snapping
-            // the divider back and fighting the drag. A constant ideal stays put.
-            VSplitView {
-                OrganizerSidebar(
-                    model: app.connections,
-                    selection: $app.selection,
-                    onNewConnection: { parent in
-                        app.newConnectionParent = parent
-                        app.showingNewConnection = true
-                    },
-                    onEditConnection: { app.editConnection(nodeID: $0) },
-                    onDuplicateConnection: { app.duplicateConnection(nodeID: $0) },
-                    onConnectProfile: { app.connectProfile(profileID: $0) },
-                    onDisconnect: { app.disconnect(profileID: $0) },
-                    onReconnect: { app.reconnect(profileID: $0) },
-                    onIntrospect: { app.introspect(profileID: $0) },
-                    onExport: { app.exportConnection(profileID: $0) },
-                    onImport: { app.importConnection(profileID: $0) },
-                    onNewQueryTab: { app.newQueryTab(profileID: $0) },
-                    connectionDot: { app.connectionDot(profileID: $0) },
-                    statusVersion: app.sessionStatusVersion,
-                    onDisconnectAll: { app.disconnectAll() },
-                    hasActiveConnections: app.hasActiveConnections)
-                .frame(minHeight: 120, idealHeight: 320, maxHeight: .infinity)
-
-                schemaSidebar
-                    .frame(minHeight: 120, maxHeight: .infinity)
+        // Custom chrome instead of NavigationSplitView: the two sidebar panes
+        // float as rounded glass cards over the window-wide gradient backdrop,
+        // matching the Liquid Glass design concept.
+        HStack(spacing: 0) {
+            if app.columnVisibility != .detailOnly {
+                sidebarColumn
+                    .transition(.move(edge: .leading).combined(with: .opacity))
             }
-            .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 420)
-        } detail: {
             DetailView(model: app.console,
                        showingHistory: $app.showingHistory,
                        focusTrigger: app.editorFocusRequests,
@@ -51,6 +27,8 @@ struct ContentView: View {
                        onSelectConnection: { app.selectConnection($0) },
                        onNewConnection: { app.newConnection() })
         }
+        .animation(.smooth(duration: 0.25), value: app.columnVisibility)
+        .background { TesseraBackdrop() }
         // Nothing connects on launch — no Keychain access until the user actually
         // connects something (double-click / ⌘↩ in the organizer). A plain click
         // only switches the schema sidebar to that connection's session.
@@ -176,6 +154,73 @@ struct ContentView: View {
     private var cursorBinding: Binding<Int> {
         Binding(get: { app.console.activeTab?.cursorPosition ?? 0 },
                 set: { app.console.activeTab?.cursorPosition = $0 })
+    }
+
+    /// Organizer/schema height split as a ratio of the sidebar column. Fixed
+    /// 50:50 by default; only an explicit drag on the gap changes it, so
+    /// window resizes scale both cards proportionally and nothing ever
+    /// reflows on its own.
+    @AppStorage("tessera.sidebarSplitRatio") private var sidebarSplitRatio = 0.5
+
+    /// The organizer and schema panes as stacked floating glass cards; the
+    /// gap between them is a draggable splitter.
+    private var sidebarColumn: some View {
+        GeometryReader { geo in
+            let gap: CGFloat = 10
+            let available = max(geo.size.height - gap, 200)
+            let ratio = min(max(sidebarSplitRatio, 0.15), 0.85)
+            VStack(spacing: 0) {
+                organizerSidebar
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .floatingPanel()
+                    .frame(height: available * ratio)
+                splitter(available: available)
+                schemaSidebar
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .floatingPanel()
+            }
+            .coordinateSpace(name: "sidebarColumn")
+        }
+        .frame(width: 300)
+        .padding(EdgeInsets(top: 8, leading: 10, bottom: 10, trailing: 6))
+    }
+
+    /// The transparent gap between the cards, draggable to re-balance them.
+    private func splitter(available: CGFloat) -> some View {
+        Color.clear
+            .frame(height: 10)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(coordinateSpace: .named("sidebarColumn"))
+                    .onChanged { value in
+                        sidebarSplitRatio = min(max(value.location.y / available, 0.15), 0.85)
+                    })
+    }
+
+    private var organizerSidebar: some View {
+        OrganizerSidebar(
+                model: app.connections,
+                selection: $app.selection,
+                onNewConnection: { parent in
+                    app.newConnectionParent = parent
+                    app.showingNewConnection = true
+                },
+                onEditConnection: { app.editConnection(nodeID: $0) },
+                onDuplicateConnection: { app.duplicateConnection(nodeID: $0) },
+                onConnectProfile: { app.connectProfile(profileID: $0) },
+                onDisconnect: { app.disconnect(profileID: $0) },
+                onReconnect: { app.reconnect(profileID: $0) },
+                onIntrospect: { app.introspect(profileID: $0) },
+                onExport: { app.exportConnection(profileID: $0) },
+                onImport: { app.importConnection(profileID: $0) },
+                onNewQueryTab: { app.newQueryTab(profileID: $0) },
+                connectionDot: { app.connectionDot(profileID: $0) },
+                statusVersion: app.sessionStatusVersion,
+                onDisconnectAll: { app.disconnectAll() },
+                hasActiveConnections: app.hasActiveConnections)
     }
 
     // Pulled out of `body`: with this many parameters/closures inline, the whole

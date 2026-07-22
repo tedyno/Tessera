@@ -173,7 +173,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let outline = ContextualOutlineView()
-        outline.style = .sourceList
+        outline.style = .inset
+        outline.backgroundColor = .clear
         outline.headerView = nil
         outline.rowHeight = 24
         outline.intercellSpacing = .zero   // no dead zone between rows
