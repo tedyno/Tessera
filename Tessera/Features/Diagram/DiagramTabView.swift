@@ -84,68 +84,103 @@ struct DiagramTabView: View {
         .padding(.vertical, 5)
     }
 
-    /// Floating appearance controls in the canvas corner: edge routing on top,
-    /// backdrop below — always at hand without reaching for the toolbar.
+    /// Floating appearance controls along the canvas' bottom edge: glass
+    /// capsule tracks with a clear glass puck sliding onto the active choice —
+    /// the Maps-style floating-glass look (the in-window segmented control
+    /// still renders in the legacy flat style, so it can't be used here).
     private var stylePill: some View {
-        VStack(spacing: 5) {
-            pillButton("point.topleft.down.curvedto.point.bottomright.up", help: "Curved",
-                       isOn: edgeStyleRaw == DiagramEdgeStyle.curved.rawValue) {
-                edgeStyleRaw = DiagramEdgeStyle.curved.rawValue
+        HStack(spacing: 10) {
+            selectorGroup(index: edgeStyleRaw == DiagramEdgeStyle.curved.rawValue ? 0 : 1) {
+                pillButton("point.topleft.down.curvedto.point.bottomright.up", help: "Curved",
+                           isOn: edgeStyleRaw == DiagramEdgeStyle.curved.rawValue) {
+                    edgeStyleRaw = DiagramEdgeStyle.curved.rawValue
+                }
+                pillButton("arrow.turn.down.right", help: "Right-angled",
+                           isOn: edgeStyleRaw == DiagramEdgeStyle.orthogonal.rawValue) {
+                    edgeStyleRaw = DiagramEdgeStyle.orthogonal.rawValue
+                }
             }
-            pillButton("arrow.turn.down.right", help: "Right-angled",
-                       isOn: edgeStyleRaw == DiagramEdgeStyle.orthogonal.rawValue) {
-                edgeStyleRaw = DiagramEdgeStyle.orthogonal.rawValue
+            selectorGroup(index: backdropIndex) {
+                pillButton("square", help: "Plain",
+                           isOn: backgroundRaw == DiagramBackgroundStyle.plain.rawValue) {
+                    backgroundRaw = DiagramBackgroundStyle.plain.rawValue
+                }
+                pillButton("circle.grid.3x3.fill", help: "Dots",
+                           isOn: backgroundRaw == DiagramBackgroundStyle.dots.rawValue) {
+                    backgroundRaw = DiagramBackgroundStyle.dots.rawValue
+                }
+                pillButton("grid", help: "Grid",
+                           isOn: backgroundRaw == DiagramBackgroundStyle.grid.rawValue) {
+                    backgroundRaw = DiagramBackgroundStyle.grid.rawValue
+                }
             }
-            Divider().frame(width: 16)
-            pillButton("square", help: "Plain",
-                       isOn: backgroundRaw == DiagramBackgroundStyle.plain.rawValue) {
-                backgroundRaw = DiagramBackgroundStyle.plain.rawValue
+            HStack(spacing: 4) {
+                pillButton("minus.magnifyingglass", help: "Zoom out") {
+                    zoom = max(zoom / 1.25, Self.zoomRange.lowerBound)
+                }
+                zoomSlider
+                pillButton("plus.magnifyingglass", help: "Zoom in") {
+                    zoom = min(zoom * 1.25, Self.zoomRange.upperBound)
+                }
             }
-            pillButton("circle.grid.3x3.fill", help: "Dots",
-                       isOn: backgroundRaw == DiagramBackgroundStyle.dots.rawValue) {
-                backgroundRaw = DiagramBackgroundStyle.dots.rawValue
-            }
-            pillButton("grid", help: "Grid",
-                       isOn: backgroundRaw == DiagramBackgroundStyle.grid.rawValue) {
-                backgroundRaw = DiagramBackgroundStyle.grid.rawValue
-            }
-            Divider().frame(width: 16)
-            pillButton("plus.magnifyingglass", help: "Zoom in", isOn: false) {
-                zoom = min(zoom * 1.25, Self.zoomRange.upperBound)
-            }
-            zoomSlider
-            pillButton("minus.magnifyingglass", help: "Zoom out", isOn: false) {
-                zoom = max(zoom / 1.25, Self.zoomRange.lowerBound)
-            }
+            .padding(4)
+            .glassEffect(.regular, in: Capsule())
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 5)
-        .glassEffect(.regular, in: Capsule())
         .padding(14)
     }
 
-    /// Vertical zoom slider in log space, so equal travel feels like an equal
-    /// zoom factor at both ends of the range.
+    private var backdropIndex: Int {
+        switch DiagramBackgroundStyle(rawValue: backgroundRaw) ?? .plain {
+        case .plain: 0
+        case .dots: 1
+        case .grid: 2
+        }
+    }
+
+    /// A glass-capsule track whose active column carries a clear glass puck;
+    /// changing the selection slides the puck to the new column.
+    private func selectorGroup(index: Int,
+                               @ViewBuilder buttons: () -> some View) -> some View {
+        HStack(spacing: 6, content: buttons)
+            // The puck sits *behind* the icons — over them, the glass would
+            // refract the active icon into invisibility.
+            .background(alignment: .leading) {
+                Circle()
+                    .fill(.clear)
+                    .frame(width: 28, height: 28)
+                    .glassEffect(.regular.tint(.accentColor).interactive(),
+                                 in: Circle())
+                    // Column pitch: 28 pt button + 6 pt spacing.
+                    .offset(x: CGFloat(index) * 34)
+                    .allowsHitTesting(false)
+            }
+            .padding(4)
+            .glassEffect(.regular, in: Capsule())
+    }
+
+    /// Zoom slider in log space, so equal travel feels like an equal zoom
+    /// factor at both ends of the range.
     private var zoomSlider: some View {
         Slider(value: Binding(get: { log2(zoom) },
                               set: { zoom = pow(2, $0) }),
                in: log2(Self.zoomRange.lowerBound)...log2(Self.zoomRange.upperBound))
             .controlSize(.mini)
             .labelsHidden()
-            .frame(width: 64)
-            .rotationEffect(.degrees(-90))
-            .frame(width: 24, height: 64)
+            .frame(width: 90)
     }
 
-    private func pillButton(_ icon: String, help: LocalizedStringKey, isOn: Bool,
+    /// A plain round button living on a glass track — the sliding puck, not
+    /// the button, marks the active state.
+    private func pillButton(_ icon: String, help: LocalizedStringKey, isOn: Bool = false,
                             action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            withAnimation(.smooth(duration: 0.35)) { action() }
+        } label: {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .medium))
-                .frame(width: 24, height: 24)
-                .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
-                .background(isOn ? Color.accentColor.opacity(0.16) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 6))
+                .frame(width: 28, height: 28)
+                .foregroundStyle(isOn ? Color.white : Color.secondary)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .help(help)
