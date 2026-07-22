@@ -51,6 +51,31 @@ struct ValueEditorSheet: View {
 
             Divider()
 
+            if let kind = temporalKind, target.isEditable {
+                // Date/time columns get a picker over the raw text — either
+                // edits the same value; the text below stays the source of
+                // truth and accepts anything typed or pasted.
+                HStack(spacing: 10) {
+                    switch kind {
+                    case .date:
+                        DatePicker("", selection: pickerBinding, displayedComponents: .date)
+                    case .time:
+                        DatePicker("", selection: pickerBinding, displayedComponents: .hourAndMinute)
+                    case .dateTime:
+                        DatePicker("", selection: pickerBinding,
+                                   displayedComponents: [.date, .hourAndMinute])
+                    }
+                    Spacer()
+                    Button("Now") { pickerBinding.wrappedValue = Date() }
+                }
+                .labelsHidden()
+                .environment(\.timeZone, Self.utc)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+
+                Divider()
+            }
+
             TextEditor(text: $text)
                 .font(.system(.body, design: .monospaced))
                 .disabled(!target.isEditable)
@@ -89,6 +114,67 @@ struct ValueEditorSheet: View {
         }
         .frame(minWidth: 520, idealWidth: 640, maxWidth: .infinity,
                minHeight: 340, idealHeight: 440, maxHeight: .infinity)
+    }
+
+    // MARK: Date/time picking
+
+    private enum TemporalKind { case date, time, dateTime }
+
+    /// Which picker the column's type deserves, if any. `timestamp` must be
+    /// checked before `time` — it's a prefix collision.
+    private var temporalKind: TemporalKind? {
+        let type = target.typeName.lowercased()
+        if type.contains("timestamp") || type.contains("datetime") { return .dateTime }
+        if type == "date" { return .date }
+        if type.hasPrefix("time") { return .time }
+        return nil
+    }
+
+    private static let utc = TimeZone(identifier: "UTC")!
+
+    /// The picker reads whatever the text parses to and writes a canonical
+    /// rendering back — raw text stays authoritative in between.
+    private var pickerBinding: Binding<Date> {
+        Binding(get: { parsedDate ?? Date() },
+                set: { text = format($0) })
+    }
+
+    private var parsedDate: Date? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: trimmed) { return date }
+        iso.formatOptions = [.withInternetDateTime]
+        if let date = iso.date(from: trimmed) { return date }
+        for pattern in ["yyyy-MM-dd HH:mm:ss.SSSZZZZZ", "yyyy-MM-dd HH:mm:ssZZZZZ",
+                        "yyyy-MM-dd HH:mm:ss.SSS", "yyyy-MM-dd HH:mm:ss",
+                        "yyyy-MM-dd HH:mm", "yyyy-MM-dd",
+                        "HH:mm:ss.SSS", "HH:mm:ss", "HH:mm"] {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = Self.utc
+            formatter.dateFormat = pattern
+            if let date = formatter.date(from: trimmed) { return date }
+        }
+        return nil
+    }
+
+    /// Renders in the shape the value already had — `T`/`Z` ISO stays ISO,
+    /// otherwise the plain SQL form the server accepts either way.
+    private func format(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = Self.utc
+        switch temporalKind {
+        case .date: formatter.dateFormat = "yyyy-MM-dd"
+        case .time: formatter.dateFormat = "HH:mm:ss"
+        default:
+            formatter.dateFormat = text.contains("T") || target.text.contains("T")
+                ? "yyyy-MM-dd'T'HH:mm:ss'Z'"
+                : "yyyy-MM-dd HH:mm:ss"
+        }
+        return formatter.string(from: date)
     }
 
     /// The text re-serialized with indentation, or nil when it isn't JSON.

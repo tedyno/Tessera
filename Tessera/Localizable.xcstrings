@@ -1705,6 +1705,72 @@
         }
       }
     },
+    "Local Filter…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokální filtr…"
+          }
+        }
+      }
+    },
+    "Clear Local Filters": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrušit lokální filtry"
+          }
+        }
+      }
+    },
+    "Clear Filter": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zrušit filtr"
+          }
+        }
+      }
+    },
+    "Local filter for “%@”": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokální filtr pro „%@“"
+          }
+        }
+      }
+    },
+    "Checked values keep their rows.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaškrtnuté hodnoty ponechají své řádky."
+          }
+        }
+      }
+    },
+    "Now": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teď"
+          }
+        }
+      }
+    },
     "Query Parameters": {
       "extractionState": "manual",
       "localizations": {

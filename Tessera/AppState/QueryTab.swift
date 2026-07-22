@@ -160,6 +160,11 @@ final class QueryTab: Identifiable {
     var localSortColumn: Int?
     var localSortAscending = true
 
+    /// Local per-column value filters (header right-click): column name →
+    /// allowed raw values (nil = NULL). Rows are hidden client-side; empty
+    /// dictionary means no filtering.
+    var localValueFilters: [String: Set<String?>] = [:]
+
     /// ⌘F row filter over the current result: hides non-matching rows client-side,
     /// without re-running the query. Empty = no filter. Escape clears it.
     var searchQuery = ""

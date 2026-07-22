@@ -87,6 +87,8 @@ final class CenteredTextFieldCell: NSTextFieldCell {
 /// one line so it always stays within the standard header height.
 final class TypedHeaderCell: NSTableHeaderCell {
     var typeName = ""
+    /// Accent-tints the name while a local value filter is active.
+    var isFiltered = false
 
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
         // No system bezel: the header stays transparent over the gradient
@@ -102,7 +104,7 @@ final class TypedHeaderCell: NSTableHeaderCell {
         paragraph.lineBreakMode = .byTruncatingTail
         let text = NSMutableAttributedString(string: stringValue, attributes: [
             .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: isFiltered ? NSColor.controlAccentColor : NSColor.labelColor,
             .paragraphStyle: paragraph])
         if !typeName.isEmpty {
             text.append(NSAttributedString(string: "  " + typeName, attributes: [
@@ -134,6 +136,14 @@ final class TypedHeaderCell: NSTableHeaderCell {
 /// column cells and the sort-indicator arrow draw, so the app's gradient
 /// backdrop shows through the header like everywhere else.
 final class ClearHeaderView: NSTableHeaderView {
+    /// Builds the right-click menu for a column (local filter entry).
+    var menuProvider: ((Int) -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        return menuProvider?(column(at: point)) ?? super.menu(for: event)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let tableView else { return }
         // Rows scroll *under* the header — a fully transparent header lets
@@ -175,6 +185,14 @@ struct CellPos: Hashable { let row: Int; let col: Int }
 /// shared with the MCP server so both agree on what a number is.
 private func isNumericColumnType(_ typeName: String) -> Bool {
     SQLTypes.isNumeric(typeName)
+}
+
+/// Date/time columns route their editing through the value-editor sheet,
+/// which offers the date picker next to the raw text.
+func isTemporalColumnType(_ typeName: String) -> Bool {
+    let type = typeName.lowercased()
+    return type.contains("timestamp") || type.contains("datetime")
+        || type == "date" || type.hasPrefix("time")
 }
 
 /// Clipboard formats offered by the grid's "Copy as" menu.
@@ -468,7 +486,11 @@ struct ResultsTableView: NSViewRepresentable {
         // colours are opaque).
         tableView.usesAlternatingRowBackgroundColors = false
         tableView.backgroundColor = .clear
-        tableView.headerView = ClearHeaderView(frame: NSRect(x: 0, y: 0, width: 0, height: 24))
+        let headerView = ClearHeaderView(frame: NSRect(x: 0, y: 0, width: 0, height: 24))
+        headerView.menuProvider = { [c = context.coordinator] column in
+            c.headerMenu(column: column)
+        }
+        tableView.headerView = headerView
         // Let the last column fill any trailing space so its header (name + type)
         // never floats over an empty area with no data column beneath it.
         tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
@@ -831,7 +853,311 @@ struct ResultsTableView: NSViewRepresentable {
             editor?.selectAll(nil)
             isEditingActive = editor != nil
             tab.isEditingCell = editor != nil   // pauses auto-refresh for this tab
+            // Date/time cells get a picker popover under the cell — the raw
+            // text stays editable in place, both stay in sync.
+            if let editor, allowSheet, isTemporalColumnType(result.columns[col].typeName) {
+                showDatePopover(row: row, col: col, editor: editor,
+                                typeName: result.columns[col].typeName)
+            }
             return editor
+        }
+
+        // MARK: Local column filter
+
+        private var filterPopover: NSPopover?
+
+        /// Right-click menu for a column header: the local value filter.
+        func headerMenu(column: Int) -> NSMenu? {
+            guard let result = tab.result, column >= 0, column < result.columns.count
+            else { return nil }
+            let menu = NSMenu()
+            let item = NSMenuItem(title: String(localized: "Local Filter…"),
+                                  action: #selector(openLocalFilterAction(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = column
+            item.state = tab.localValueFilters[result.columns[column].name] != nil ? .on : .off
+            menu.addItem(item)
+            if !tab.localValueFilters.isEmpty {
+                let clear = NSMenuItem(title: String(localized: "Clear Local Filters"),
+                                       action: #selector(clearLocalFiltersAction(_:)),
+                                       keyEquivalent: "")
+                clear.target = self
+                menu.addItem(clear)
+            }
+            return menu
+        }
+
+        @objc private func openLocalFilterAction(_ sender: NSMenuItem) {
+            guard let column = sender.representedObject as? Int else { return }
+            openLocalFilter(column: column)
+        }
+
+        @objc private func clearLocalFiltersAction(_ sender: NSMenuItem) {
+            tab.localValueFilters = [:]
+        }
+
+        /// PhpStorm-style popover: distinct values of the column with counts;
+        /// checked values keep their rows, applied live.
+        private func openLocalFilter(column: Int) {
+            guard let tableView, let result = tab.result, column < result.columns.count,
+                  let header = tableView.headerView else { return }
+            filterPopover?.close()
+            let name = result.columns[column].name
+            var counts: [String?: Int] = [:]
+            for row in result.rows where column < row.count {
+                counts[row[column].text, default: 0] += 1
+            }
+            let values = counts
+                .map { (value: $0.key, count: $0.value) }
+                .sorted { a, b in
+                    a.count != b.count ? a.count > b.count : (a.value ?? "") < (b.value ?? "")
+                }
+            let tab = self.tab
+            let view = ColumnFilterView(
+                columnName: name,
+                values: values,
+                initialSelection: tab.localValueFilters[name] ?? [],
+                onChange: { selection in
+                    tab.localValueFilters[name] = selection.isEmpty ? nil : selection
+                })
+            let popover = NSPopover()
+            popover.contentViewController = NSHostingController(rootView: view)
+            popover.behavior = .transient
+            popover.show(relativeTo: header.headerRect(ofColumn: column), of: header,
+                         preferredEdge: .maxY)
+            filterPopover = popover
+        }
+
+        // MARK: In-cell date picker popover
+
+        private var datePopover: NSPopover?
+        private weak var datePicker: NSDatePicker?
+        private weak var dateEditor: NSText?
+        private var dateEditorObserver: NSObjectProtocol?
+        private var dateClickMonitor: Any?
+        private var isSyncingDateText = false
+        /// Whether the edited value used the ISO `T`/`Z` shape, to write back alike.
+        private var dateEditorUsesISO = false
+        /// The (data-row, column) the popover edits, valid past the in-cell
+        /// editing session's death, plus the one-snapshot-per-session flag.
+        private var dateTargetRow = -1
+        private var dateTargetColumn = ""
+        private var dateSnapshotTaken = false
+        /// The picker's current value: shown as a cell preview while the
+        /// popover is up, committed as ONE pending edit when it closes.
+        private var datePendingValue: String?
+
+        private func showDatePopover(row: Int, col: Int, editor: NSText, typeName: String) {
+            closeDatePopover()
+            guard let tableView, let result = tab.result, col < result.columns.count else { return }
+            dateTargetRow = dataRow(forDisplay: row)
+            dateTargetColumn = result.columns[col].name
+            dateSnapshotTaken = false
+            let type = typeName.lowercased()
+            let picker = NSDatePicker()
+            picker.datePickerStyle = .textFieldAndStepper
+            picker.timeZone = TimeZone(identifier: "UTC")
+            // sv_SE renders ISO-like (yyyy-MM-dd, 24 h) — matching the raw
+            // value instead of a 12-hour AM/PM surprise.
+            picker.locale = Locale(identifier: "sv_SE")
+            picker.isBezeled = false
+            picker.drawsBackground = false
+            if type.contains("timestamp") || type.contains("datetime") {
+                picker.datePickerElements = [.yearMonthDay, .hourMinuteSecond]
+            } else if type == "date" {
+                picker.datePickerElements = [.yearMonthDay]
+            } else {
+                picker.datePickerElements = [.hourMinuteSecond]
+            }
+            dateEditorUsesISO = editor.string.contains("T")
+            picker.dateValue = Self.parseTemporal(editor.string) ?? Date()
+            picker.target = self
+            picker.action = #selector(datePickerChanged(_:))
+            picker.sizeToFit()
+            // Tab cycles through the picker's own date segments instead of
+            // escaping the popover.
+            picker.nextKeyView = picker
+
+            let padding: CGFloat = 10
+            let container = NSView(frame: NSRect(x: 0, y: 0,
+                                                 width: picker.frame.width + padding * 2,
+                                                 height: picker.frame.height + padding * 2))
+            picker.setFrameOrigin(NSPoint(x: padding, y: padding))
+            container.addSubview(picker)
+            let controller = NSViewController()
+            controller.view = container
+
+            let popover = NSPopover()
+            popover.contentViewController = controller
+            // Not transient: it must survive clicks back into the cell text;
+            // it closes with the editing session instead.
+            popover.behavior = .applicationDefined
+            popover.show(relativeTo: tableView.frameOfCell(atColumn: col, row: row),
+                         of: tableView, preferredEdge: .maxY)
+            datePopover = popover
+            datePicker = picker
+            dateEditor = editor
+            dateEditorObserver = NotificationCenter.default.addObserver(
+                forName: NSText.didChangeNotification, object: editor, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.dateEditorTextChanged() }
+            }
+            // `.applicationDefined` never closes itself; a click outside both
+            // the popover and the edited cell commits the previewed value,
+            // Esc cancels it.
+            dateClickMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown, .keyDown]
+            ) { [weak self] event in
+                guard let self, let popover = self.datePopover else { return event }
+                if event.type == .keyDown {
+                    switch event.keyCode {
+                    case 53:   // Esc — discard the preview
+                        self.closeDatePopover(commit: false)
+                        return self.isEditingActive ? event : nil
+                    case 36, 76:   // Return / keypad Enter — commit the preview
+                        self.closeDatePopover(commit: true)
+                        // A live in-cell session still commits its typed text
+                        // through the normal path; otherwise swallow the key.
+                        return self.isEditingActive ? event : nil
+                    default:
+                        return event
+                    }
+                }
+                if event.window === popover.contentViewController?.view.window { return event }
+                if let editor = self.dateEditor, event.window === editor.window {
+                    let point = editor.convert(event.locationInWindow, from: nil)
+                    if editor.bounds.contains(point) { return event }
+                }
+                self.closeDatePopover(commit: true)
+                if self.isEditingActive, let tableView = self.tableView {
+                    tableView.window?.makeFirstResponder(tableView)
+                }
+                return event
+            }
+        }
+
+        /// `commit: true` turns the previewed value into one pending edit;
+        /// `false` (Esc) discards the preview.
+        func closeDatePopover(commit: Bool = false) {
+            if let dateEditorObserver {
+                NotificationCenter.default.removeObserver(dateEditorObserver)
+            }
+            dateEditorObserver = nil
+            if let dateClickMonitor {
+                NSEvent.removeMonitor(dateClickMonitor)
+            }
+            dateClickMonitor = nil
+            let hadPopover = datePopover != nil
+            datePopover?.close()
+            datePopover = nil
+            datePicker = nil
+            dateEditor = nil
+            guard hadPopover else { return }
+            let previewed = datePendingValue
+            datePendingValue = nil
+            if commit, let previewed {
+                applyDateEdit(previewed)
+            } else if previewed != nil, dateTargetRow >= 0 {
+                // Drop the preview from the cell.
+                reload(rows: IndexSet(integer: dateTargetRow))
+            }
+        }
+
+        @objc private func datePickerChanged(_ sender: NSDatePicker) {
+            // Adjusting the picker only previews — the cell shows the value
+            // live, but nothing lands in pending changes until the popover
+            // closes (one edit per session, not one per stepper click).
+            let formatted = Self.formatTemporal(sender.dateValue,
+                                                elements: sender.datePickerElements,
+                                                iso: dateEditorUsesISO)
+            datePendingValue = formatted
+            reload(rows: IndexSet(integer: dateTargetRow))
+        }
+
+        /// Applies a picker value as a pending edit — the same rules the
+        /// end-of-editing commit uses, one undo snapshot per popover session.
+        private func applyDateEdit(_ value: String) {
+            let row = dateTargetRow
+            let columnName = dateTargetColumn
+            guard let result = tab.result, row >= 0 else { return }
+
+            if isInsertRow(row) {
+                let insertIndex = row - fetchedRowCount
+                guard insertIndex < tab.pendingInserts.count else { return }
+                if tab.pendingInserts[insertIndex].values[columnName] != value {
+                    takeDateSnapshotIfNeeded()
+                    tab.pendingInserts[insertIndex].values[columnName] = value
+                }
+                reload(rows: IndexSet(integer: row))
+                return
+            }
+
+            guard row < result.rows.count,
+                  let columnIndex = result.columns.firstIndex(where: { $0.name == columnName })
+            else { return }
+            let original = columnIndex < result.rows[row].count
+                ? result.rows[row][columnIndex].text : nil
+            if value == original {
+                if tab.edits[row]?[columnName] != nil {
+                    takeDateSnapshotIfNeeded()
+                    tab.edits[row]?[columnName] = nil
+                    if tab.edits[row]?.isEmpty == true { tab.edits[row] = nil }
+                }
+            } else if tab.edits[row]?[columnName] != .some(.some(value)) {
+                takeDateSnapshotIfNeeded()
+                tab.edits[row, default: [:]][columnName] = value
+            }
+            reload(rows: IndexSet(integer: row))
+            DispatchQueue.main.async { [weak self] in self?.updateInspector() }
+        }
+
+        private func takeDateSnapshotIfNeeded() {
+            guard !dateSnapshotTaken else { return }
+            dateSnapshotTaken = true
+            tab.captureEditSnapshot()
+        }
+
+        private func dateEditorTextChanged() {
+            guard !isSyncingDateText, let editor = dateEditor, let picker = datePicker else { return }
+            if let date = Self.parseTemporal(editor.string) {
+                picker.dateValue = date
+            }
+        }
+
+        static func parseTemporal(_ string: String) -> Date? {
+            let trimmed = string.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return nil }
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = iso.date(from: trimmed) { return date }
+            iso.formatOptions = [.withInternetDateTime]
+            if let date = iso.date(from: trimmed) { return date }
+            for pattern in ["yyyy-MM-dd HH:mm:ss.SSSZZZZZ", "yyyy-MM-dd HH:mm:ssZZZZZ",
+                            "yyyy-MM-dd HH:mm:ss.SSS", "yyyy-MM-dd HH:mm:ss",
+                            "yyyy-MM-dd HH:mm", "yyyy-MM-dd",
+                            "HH:mm:ss.SSS", "HH:mm:ss", "HH:mm"] {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US_POSIX")
+                formatter.timeZone = TimeZone(identifier: "UTC")
+                formatter.dateFormat = pattern
+                if let date = formatter.date(from: trimmed) { return date }
+            }
+            return nil
+        }
+
+        static func formatTemporal(_ date: Date, elements: NSDatePicker.ElementFlags,
+                                   iso: Bool) -> String {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(identifier: "UTC")
+            if elements.contains(.yearMonthDay), elements.contains(.hourMinuteSecond) {
+                formatter.dateFormat = iso ? "yyyy-MM-dd'T'HH:mm:ss'Z'" : "yyyy-MM-dd HH:mm:ss"
+            } else if elements.contains(.yearMonthDay) {
+                formatter.dateFormat = "yyyy-MM-dd"
+            } else {
+                formatter.dateFormat = "HH:mm:ss"
+            }
+            return formatter.string(from: date)
         }
 
         /// Cells a multi-selection edit session will write into on commit.
@@ -1124,6 +1450,12 @@ struct ResultsTableView: NSViewRepresentable {
             guard let result = tab.result, col < result.columns.count else { return nil }
             let row = dataRow(forDisplay: row)
             let columnName = result.columns[col].name
+            // The open date popover previews its value in the cell without
+            // touching pending edits.
+            if let preview = datePendingValue, datePopover != nil,
+               row == dateTargetRow, columnName == dateTargetColumn {
+                return preview
+            }
             if isInsertRow(row) {
                 let index = row - fetchedRowCount
                 return index < tab.pendingInserts.count ? tab.pendingInserts[index].values[columnName] : nil
@@ -1232,6 +1564,19 @@ struct ResultsTableView: NSViewRepresentable {
             self.tab = tab
             guard let tableView, let result = tab.result else { return }
             visibleRowMap = tab.matchingRowIndices()
+            // Local per-column value filters (header right-click) stack on the
+            // ⌘F filter. Like it, they park editing while active.
+            if !tab.localValueFilters.isEmpty {
+                let base = visibleRowMap ?? Array(result.rows.indices)
+                visibleRowMap = base.filter { row in
+                    tab.localValueFilters.allSatisfy { column, allowed in
+                        guard let index = result.columns.firstIndex(where: { $0.name == column })
+                        else { return true }
+                        let value = index < result.rows[row].count ? result.rows[row][index].text : nil
+                        return allowed.contains(value)
+                    }
+                }
+            }
             // Client-side sort (console results): permute the display order on
             // top of any ⌘F filter. Like the filter, it parks editing — the
             // row juggling only makes sense over the raw result order.
@@ -1297,6 +1642,7 @@ struct ResultsTableView: NSViewRepresentable {
             hasher.combine(tab.sortAscending)
             hasher.combine(tab.localSortColumn)
             hasher.combine(tab.localSortAscending)
+            hasher.combine(tab.localValueFilters)
             for insert in tab.pendingInserts {
                 hasher.combine(insert.id)
                 hasher.combine(insert.values)
@@ -1310,6 +1656,17 @@ struct ResultsTableView: NSViewRepresentable {
                 lastFingerprint = fingerprint
                 tableView.reloadData()
                 updateSortIndicator(tableView, result)
+                // Accent-tint headers whose column carries a local filter.
+                for (index, column) in tableView.tableColumns.enumerated()
+                where index < result.columns.count {
+                    if let cell = column.headerCell as? TypedHeaderCell {
+                        let filtered = tab.localValueFilters[result.columns[index].name] != nil
+                        if cell.isFiltered != filtered {
+                            cell.isFiltered = filtered
+                            tableView.headerView?.needsDisplay = true
+                        }
+                    }
+                }
             }
             // Clearing the inspector here (during updateNSView) would mutate observed
             // state mid-render; defer it, and only if nothing got selected meanwhile.
@@ -1577,6 +1934,16 @@ struct ResultsTableView: NSViewRepresentable {
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
+            // Keyboard commits dismiss the date popover: Return/Tab keep the
+            // previewed value, Esc discards it. A click INTO the popover also
+            // ends the session (movement 0) but must leave it open — the
+            // picker keeps previewing.
+            let endMovement = notification.userInfo?["NSTextMovement"] as? Int ?? 0
+            if endMovement == NSTextMovement.cancel.rawValue {
+                closeDatePopover(commit: false)
+            } else if endMovement != 0 {
+                closeDatePopover(commit: true)
+            }
             // Reset the session flags before any early exit — a stuck
             // `isEditingActive` would silently disable grid reloads for good.
             isEditingActive = false
