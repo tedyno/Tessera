@@ -91,7 +91,10 @@ final class ContextualOutlineView: NSOutlineView {
         switch event.keyCode {
         case 53 where active: onSpeedCancel?(); return    // Esc
         case 51 where active: onSpeedBackspace?(); return // Backspace
-        case 36 where active: onSpeedCancel?(); return    // Return commits too
+        case 36 where active:                             // Return: connect the match
+            onSpeedCancel?()
+            onCommandReturn?()
+            return
         case 125 where active: onSpeedStep?(1); return    // ↓
         case 126 where active: onSpeedStep?(-1); return   // ↑
         default: break
@@ -164,6 +167,13 @@ struct OrganizerOutlineView: NSViewRepresentable {
     var version: Int = 0
     /// Mirrors the speed search for the indicator bar: (term, position, matches).
     var onSpeedSearch: (String, Int, Int) -> Void = { _, _, _ in }
+    /// The sidebar's search-field text; edits retarget the speed search and
+    /// tree-typed characters flow back via `onSpeedSearch` — one mechanism.
+    var searchTerm: String = ""
+    /// ↑/↓ and Return relays from the search field (see SchemaOutlineView).
+    var keyboardStepToken: Int = 0
+    var keyboardStep: Int = 0
+    var keyboardCommitToken: Int = 0
     /// Bump to cancel a running speed search from outside (the bar's ✕ button).
     var speedCancelToken: Int = 0
     /// Changes when any connection's live status changes, so the dots refresh.
@@ -231,6 +241,28 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 coordinator.speedEnd()
             }
         }
+        // The search field owns the term; deferred for the same reason.
+        if context.coordinator.speedTerm != searchTerm {
+            let term = searchTerm
+            DispatchQueue.main.async { [coordinator = context.coordinator] in
+                coordinator.speedSet(term)
+            }
+        }
+        if context.coordinator.lastStepToken != keyboardStepToken {
+            context.coordinator.lastStepToken = keyboardStepToken
+            let delta = keyboardStep
+            DispatchQueue.main.async { [coordinator = context.coordinator] in
+                coordinator.speedStep(delta)
+            }
+        }
+        if context.coordinator.lastCommitToken != keyboardCommitToken {
+            context.coordinator.lastCommitToken = keyboardCommitToken
+            DispatchQueue.main.async { [coordinator = context.coordinator] in
+                if (coordinator.outlineView?.selectedRow ?? -1) >= 0 {
+                    coordinator.connectSelection()
+                }
+            }
+        }
     }
 
     private func applyClosures(to coordinator: Coordinator) {
@@ -296,6 +328,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
         private var speedMatchIDs: Set<UUID> = []
         /// Last seen value of the representable's cancel token.
         var lastCancelToken = 0
+        var lastStepToken = 0
+        var lastCommitToken = 0
 
         init(model: ConnectionsModel, selection: Binding<UUID?>,
              onNewConnection: @escaping (UUID?) -> Void, onNewFolder: @escaping (UUID) -> Void,
@@ -336,6 +370,13 @@ struct OrganizerOutlineView: NSViewRepresentable {
         func speedBackspace() {
             speedTerm.removeLast()
             if speedTerm.isEmpty { speedEnd() } else { speedRetarget() }
+        }
+
+        /// Replaces the whole term at once (the sidebar's search field edits).
+        func speedSet(_ term: String) {
+            guard term != speedTerm else { return }
+            speedTerm = term
+            if term.isEmpty { speedEnd() } else { speedRetarget() }
         }
 
         func speedEnd() {

@@ -34,11 +34,14 @@ struct OrganizerSidebar: View {
     }
     @State private var pending: PendingEdit?
     @State private var editText = ""
-    /// Mirror of the outline's speed search, for the indicator bar.
-    @State private var speedTerm = ""
-    @State private var speedPosition = 0
-    @State private var speedCount = 0
-    @State private var speedCancelCount = 0
+    /// The unified search: the bottom field and tree-typed characters drive
+    /// one speed search (matches are jumped to and tinted, never filtered).
+    @State private var searchText = ""
+    @State private var matchPosition = 0
+    @State private var matchCount = 0
+    @State private var keyboardStepToken = 0
+    @State private var keyboardStep = 0
+    @State private var keyboardCommitToken = 0
 
     var body: some View {
         OrganizerOutlineView(
@@ -63,18 +66,15 @@ struct OrganizerSidebar: View {
             connectionDot: connectionDot,
             version: model.stateVersion,
             onSpeedSearch: { term, position, count in
-                speedTerm = term
-                speedPosition = position
-                speedCount = count
+                if searchText != term { searchText = term }
+                matchPosition = position
+                matchCount = count
             },
-            speedCancelToken: speedCancelCount,
+            searchTerm: searchText,
+            keyboardStepToken: keyboardStepToken,
+            keyboardStep: keyboardStep,
+            keyboardCommitToken: keyboardCommitToken,
             statusVersion: statusVersion)
-        .safeAreaInset(edge: .top) {
-            if !speedTerm.isEmpty {
-                SpeedSearchBar(term: speedTerm, position: speedPosition, count: speedCount,
-                               onCancel: { speedCancelCount += 1 })
-            }
-        }
         .safeAreaInset(edge: .bottom) { bottomBar }
         .alert(alertTitle, isPresented: pendingBinding) {
             TextField("Name", text: $editText)
@@ -84,6 +84,45 @@ struct OrganizerSidebar: View {
     }
 
     private var bottomBar: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
+                TextField("Search", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                    .onKeyPress(.downArrow) {
+                        keyboardStep = 1
+                        keyboardStepToken += 1
+                        return .handled
+                    }
+                    .onKeyPress(.upArrow) {
+                        keyboardStep = -1
+                        keyboardStepToken += 1
+                        return .handled
+                    }
+                    // Return connects the row the search/arrows landed on.
+                    .onSubmit { keyboardCommitToken += 1 }
+                if !searchText.isEmpty {
+                    Text(verbatim: "\(matchPosition)/\(matchCount)")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(matchCount == 0 ? AnyShapeStyle(.red)
+                                                         : AnyShapeStyle(.secondary))
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            actionsRow
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
+    }
+
+    private var actionsRow: some View {
         HStack {
             Menu {
                 Button("New Connection") { onNewConnection(model.organizer.workspaces.first?.id) }
@@ -106,9 +145,6 @@ struct OrganizerSidebar: View {
             .disabled(!hasActiveConnections)
             .help("Disconnect All")
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.ultraThinMaterial)
     }
 
     // MARK: Alert plumbing
