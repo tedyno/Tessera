@@ -53,69 +53,48 @@ enum BackdropStyle: String, CaseIterable, Identifiable {
 
     static let key = "tessera.appearance.backdrop"
 
+    /// The style's base colours (dark, light) plus its accent glow. `.none` has
+    /// no gradient seed and falls back to a neutral pair.
+    private typealias RGB = (Double, Double, Double)
+    private var seed: (dark: RGB, light: RGB, accent: RGB) {
+        switch self {
+        case .monokai:   return ((0.176, 0.165, 0.180), (0.992, 0.976, 0.953), (1.00, 0.38, 0.53)) // pink
+        case .machine:   return ((0.114, 0.145, 0.157), (0.933, 0.957, 0.953), (0.47, 0.86, 0.91)) // teal
+        case .octagon:   return ((0.157, 0.165, 0.227), (0.933, 0.937, 0.969), (0.67, 0.62, 0.95)) // lavender
+        case .ristretto: return ((0.173, 0.145, 0.145), (0.969, 0.945, 0.933), (0.95, 0.55, 0.44)) // coral
+        case .spectrum:  return ((0.133, 0.133, 0.133), (0.961, 0.961, 0.961), (0.69, 0.69, 0.75)) // neutral
+        case .catppuccin: return ((0.118, 0.118, 0.180), (0.937, 0.945, 0.961), (0.80, 0.65, 0.97)) // mauve
+        case .tokyoNight: return ((0.102, 0.106, 0.149), (0.882, 0.886, 0.906), (0.48, 0.64, 0.97)) // azure
+        case .dracula:   return ((0.157, 0.165, 0.212), (0.973, 0.973, 0.949), (0.74, 0.58, 0.98)) // violet
+        case .nord:      return ((0.180, 0.204, 0.251), (0.925, 0.937, 0.957), (0.53, 0.75, 0.82)) // frost
+        case .gruvbox:   return ((0.157, 0.157, 0.157), (0.984, 0.945, 0.780), (1.00, 0.50, 0.10)) // orange
+        case .rosePine:  return ((0.098, 0.090, 0.141), (0.980, 0.957, 0.929), (0.77, 0.65, 0.91)) // iris
+        case .oneDark:   return ((0.157, 0.173, 0.204), (0.980, 0.980, 0.980), (0.38, 0.69, 0.94)) // blue
+        case .none:      return ((0.090, 0.100, 0.130), (0.950, 0.960, 0.980), (0.69, 0.69, 0.75)) // neutral
+        }
+    }
+
     /// The 9 mesh control-point colours for the given scheme, derived from the
     /// scheme's base + accent. `.none` returns an empty array (callers must not
     /// build a mesh from it).
     func meshColors(for scheme: ColorScheme) -> [Color] {
-        let dark = scheme == .dark
-        switch self {
-        case .monokai:
-            return Self.palette(darkBase: (0.176, 0.165, 0.180),
-                                lightBase: (0.992, 0.976, 0.953),
-                                accent: (1.00, 0.38, 0.53), dark: dark)   // pink
-        case .machine:
-            return Self.palette(darkBase: (0.114, 0.145, 0.157),
-                                lightBase: (0.933, 0.957, 0.953),
-                                accent: (0.47, 0.86, 0.91), dark: dark)   // teal
-        case .octagon:
-            return Self.palette(darkBase: (0.157, 0.165, 0.227),
-                                lightBase: (0.933, 0.937, 0.969),
-                                accent: (0.67, 0.62, 0.95), dark: dark)   // lavender
-        case .ristretto:
-            return Self.palette(darkBase: (0.173, 0.145, 0.145),
-                                lightBase: (0.969, 0.945, 0.933),
-                                accent: (0.95, 0.55, 0.44), dark: dark)   // coral
-        case .spectrum:
-            return Self.palette(darkBase: (0.133, 0.133, 0.133),
-                                lightBase: (0.961, 0.961, 0.961),
-                                accent: (0.69, 0.69, 0.75), dark: dark)   // neutral
-        case .catppuccin:
-            return Self.palette(darkBase: (0.118, 0.118, 0.180),   // Mocha  #1E1E2E
-                                lightBase: (0.937, 0.945, 0.961),   // Latte  #EFF1F5
-                                accent: (0.80, 0.65, 0.97), dark: dark)   // mauve
-        case .tokyoNight:
-            return Self.palette(darkBase: (0.102, 0.106, 0.149),   // #1A1B26
-                                lightBase: (0.882, 0.886, 0.906),   // Day    #E1E2E7
-                                accent: (0.48, 0.64, 0.97), dark: dark)   // azure
-        case .dracula:
-            return Self.palette(darkBase: (0.157, 0.165, 0.212),   // #282A36
-                                lightBase: (0.973, 0.973, 0.949),   // Alucard
-                                accent: (0.74, 0.58, 0.98), dark: dark)   // violet
-        case .nord:
-            return Self.palette(darkBase: (0.180, 0.204, 0.251),   // #2E3440
-                                lightBase: (0.925, 0.937, 0.957),   // #ECEFF4
-                                accent: (0.53, 0.75, 0.82), dark: dark)   // frost
-        case .gruvbox:
-            return Self.palette(darkBase: (0.157, 0.157, 0.157),   // #282828
-                                lightBase: (0.984, 0.945, 0.780),   // #FBF1C7
-                                accent: (1.00, 0.50, 0.10), dark: dark)   // orange
-        case .rosePine:
-            return Self.palette(darkBase: (0.098, 0.090, 0.141),   // #191724
-                                lightBase: (0.980, 0.957, 0.929),   // Dawn   #FAF4ED
-                                accent: (0.77, 0.65, 0.91), dark: dark)   // iris
-        case .oneDark:
-            return Self.palette(darkBase: (0.157, 0.173, 0.204),   // #282C34
-                                lightBase: (0.980, 0.980, 0.980),   // One Light
-                                accent: (0.38, 0.69, 0.94), dark: dark)   // blue
-        case .none:
-            return []
-        }
+        guard self != .none else { return [] }
+        let s = seed
+        return Self.palette(darkBase: s.dark, lightBase: s.light, accent: s.accent,
+                            dark: scheme == .dark)
+    }
+
+    /// The representative base colour for the scheme — used by AppKit surfaces
+    /// (the results-grid header) that must sit on the backdrop without a system
+    /// bezel, so they track whichever theme is chosen.
+    func baseColor(for scheme: ColorScheme) -> Color {
+        let base = scheme == .dark ? seed.dark : seed.light
+        return Color(red: base.0, green: base.1, blue: base.2)
     }
 
     /// Solid fill used when `.none` needs a concrete colour (offscreen export).
     func solidFill(for scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(red: 0.09, green: 0.10, blue: 0.13)
-                        : Color(red: 0.95, green: 0.96, blue: 0.98)
+        baseColor(for: scheme)
     }
 
     // MARK: Palette generation

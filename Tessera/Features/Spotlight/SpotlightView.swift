@@ -87,20 +87,39 @@ struct SpotlightView: View {
     @State private var query = ""
     @State private var selectedIndex = 0
     @State private var category: SpotlightCategory = .all
+    /// The full ranked match set, recomputed only when the query changes — not on
+    /// every keystroke-independent re-render (arrow-key navigation, category
+    /// switches). Searching every connection's cached schema is the expensive part,
+    /// so it must run once per query, never twice per render.
+    @State private var allResults: [SpotlightResult] = []
+    /// The query `allResults` was computed for. While it lags behind `query`, a
+    /// search is pending (debounce) or running — the UI shows "Searching…" then,
+    /// not "No matches".
+    @State private var searchedQuery = ""
+    /// Debounces the search so a fast typist doesn't trigger a run per keystroke.
+    @State private var searchTask: Task<Void, Never>?
     @FocusState private var focused: Bool
 
-    /// Ranked matches, then narrowed to the chosen category.
+    /// The full set narrowed to the chosen category — cheap array filtering.
     private var results: [SpotlightResult] {
-        app.spotlightResults(query: query).filter { category.accepts($0.kind) }
+        allResults.filter { category.accepts($0.kind) }
     }
 
     /// How many matches each category would show, so an empty one is visibly empty
-    /// instead of looking broken when you Tab onto it.
+    /// instead of looking broken when you Tab onto it. One pass over the cached set.
     private var counts: [SpotlightCategory: Int] {
-        let all = app.spotlightResults(query: query)
-        return Dictionary(uniqueKeysWithValues: SpotlightCategory.allCases.map { category in
-            (category, all.filter { category.accepts($0.kind) }.count)
-        })
+        var counts: [SpotlightCategory: Int] = [.all: allResults.count]
+        for result in allResults {
+            for option in SpotlightCategory.allCases where option != .all && option.accepts(result.kind) {
+                counts[option, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    private func refresh() {
+        allResults = app.spotlightResults(query: query)
+        searchedQuery = query
     }
 
     var body: some View {
@@ -130,8 +149,22 @@ struct SpotlightView: View {
             content
         }
         .frame(width: 640, height: 440)
-        .onChange(of: query) { _, _ in selectedIndex = 0 }
-        .onAppear { focused = true }
+        .onChange(of: query) { _, _ in
+            selectedIndex = 0
+            searchTask?.cancel()
+            searchTask = Task {
+                // Long enough that a normal typing cadence updates once you pause,
+                // not on every keystroke (which read as flicker).
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { return }
+                refresh()
+            }
+        }
+        .onAppear {
+            focused = true
+            refresh()
+        }
+        .onDisappear { searchTask?.cancel() }
     }
 
     /// PhpStorm-style scope chips; Tab moves to the next, ⇧Tab back.
@@ -178,13 +211,25 @@ struct SpotlightView: View {
     @ViewBuilder
     private var content: some View {
         if results.isEmpty {
-            ContentUnavailableView(
-                query.isEmpty ? "Search everywhere" : "No matches",
-                systemImage: "magnifyingglass",
-                description: Text(query.isEmpty
-                                  ? "Find a connection, schema, table or column across all connections you've opened."
-                                  : "Nothing matches “\(query)”."))
-                .frame(maxHeight: .infinity)
+            if query.isEmpty {
+                ContentUnavailableView(
+                    "Search everywhere", systemImage: "magnifyingglass",
+                    description: Text("Find a connection, schema, table or column across all connections you've opened."))
+                    .frame(maxHeight: .infinity)
+            } else if query != searchedQuery {
+                // A search is pending (debounce) or in flight — don't flash "No
+                // matches" for the previous query's empty set.
+                VStack(spacing: 10) {
+                    ProgressView()
+                    Text("Searching…").font(.callout).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView(
+                    "No matches", systemImage: "magnifyingglass",
+                    description: Text("Nothing matches “\(query)”."))
+                    .frame(maxHeight: .infinity)
+            }
         } else {
             ScrollViewReader { proxy in
                 List {
@@ -196,6 +241,7 @@ struct SpotlightView: View {
                             .onTapGesture { app.open(result) }
                     }
                 }
+                .scrollContentBackground(.hidden)
                 .onChange(of: selectedIndex) { _, index in
                     if results.indices.contains(index) { proxy.scrollTo(results[index].id) }
                 }

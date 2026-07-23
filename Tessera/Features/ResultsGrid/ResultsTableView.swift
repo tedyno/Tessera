@@ -146,14 +146,13 @@ final class ClearHeaderView: NSTableHeaderView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let tableView else { return }
-        // Rows scroll *under* the header — a fully transparent header lets
-        // them bleed through the labels. Near-opaque in the backdrop's own
-        // navy/pale-blue (a grey fill would break the gradient's palette).
+        // Rows scroll *under* the header — a fully transparent header lets them
+        // bleed through the labels. Near-opaque in the chosen backdrop's own base
+        // colour, so the header tracks whichever theme is active (a fixed navy
+        // would clash with every non-Aurora backdrop).
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let fill = dark
-            ? NSColor(red: 0.06, green: 0.08, blue: 0.19, alpha: 0.94)
-            : NSColor(red: 0.90, green: 0.93, blue: 0.99, alpha: 0.94)
-        fill.setFill()
+        let base = BackdropStyle.current.baseColor(for: dark ? .dark : .light)
+        NSColor(base).withAlphaComponent(0.94).setFill()
         dirtyRect.fill()
         for (index, column) in tableView.tableColumns.enumerated() {
             let rect = headerRect(ofColumn: index)
@@ -475,6 +474,8 @@ struct ResultsTableView: NSViewRepresentable {
     var onSort: (String) -> Void = { _ in }
     /// Opens the table a foreign key points at, filtered to the referenced row.
     var onFollowForeignKey: (ForeignKeyTarget, String) -> Void = { _, _ in }
+    /// Discards this tab's uncommitted edits — bound to Escape when they exist.
+    var onDiscardPending: () -> Void = {}
     /// Row height: 18 (compact) or 24 (comfortable), from the density toggle.
     var rowHeight: CGFloat = 18
 
@@ -523,7 +524,7 @@ struct ResultsTableView: NSViewRepresentable {
         tableView.onFollowSelectedForeignKey = { [c = context.coordinator] in
             c.followSelectedForeignKey()
         }
-        tableView.onEscape = { [c = context.coordinator] in c.cancelSearchIfActive() }
+        tableView.onEscape = { [c = context.coordinator] in c.handleEscape() }
         tableView.onMoveSelection = { [c = context.coordinator] dRow, dCol, extend in
             c.moveSelection(dRow: dRow, dCol: dCol, extend: extend)
         }
@@ -558,6 +559,8 @@ struct ResultsTableView: NSViewRepresentable {
         context.coordinator.tableView = tableView
         context.coordinator.onSort = onSort
         context.coordinator.onFollowForeignKey = onFollowForeignKey
+        context.coordinator.onDiscardPending = onDiscardPending
+        context.coordinator.installEscapeMonitor()
         context.coordinator.configure(for: tab)
         return scrollView
     }
@@ -565,6 +568,7 @@ struct ResultsTableView: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         context.coordinator.onSort = onSort
         context.coordinator.onFollowForeignKey = onFollowForeignKey
+        context.coordinator.onDiscardPending = onDiscardPending
         if let table = nsView.documentView as? NSTableView, table.rowHeight != rowHeight,
            !context.coordinator.isEditingActive {
             table.rowHeight = rowHeight
@@ -587,6 +591,7 @@ struct ResultsTableView: NSViewRepresentable {
         weak var tableView: NSTableView?
         var onSort: (String) -> Void = { _ in }
         var onFollowForeignKey: (ForeignKeyTarget, String) -> Void = { _, _ in }
+        var onDiscardPending: () -> Void = {}
         static let mono = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         static let monoItalic = NSFontManager.shared.convert(mono, toHaveTrait: .italicFontMask)
         private var columnsSignature: [String] = []
@@ -871,12 +876,47 @@ struct ResultsTableView: NSViewRepresentable {
             return editor
         }
 
-        /// Called from `dismantleNSView` — the NSEvent monitor and popovers
+        /// Called from `dismantleNSView` — the NSEvent monitors and popovers
         /// are not tied to the view hierarchy and would leak past it.
         func teardown() {
             closeDatePopover()
             filterPopover?.close()
             filterPopover = nil
+            if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+            escapeMonitor = nil
+        }
+
+        // MARK: Escape → discard edits
+
+        private var escapeMonitor: Any?
+
+        /// Discards this tab's uncommitted edits on Escape regardless of where focus
+        /// sits — the table's own keyDown only fires when it is first responder, but
+        /// a row can be added from the toolbar with focus elsewhere. Installed once;
+        /// scoped to the grid's window, and it steps aside while a text field is
+        /// editing (the cell editor and the find bar keep Escape for their own cancel).
+        func installEscapeMonitor() {
+            guard escapeMonitor == nil else { return }
+            escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, event.keyCode == 53, self.tab.hasEdits,
+                      let window = self.tableView?.window, event.window === window,
+                      !(window.firstResponder is NSText) else { return event }
+                self.discardPendingAndReload()
+                return nil   // consumed
+            }
+        }
+
+        /// Clears the tab's pending edits and repaints the grid — SwiftUI won't
+        /// re-run `updateNSView` here (the results view doesn't observe the edit
+        /// state), so the reload has to be explicit or the reverted rows stay
+        /// highlighted.
+        func discardPendingAndReload() {
+            onDiscardPending()
+            selected = []
+            anchor = nil
+            focus = nil
+            tableView?.reloadData()
+            updateInspector()
         }
 
         // MARK: Local column filter
@@ -1417,12 +1457,19 @@ struct ResultsTableView: NSViewRepresentable {
 
         var hasSelection: Bool { !selected.isEmpty }
 
-        /// Escape while the grid (not the search field) has focus — e.g. after
-        /// clicking a cell to dismiss the find bar's keyboard focus.
-        func cancelSearchIfActive() -> Bool {
-            guard tab.isSearchBarVisible else { return false }
-            tab.clearSearch()
-            return true
+        /// Escape while the grid (not the search field) has focus: first dismiss the
+        /// find bar, otherwise discard the tab's uncommitted edits (undoable via ⌘Z).
+        /// Returns false when there's nothing to cancel, so Escape keeps its default.
+        func handleEscape() -> Bool {
+            if tab.isSearchBarVisible {
+                tab.clearSearch()
+                return true
+            }
+            if tab.hasEdits {
+                discardPendingAndReload()
+                return true
+            }
+            return false
         }
 
         // MARK: Foreign keys

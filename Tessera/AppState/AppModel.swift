@@ -636,51 +636,100 @@ final class AppModel {
         shiftWasDown = rawShift
     }
 
+    /// A flat, pre-lowercased searchable entry. The Spotlight index is an array of
+    /// these — built once per schema/connection change so each keystroke is a plain
+    /// `contains` over the flat list, not a re-walk of every schema tree with a
+    /// fresh `.lowercased()` per name.
+    private struct SpotlightItem {
+        let kind: SpotlightResult.Kind
+        let profileID: UUID
+        let connectionName: String
+        let path: [String]
+        let schema: String?
+        let table: String?
+        let column: String?
+        let indexName: String?
+        let lowerTitle: String
+    }
+
+    @ObservationIgnored private var spotlightIndex: [SpotlightItem] = []
+    /// Signature of the inputs the index was built from; when it changes (a schema
+    /// is (re)introspected, or a connection is added/renamed/moved) the index is
+    /// rebuilt. Stable order (over `profiles`) so an unchanged set hashes equal.
+    @ObservationIgnored private var spotlightIndexSignature = -1
+
+    private func spotlightSignature() -> Int {
+        var hasher = Hasher()
+        for profile in connections.profiles {
+            hasher.combine(profile.id)
+            hasher.combine(profile.name)
+            hasher.combine(connections.path(forProfile: profile.id))
+            hasher.combine(schemaCache[profile.id]?.updatedAt)
+        }
+        return hasher.finalize()
+    }
+
+    private func rebuildSpotlightIndex() {
+        var items: [SpotlightItem] = []
+        for profile in connections.profiles {
+            let path = connections.path(forProfile: profile.id)
+            items.append(SpotlightItem(kind: .connection, profileID: profile.id,
+                                       connectionName: profile.name, path: path,
+                                       schema: nil, table: nil, column: nil, indexName: nil,
+                                       lowerTitle: profile.name.lowercased()))
+            guard let tree = schemaCache[profile.id]?.tree else { continue }
+            for namespace in tree.schemas {
+                items.append(SpotlightItem(kind: .schema, profileID: profile.id,
+                                           connectionName: profile.name, path: path,
+                                           schema: namespace.name, table: nil, column: nil,
+                                           indexName: nil, lowerTitle: namespace.name.lowercased()))
+                for table in namespace.tables {
+                    items.append(SpotlightItem(kind: .table, profileID: profile.id,
+                                               connectionName: profile.name, path: path,
+                                               schema: namespace.name, table: table.name, column: nil,
+                                               indexName: nil, lowerTitle: table.name.lowercased()))
+                    for column in table.columns {
+                        items.append(SpotlightItem(kind: .column, profileID: profile.id,
+                                                   connectionName: profile.name, path: path,
+                                                   schema: namespace.name, table: table.name,
+                                                   column: column.name, indexName: nil,
+                                                   lowerTitle: column.name.lowercased()))
+                    }
+                    for index in table.indexes {
+                        items.append(SpotlightItem(kind: .index, profileID: profile.id,
+                                                   connectionName: profile.name, path: path,
+                                                   schema: namespace.name, table: table.name,
+                                                   column: nil, indexName: index.name,
+                                                   lowerTitle: index.name.lowercased()))
+                    }
+                }
+            }
+        }
+        spotlightIndex = items
+    }
+
     func spotlightResults(query: String) -> [SpotlightResult] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !needle.isEmpty else { return [] }
-        var results: [SpotlightResult] = []
 
-        for profile in connections.profiles {
-            let path = connections.path(forProfile: profile.id)
-            // Anything not backed by a live session came from the on-disk cache and
-            // may be out of date; the row says so.
-            let cached = !(console.session(for: profile.id)?.isReady ?? false)
-            if profile.name.lowercased().contains(needle) {
-                results.append(SpotlightResult(kind: .connection, profileID: profile.id,
-                                               connectionName: profile.name, path: path,
-                                               schema: nil, table: nil, column: nil))
-            }
-            guard let tree = schemaCache[profile.id]?.tree else { continue }
-            for namespace in tree.schemas {
-                if namespace.name.lowercased().contains(needle) {
-                    results.append(SpotlightResult(kind: .schema, profileID: profile.id,
-                                                   connectionName: profile.name, path: path,
-                                                   schema: namespace.name, table: nil, column: nil,
-                                                   isCached: cached))
-                }
-                for table in namespace.tables {
-                    if table.name.lowercased().contains(needle) {
-                        results.append(SpotlightResult(kind: .table, profileID: profile.id,
-                                                       connectionName: profile.name, path: path,
-                                                       schema: namespace.name, table: table.name, column: nil,
-                                                   isCached: cached))
-                    }
-                    for column in table.columns where column.name.lowercased().contains(needle) {
-                        results.append(SpotlightResult(kind: .column, profileID: profile.id,
-                                                       connectionName: profile.name, path: path,
-                                                       schema: namespace.name, table: table.name, column: column.name,
-                                                   isCached: cached))
-                    }
-                    for index in table.indexes where index.name.lowercased().contains(needle) {
-                        results.append(SpotlightResult(kind: .index, profileID: profile.id,
-                                                       connectionName: profile.name, path: path,
-                                                       schema: namespace.name, table: table.name,
-                                                       column: nil, indexName: index.name,
-                                                       isCached: cached))
-                    }
-                }
-            }
+        let signature = spotlightSignature()
+        if signature != spotlightIndexSignature {
+            rebuildSpotlightIndex()
+            spotlightIndexSignature = signature
+        }
+        // Live/cached badge is runtime state (session readiness), so it's resolved
+        // per query rather than baked into the index — a handful of profiles.
+        let cachedByProfile = Dictionary(uniqueKeysWithValues: connections.profiles.map {
+            ($0.id, !(console.session(for: $0.id)?.isReady ?? false))
+        })
+
+        var results: [SpotlightResult] = []
+        for item in spotlightIndex where item.lowerTitle.contains(needle) {
+            results.append(SpotlightResult(kind: item.kind, profileID: item.profileID,
+                                           connectionName: item.connectionName, path: item.path,
+                                           schema: item.schema, table: item.table, column: item.column,
+                                           indexName: item.indexName,
+                                           isCached: cachedByProfile[item.profileID] ?? true))
         }
         return Array(Self.ranked(results, needle: needle).prefix(80))
     }

@@ -180,6 +180,7 @@ final class DiagramCanvasView: NSView {
         // Unrelated edges recede when a table is selected — draw them first so
         // the highlighted ones stay on top.
         let edges = model.visibleEdges
+        rebuildHopObstacles(edges)
         for (index, edge) in edges.enumerated() {
             let involved = edge.fromTable == selected || edge.toTable == selected
             if selected != nil, involved { continue }
@@ -541,7 +542,16 @@ final class DiagramCanvasView: NSView {
             case .polyline(let points):
                 guard let first = points.first else { return }
                 path.move(to: first)
-                for point in points.dropFirst() { path.line(to: point) }
+                for (a, b) in zip(points, points.dropFirst()) {
+                    // Horizontal runs hop over vertical runs of *other* edges, so a
+                    // crossing reads as a bridge, not a merge. Verticals draw
+                    // straight (they're the ones hopped over).
+                    if abs(a.y - b.y) < 0.5, abs(a.x - b.x) > 0.5 {
+                        appendHorizontal(path, from: a, to: b, edgeIndex: lane)
+                    } else {
+                        path.line(to: b)
+                    }
+                }
             }
         }
         path.stroke()
@@ -551,6 +561,61 @@ final class DiagramCanvasView: NSView {
     }
 
 
+
+    // MARK: Line hops
+
+    /// Vertical runs of every edge, so a horizontal run can bridge over the ones
+    /// that belong to *other* edges. Rebuilt each draw pass; only populated for
+    /// the orthogonal style outside a style transition (curved edges and morphs
+    /// have no axis-aligned runs to cross cleanly).
+    private var hopVerticals: [(x: CGFloat, y0: CGFloat, y1: CGFloat, edge: Int)] = []
+
+    private func rebuildHopObstacles(_ edges: [DiagramModel.Edge]) {
+        hopVerticals.removeAll(keepingCapacity: true)
+        guard edgeStyle == .orthogonal, styleTransition == nil else { return }
+        for (index, edge) in edges.enumerated() {
+            guard let geo = geometry(for: edge, lane: index),
+                  case .polyline(let points) = geo.path else { continue }
+            for (a, b) in zip(points, points.dropFirst())
+            where abs(a.x - b.x) < 0.5 && abs(a.y - b.y) > 0.5 {
+                hopVerticals.append((x: a.x, y0: min(a.y, b.y), y1: max(a.y, b.y), edge: index))
+            }
+        }
+    }
+
+    /// Extends `path` along a horizontal run, arching a small semicircular hop
+    /// over each vertical run of another edge it crosses. `path` must already be
+    /// positioned at `a`.
+    private func appendHorizontal(_ path: NSBezierPath, from a: NSPoint, to b: NSPoint,
+                                  edgeIndex: Int) {
+        let radius: CGFloat = 5
+        let dir: CGFloat = b.x >= a.x ? 1 : -1
+        let lo = min(a.x, b.x), hi = max(a.x, b.x)
+        // Crossing x-positions, far enough from the run's ends to leave a straight
+        // stub on either side of the bridge.
+        var crossings = hopVerticals
+            .filter { $0.edge != edgeIndex
+                && a.y > $0.y0 + 1 && a.y < $0.y1 - 1
+                && $0.x > lo + radius && $0.x < hi - radius }
+            .map(\.x)
+            .sorted { dir > 0 ? $0 < $1 : $0 > $1 }
+        // Collapse near-coincident crossings (parallel edges sharing a corridor)
+        // so their bridges don't overlap into a blob.
+        crossings = crossings.reduce(into: [CGFloat]()) { kept, x in
+            if let last = kept.last, abs(x - last) < 2 * radius + 1 { return }
+            kept.append(x)
+        }
+        for cx in crossings {
+            let entry = NSPoint(x: cx - dir * radius, y: a.y)
+            let exit = NSPoint(x: cx + dir * radius, y: a.y)
+            let lift = radius * 1.4   // control-point pull for a rounded arch
+            path.line(to: entry)
+            path.curve(to: exit,
+                       controlPoint1: NSPoint(x: entry.x, y: entry.y + lift),
+                       controlPoint2: NSPoint(x: exit.x, y: exit.y + lift))
+        }
+        path.line(to: b)
+    }
 
     /// Where the connector line itself begins, leaving room for the claw/tick.
     private func markStart(at point: NSPoint, dir: CGFloat, edge: DiagramModel.Edge) -> NSPoint {

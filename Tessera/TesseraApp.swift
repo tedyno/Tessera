@@ -4,21 +4,30 @@ import Sparkle
 @main
 struct TesseraApp: App {
     @State private var app = AppModel()
-    /// The user's light/dark override; `nil` follows the system. Applied to both
-    /// scenes so the Settings window matches the main window.
+    /// The user's light/dark override; `nil` follows the system. Applied app-wide
+    /// via `NSApp.appearance` (see `AppTheme.applyToApp`), so every window and its
+    /// titlebar stay in sync — including the Settings window.
     @AppStorage(AppTheme.key) private var themeRaw = AppTheme.system.rawValue
+    /// Drives the Dock icon, which follows the chosen backdrop + light/dark.
+    @AppStorage(BackdropStyle.key) private var backdropRaw = BackdropStyle.monokai.rawValue
     /// Drives Sparkle auto-updates (checks the appcast, downloads, installs).
     private let updaterController = SPUStandardUpdaterController(
         startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
-    private var preferredScheme: ColorScheme? {
-        (AppTheme(rawValue: themeRaw) ?? .system).colorScheme
+    private func applyAppearance() {
+        AppTheme.applyToApp()
+        ThemeIcon.apply()
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView(app: app)
-                .preferredColorScheme(preferredScheme)
+                .onAppear {
+                    applyAppearance()
+                    ThemeIcon.startObservingSystemAppearance()
+                }
+                .onChange(of: themeRaw) { applyAppearance() }
+                .onChange(of: backdropRaw) { ThemeIcon.apply() }
         }
         // Frameless chrome: the gradient backdrop and floating cards own the
         // window; the traffic lights float over the top-left card area.
@@ -33,7 +42,6 @@ struct TesseraApp: App {
 
         Settings {
             SettingsView()
-                .preferredColorScheme(preferredScheme)
         }
     }
 }

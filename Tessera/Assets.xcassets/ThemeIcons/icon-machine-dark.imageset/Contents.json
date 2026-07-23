@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "icon-machine-dark.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
