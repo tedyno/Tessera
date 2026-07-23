@@ -206,7 +206,13 @@ struct SchemaOutlineView: NSViewRepresentable {
         outline.delegate = context.coordinator
 
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("main"))
-        column.resizingMask = .autoresizingMask
+        // The column is sized to the widest row (see resizeColumnToFitContent), not
+        // stretched to the clip view, so long names/types scroll horizontally
+        // instead of truncating.
+        column.resizingMask = [.userResizingMask]
+        column.minWidth = 60
+        column.maxWidth = 100_000
+        outline.columnAutoresizingStyle = .noColumnAutoresizing
         outline.addTableColumn(column)
         outline.outlineTableColumn = column
 
@@ -227,7 +233,15 @@ struct SchemaOutlineView: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.documentView = outline
         scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
+        // Re-clamp the column to the clip width when the sidebar is resized, so it
+        // fills the view when content fits and scrolls when it doesn't.
+        scrollView.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            coordinator, selector: #selector(Coordinator.clipViewFrameChanged),
+            name: NSView.frameDidChangeNotification, object: scrollView.contentView)
 
         coordinator.outlineView = outline
         // Seed the relay tokens: SwiftUI @State outlives this coordinator, so
@@ -427,6 +441,7 @@ struct SchemaOutlineView: NSViewRepresentable {
             if !speedTerm.isEmpty {
                 DispatchQueue.main.async { self.speedRetarget() }
             }
+            setNeedsColumnResize()
         }
 
         /// Depth-first lookup by stable key, for restoring selection across rebuilds.
@@ -458,6 +473,71 @@ struct SchemaOutlineView: NSViewRepresentable {
             }
         }
 
+        // MARK: Column sizing
+
+        /// The widest row's content, cached so a sidebar resize can re-clamp without
+        /// re-measuring every row.
+        private var cachedContentWidth: CGFloat = 0
+        private var columnResizeScheduled = false
+        /// An off-screen cell reused only to measure a node's natural width — same
+        /// construction and `configure` path as the real cells, so it stays honest.
+        private lazy var measureCell = Self.makeCellView(
+            identifier: NSUserInterfaceItemIdentifier("schemaMeasure"))
+
+        /// Coalesces the many expand notifications of one runloop tick into a single
+        /// re-measure. Call after any change to which rows are visible.
+        func setNeedsColumnResize() {
+            guard !columnResizeScheduled else { return }
+            columnResizeScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                self?.columnResizeScheduled = false
+                self?.recomputeContentWidth()
+            }
+        }
+
+        /// Measures every visible row and sizes the column to the widest one.
+        private func recomputeContentWidth() {
+            guard let outlineView else { return }
+            var maxWidth: CGFloat = 0
+            for row in 0..<outlineView.numberOfRows {
+                guard let node = outlineView.item(atRow: row) as? SchemaOutlineNode else { continue }
+                // frameOfCell.minX already accounts for indentation + disclosure.
+                let indent = outlineView.frameOfCell(atColumn: 0, row: row).minX
+                let width = indent + contentWidth(for: node) + 6   // small trailing pad
+                if width > maxWidth { maxWidth = width }
+            }
+            cachedContentWidth = maxWidth
+            applyColumnWidth()
+        }
+
+        /// The natural (untruncated) width of a node's cell content.
+        private func contentWidth(for node: SchemaOutlineNode) -> CGFloat {
+            configure(measureCell, for: node)
+            guard let stack = measureCell.subviews.compactMap({ $0 as? NSStackView }).first
+            else { return 0 }
+            var width: CGFloat = 0
+            for view in stack.arrangedSubviews {
+                let intrinsic = view.intrinsicContentSize.width
+                if intrinsic > 0 { width += intrinsic }   // the spacer reports −1; skip it
+            }
+            // Spacing sits between all arranged subviews, plus the cell's own insets.
+            width += CGFloat(max(stack.arrangedSubviews.count - 1, 0)) * stack.spacing + 6
+            return width
+        }
+
+        /// Sizes the column to the wider of the clip view and the measured content, so
+        /// it fills the sidebar when content fits and overflows (scrolls) when it
+        /// doesn't. A small tolerance keeps a barely-fitting row from flashing a
+        /// scroller.
+        private func applyColumnWidth() {
+            guard let outlineView, let column = outlineView.tableColumns.first else { return }
+            let clip = outlineView.enclosingScrollView?.contentView.bounds.width ?? outlineView.bounds.width
+            let target = cachedContentWidth > clip + 8 ? cachedContentWidth : clip
+            if abs(column.width - target) > 0.5 { column.width = target }
+        }
+
+        @objc func clipViewFrameChanged() { applyColumnWidth() }
+
         // MARK: Data source
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -487,6 +567,7 @@ struct SchemaOutlineView: NSViewRepresentable {
             case .table, .indexGroup: expandedKeys.insert(node.key)
             default: break
             }
+            setNeedsColumnResize()
         }
 
         func outlineViewItemDidCollapse(_ notification: Notification) {
@@ -498,6 +579,7 @@ struct SchemaOutlineView: NSViewRepresentable {
             case .table, .indexGroup: expandedKeys.remove(node.key)
             default: break
             }
+            setNeedsColumnResize()
         }
 
         // MARK: Cells

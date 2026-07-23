@@ -28,6 +28,7 @@ struct ContentView: View {
                        onNewConnection: { app.newConnection() })
         }
         .animation(.smooth(duration: 0.25), value: app.columnVisibility)
+        .coordinateSpace(name: "contentRow")
         .background { TesseraBackdrop() }
         // Nothing connects on launch — no Keychain access until the user actually
         // connects something (double-click / ⌘↩ in the organizer). A plain click
@@ -183,6 +184,21 @@ struct ContentView: View {
     /// reflows on its own.
     @AppStorage("tessera.sidebarSplitRatio") private var sidebarSplitRatio = 0.5
 
+    /// The sidebar column's width, persisted across launches and adjusted by the
+    /// handle on its right edge.
+    @AppStorage("tessera.sidebarWidth") private var sidebarWidth = 300.0
+    /// Captured at drag start so the handle grabs exactly under the cursor (no jump)
+    /// and stays stable as the layout reflows mid-drag.
+    @State private var sidebarDragOffset: CGFloat?
+    /// The width while a drag is in flight; the persisted value is written only on
+    /// release, so dragging doesn't hit UserDefaults every frame.
+    @State private var liveSidebarWidth: CGFloat?
+
+    private var currentSidebarWidth: CGFloat { liveSidebarWidth ?? CGFloat(sidebarWidth) }
+
+    private static let minSidebarWidth: CGFloat = 220
+    private static let maxSidebarWidth: CGFloat = 640
+
     /// The organizer and schema panes as stacked floating glass cards; the
     /// gap between them is a draggable splitter.
     private var sidebarColumn: some View {
@@ -202,8 +218,38 @@ struct ContentView: View {
             }
             .coordinateSpace(name: "sidebarColumn")
         }
-        .frame(width: 300)
+        .frame(width: currentSidebarWidth)
         .padding(EdgeInsets(top: 8, leading: 10, bottom: 10, trailing: 6))
+        // Overlaid on the trailing edge, so the handle sits in the gap between the
+        // sidebar card and the detail without consuming layout (no empty column).
+        .overlay(alignment: .trailing) { sidebarResizeHandle }
+    }
+
+    /// The draggable strip on the sidebar's right edge; widens/narrows the column
+    /// and persists the width. Location-based in the row's coordinate space so the
+    /// value doesn't jump as the sidebar reflows under the cursor.
+    private var sidebarResizeHandle: some View {
+        Color.clear
+            .frame(width: 8)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .offset(x: -3)   // nudge into the card/detail gap
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named("contentRow"))
+                    .onChanged { value in
+                        let offset = sidebarDragOffset ?? (value.location.x - currentSidebarWidth)
+                        if sidebarDragOffset == nil { sidebarDragOffset = offset }
+                        liveSidebarWidth = min(max(value.location.x - offset, Self.minSidebarWidth),
+                                               Self.maxSidebarWidth)
+                    }
+                    .onEnded { _ in
+                        if let width = liveSidebarWidth { sidebarWidth = Double(width) }
+                        liveSidebarWidth = nil
+                        sidebarDragOffset = nil
+                    })
     }
 
     /// The transparent gap between the cards, draggable to re-balance them.

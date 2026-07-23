@@ -25,12 +25,19 @@ enum ThemeIcon {
         }
         NSApplication.shared.applicationIconImage = image
 
-        // Persisting the resting icon writes to disk, so skip it when nothing
-        // changed (launch always applies once, then only on real theme/appearance
-        // flips).
+        // Persisting the resting icon writes an `Icon\r` + Finder-info override onto
+        // the .app. That's fine for a shipped, already-signed build, but codesign
+        // refuses to *re-sign* a bundle carrying that detritus — which would break
+        // every incremental dev build. So only Release builds (the ones users
+        // actually install and never re-sign) persist it; Debug keeps the live Dock
+        // icon only.
+#if !DEBUG
+        // Writing to disk, so skip it when nothing changed (launch applies once,
+        // then only on real theme/appearance flips).
         guard key != lastAppliedKey else { return }
         lastAppliedKey = key
         NSWorkspace.shared.setIcon(image, forFile: Bundle.main.bundlePath, options: [])
+#endif
     }
 
     /// The mode the icon should use: the explicit theme override, or the live
@@ -58,6 +65,8 @@ enum ThemeIcon {
     }
 
     nonisolated(unsafe) private static var observer: NSObjectProtocol?
+#if !DEBUG
     /// The last resting-icon key written to disk, to avoid redundant `setIcon`s.
     nonisolated(unsafe) private static var lastAppliedKey: String?
+#endif
 }
