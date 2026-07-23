@@ -377,8 +377,37 @@ final class AppModel {
                                 diagramSchema: tab.diagram?.schemaName,
                                 diagramTable: diagramTable)
             },
-            activeIndex: console.tabs.firstIndex(where: { $0.id == console.activeTabID }))
+            activeIndex: console.tabs.firstIndex(where: { $0.id == console.activeTabID }),
+            layout: encodePane(console.workspace.root))
         SavedTabsStore.save(document)
+    }
+
+    /// Serialises the pane tree, referring to tabs by their index in the saved list.
+    private func encodePane(_ node: PaneNode) -> SavedPane {
+        func indexOf(_ id: UUID) -> Int? { console.tabs.firstIndex { $0.id == id } }
+        if let group = node.group {
+            return SavedPane(tabs: group.tabIDs.compactMap(indexOf),
+                             active: group.activeID.flatMap(indexOf))
+        }
+        return SavedPane(axis: node.axis?.rawValue,
+                         fraction: node.fractions.first,
+                         children: node.children.map(encodePane))
+    }
+
+    /// Rebuilds a pane node from a saved one, mapping tab indices back to the
+    /// freshly restored tabs (`nil` for entries that couldn't be recreated).
+    private func decodePane(_ saved: SavedPane, restored: [QueryTab?]) -> PaneNode? {
+        func tab(_ index: Int) -> QueryTab? { restored.indices.contains(index) ? restored[index] : nil }
+        if let axisRaw = saved.axis, let axis = SplitAxis(rawValue: axisRaw), let children = saved.children {
+            let nodes = children.compactMap { decodePane($0, restored: restored) }
+            guard nodes.count == 2 else { return nodes.first }   // a dropped child collapses the split
+            let fraction = saved.fraction ?? 0.5
+            return PaneNode(axis: axis, children: nodes, fractions: [fraction, 1 - fraction])
+        }
+        let ids = (saved.tabs ?? []).compactMap { tab($0)?.id }
+        guard !ids.isEmpty else { return nil }
+        let active = saved.active.flatMap { tab($0)?.id } ?? ids.first
+        return PaneNode(group: TabGroup(tabIDs: ids, activeID: active))
     }
 
     /// Recreates the previous launch's tabs. Nothing connects or runs — a
@@ -422,12 +451,19 @@ final class AppModel {
                 restored.append(tab)
             }
         }
+        // Rebuild the pane layout before activating, so the active tab's pane can
+        // take focus. Falls back to a single pane when there's no saved layout.
+        if let layout = document.layout, let root = decodePane(layout, restored: restored) {
+            console.workspace.root = root
+            console.workspace.focusedGroupID = root.allGroups.first?.id
+        }
         if let index = document.activeIndex, restored.indices.contains(index),
            let tab = restored[index] {
             console.activate(tab)
         } else if let last = console.tabs.last {
             console.activate(last)
         }
+        console.adoptRestoredTabs()
     }
 
     func viewConnection(nodeID: UUID?) {

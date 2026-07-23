@@ -20,9 +20,23 @@ struct SavedTab: Codable {
     var diagramTable: String?
 }
 
+/// The tiling layout, serialised: a leaf lists tab indices into the document's
+/// `tabs` (with its active one), a split records its axis, the first child's
+/// fraction, and its children. Optional so older documents (no layout) still load.
+struct SavedPane: Codable {
+    // Leaf.
+    var tabs: [Int]?
+    var active: Int?
+    // Split.
+    var axis: String?
+    var fraction: Double?
+    var children: [SavedPane]?
+}
+
 struct SavedTabsDocument: Codable {
     var tabs: [SavedTab] = []
     var activeIndex: Int?
+    var layout: SavedPane?
 }
 
 /// Persists the open tabs as JSON in Application Support, so quitting and

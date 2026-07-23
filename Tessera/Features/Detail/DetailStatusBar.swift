@@ -11,9 +11,12 @@ struct DetailStatusBar: View {
     /// via the `tessera.gridDensity` key with the results grid and the Appearance
     /// settings tab.
     @AppStorage("tessera.gridDensity") private var gridComfortable = false
-    @Binding var showInspector: Bool
     @Binding var showingConnectionLog: Bool
     var onExportResult: (ResultExport.Format) -> Void
+
+    /// The inspector toggle acts on whichever pane has focus — its state lives on
+    /// the group, so the shared status bar drives the right pane.
+    private var showInspector: Bool { model.workspace.focusedGroup?.showInspector ?? false }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -91,7 +94,7 @@ struct DetailStatusBar: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .help(gridComfortable ? "Compact rows" : "Comfortable rows")
-                Button { showInspector.toggle() } label: {
+                Button { model.workspace.focusedGroup?.showInspector.toggle() } label: {
                     Label("Inspect Cell", systemImage: "rectangle.and.text.magnifyingglass")
                         .labelStyle(.iconOnly)
                 }

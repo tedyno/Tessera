@@ -9,14 +9,9 @@ struct ConnectionOption: Identifiable, Hashable {
     let name: String
 }
 
-/// Column 3 — detail with query tabs, a live SQL editor, Run, the results table,
-/// and query history. Each tab has its own editor and result but shares the
-/// connection.
-///
-/// A thin orchestrator: the tab bar, toolbars, results area, inspector,
-/// pending-changes panel and status bar each live in their own file
-/// (`DetailTabBar`, `DetailView+Toolbars`, `DetailResultsArea`,
-/// `ValueInspectorPanel`, `PendingChangesPanel`, `DetailStatusBar`).
+/// Column 3 — the detail area. Renders the tiling pane tree (each pane its own tab
+/// bar + content) above one shared status bar, plus the app-level sheets. Per-pane
+/// UI lives in `PaneView`/`PaneTreeView`; this is the thin shell around them.
 struct DetailView: View {
     @Bindable var model: QueryConsoleModel
     @Binding var showingHistory: Bool
@@ -36,62 +31,35 @@ struct DetailView: View {
     /// Opens the New Connection sheet (empty state on a fresh install).
     var onNewConnection: () -> Void = { }
 
-    /// Whether the value inspector panel is shown below the results grid.
-    @State private var showInspector = false
     @State private var showingConnectionLog = false
-    // Shared with the toolbars extension (the data view saves queries too).
-    @State var showingSaveQuery = false
-    @State var saveQueryTitle = ""
+    // Shared with every pane (the data view saves queries too).
+    @State private var showingSaveQuery = false
+    @State private var saveQueryTitle = ""
+
+    private var env: PaneEnv {
+        PaneEnv(isReadOnly: isReadOnly,
+                connectionOptions: connectionOptions,
+                onSelectConnection: onSelectConnection,
+                onRun: onRun,
+                onExplain: onExplain,
+                onExportResult: onExportResult,
+                focusTrigger: focusTrigger,
+                onNewConnection: onNewConnection,
+                showingHistory: $showingHistory,
+                showingSaveQuery: $showingSaveQuery,
+                saveQueryTitle: $saveQueryTitle)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            DetailTabBar(model: model)
-            Divider()
-            if model.activeTab == nil {
-                emptyState
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let tab = model.activeTab, tab.kind == .diagram, let diagram = tab.diagram {
-                DiagramTabView(model: diagram,
-                               onOpenTable: { schema, table in
-                                   Task { await model.openTable(schema: schema, table: table, on: tab.session) }
-                               },
-                               onShowWholeSchema: {
-                                   model.openDiagram(schema: diagram.schemaName, on: tab.session)
-                               })
+            PaneTreeView(model: model, node: model.workspace.root, env: env)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                if let tab = model.activeTab, tab.kind == .data {
-                    dataToolbar(tab)
-                    Divider()
-                    dataSQLView(tab)
-                } else {
-                    editorToolbar
-                    Divider()
-                    editor
-                }
-                Divider()
-                DetailResultsArea(model: model)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if showInspector, let tab = model.activeTab, tab.result != nil {
-                    Divider()
-                    ValueInspectorPanel(tab: tab)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                if let tab = model.activeTab, tab.hasEdits {
-                    Divider()
-                    PendingChangesPanel(model: model, tab: tab)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
+            Divider()
             DetailStatusBar(model: model,
                             isReadOnly: isReadOnly,
-                            showInspector: $showInspector,
                             showingConnectionLog: $showingConnectionLog,
                             onExportResult: onExportResult)
         }
-        // The bottom panels slide in rather than snapping the layout around.
-        .animation(.snappy(duration: 0.25), value: showInspector)
-        .animation(.snappy(duration: 0.25), value: model.activeTab?.hasEdits ?? false)
         .sheet(isPresented: $showingConnectionLog) {
             ConnectionLogView(log: model.connectionLog)
                 .tesseraModalBackground()
@@ -100,19 +68,14 @@ struct DetailView: View {
                              set: { model.activeTab?.valueEditor = $0 })) { target in
             ValueEditorSheet(target: target) { newValue in
                 guard let tab = model.activeTab,
-                      // The result was replaced while the sheet was up (a run
-                      // finishing late) — the captured row would hit the wrong
-                      // record now, so the save is dropped rather than misapplied.
                       tab.resultVersion == target.resultVersion,
-                      // No change, no snapshot: a no-op save would still clear
-                      // the redo stack.
                       newValue != (target.isNull ? nil : target.text) else { return }
                 tab.captureEditSnapshot()
                 tab.setValue(newValue, row: target.row, columnName: target.columnName)
             }
             .tesseraModalBackground()
         }
-        // At body level, not on the editor toolbar: the data view saves queries too.
+        // At body level: any pane can save its query.
         .alert("Save Query", isPresented: $showingSaveQuery) {
             TextField("Name", text: $saveQueryTitle)
             Button("Save") {
@@ -135,25 +98,6 @@ struct DetailView: View {
                 },
                 onClear: { model.clearHistory() })
                 .tesseraModalBackground()
-        }
-    }
-
-    // MARK: Empty state
-
-    private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No tab open", systemImage: "macwindow")
-        } description: {
-            Text(connectionOptions.isEmpty
-                 ? "Create a connection to get started."
-                 : "Double-click a table in the schema to browse it, or press ⌘T for a new query tab.")
-        } actions: {
-            if connectionOptions.isEmpty {
-                Button("New Connection…") { onNewConnection() }
-                    .buttonStyle(.borderedProminent)
-            } else {
-                Button("New Query Tab") { model.addTab() }
-            }
         }
     }
 }

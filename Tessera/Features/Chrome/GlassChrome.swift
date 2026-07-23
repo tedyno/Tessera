@@ -82,14 +82,18 @@ struct FloatingPanel: ViewModifier {
         content
             .scrollContentBackground(.hidden)
             .clipShape(shape)
-            // Real Liquid Glass, not a material: frosted, tinted in the theme's own
-            // colour (not a flat black/white) so the card reads as themed, never
-            // grey. The tint is strong enough that both cards read as one consistent
-            // theme surface rather than picking up whichever slice of the gradient
-            // they happen to float over, while a hint of the backdrop still glows.
-            .glassEffect(.regular.tint(style.panelTint(for: colorScheme)
-                .opacity(colorScheme == .dark ? 0.72 : 0.62)),
-                         in: shape)
+            // Real Liquid Glass frost, but with the theme's own colour laid on top
+            // of it as a plain (non-vibrancy) wash. The glass alone greys out when
+            // the window goes inactive; the colour wash doesn't, so the card keeps
+            // its theme hue whether or not the app is active.
+            .background {
+                Color.clear
+                    .glassEffect(.regular, in: shape)
+                    .overlay {
+                        shape.fill(style.panelTint(for: colorScheme)
+                            .opacity(colorScheme == .dark ? 0.62 : 0.5))
+                    }
+            }
             .shadow(color: .black.opacity(0.22), radius: 16, y: 6)
     }
 }

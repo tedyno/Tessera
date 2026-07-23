@@ -1,31 +1,56 @@
 import SwiftUI
 
-/// The horizontal strip of query/data/diagram tab chips plus the "+" button,
-/// at the top of the detail column. Each chip wears its connection's colour and
-/// carries an unsaved-changes dot; middle-click or the × closes it.
+/// The horizontal strip of tab chips for one pane (`TabGroup`) plus its "+" and,
+/// when more than one pane is open, a close-pane button. Chips reorder within the
+/// pane by drag, and a chip dragged onto another pane's body splits it.
 struct DetailTabBar: View {
     @Bindable var model: QueryConsoleModel
+    var group: TabGroup
+    /// Non-nil when this pane can be closed (more than one pane exists).
+    var onCloseGroup: (() -> Void)?
     @State private var hoveredTabID: UUID?
+
+    private var tabs: [QueryTab] { model.tabs(in: group) }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 3) {
-                ForEach(model.tabs) { tab in
+                if let onCloseGroup {
+                    Button(action: onCloseGroup) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .padding(5)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.trailing, 2)
+                    .help("Close this pane and its tabs")
+                }
+                ForEach(tabs) { tab in
                     tabChip(tab)
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
                 Button {
-                    model.addTab()
+                    model.addTab(in: group)
                 } label: {
                     Image(systemName: "plus").padding(.horizontal, 8)
                 }
                 .buttonStyle(.borderless)
-                Spacer()
+                // Drop past the last chip moves the tab to the end of this pane —
+                // from this pane (reorder) or another (move it in).
+                Color.clear
+                    .frame(minWidth: 30, maxWidth: .infinity, minHeight: 1)
+                    .contentShape(Rectangle())
+                    .dropDestination(for: String.self) { items, _ in
+                        guard let first = items.first, let dragged = UUID(uuidString: first) else { return false }
+                        model.moveTab(dragged, toGroup: group, before: nil)
+                        return true
+                    }
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 4)
-            // Opening/closing a tab slides its neighbours over instead of snapping.
-            .animation(.snappy(duration: 0.2), value: model.tabs.map(\.id))
+            .animation(.snappy(duration: 0.2), value: group.tabIDs)
         }
         .frame(height: 34)
     }
@@ -39,9 +64,7 @@ struct DetailTabBar: View {
     }
 
     private func tabChip(_ tab: QueryTab) -> some View {
-        let isActive = tab.id == model.activeTabID
-        // Label each tab with its connection when more than one is open, so the same
-        // table from staging vs production is distinguishable.
+        let isActive = tab.id == group.activeID
         let showConnection = model.sessions.count > 1
         return HStack(spacing: 6) {
             if tab.isRunning {
@@ -58,7 +81,6 @@ struct DetailTabBar: View {
                 .font(.system(size: 12, weight: isActive ? .medium : .regular))
                 .foregroundStyle(isActive ? .primary : .secondary)
             if tab.hasEdits {
-                // Uncommitted changes — the editor-world "unsaved" dot.
                 Circle().fill(.orange).frame(width: 6, height: 6)
                     .help("Uncommitted changes")
                     .transition(.scale.combined(with: .opacity))
@@ -96,15 +118,17 @@ struct DetailTabBar: View {
         }
         .onTapGesture { model.activate(tab) }
         .overlay { MiddleClickCatcher { model.closeTab(tab.id) } }
-        // Capture only the tab's id here, never the `QueryTab` itself: SwiftUI keeps
-        // the context-menu responder alive past the tab's removal and tears it down
-        // lazily on a later hover, so a captured `QueryTab` would be released a second
-        // time during that teardown (a use-after-free crash in QueryTab.deinit).
         .contextMenu { tabMenu(tab.id) }
+        // Drag to reorder within the pane, move into this pane from another (drop on
+        // a chip), or split (drop on another pane's body).
+        .draggable(tab.id.uuidString)
+        .dropDestination(for: String.self) { items, _ in
+            guard let first = items.first, let dragged = UUID(uuidString: first) else { return false }
+            model.moveTab(dragged, toGroup: group, before: tab.id)
+            return true
+        }
     }
 
-    /// The tab's connection dot reflects live status: green connected, yellow
-    /// connecting, red failed, grey disconnected.
     private func connectionColor(_ session: ConnectionSession) -> Color {
         switch session.status {
         case .ready: .green
@@ -114,17 +138,11 @@ struct DetailTabBar: View {
         }
     }
 
-    /// The colour the user tagged this tab's connection with, if any.
     private func connectionTint(_ tab: QueryTab) -> Color? {
         ConnectionPalette.color(tab.session?.colorName)
     }
 
-    /// Every tab wears its connection's colour; the active one noticeably stronger
-    /// (plus a stroke), inactive ones dimmed — so the colour identifies the
-    /// connection everywhere, and intensity identifies the active tab.
     private func tabChipFill(isActive: Bool, tint: Color?, isHovered: Bool) -> AnyShapeStyle {
-        // Untinted tabs fall back to the accent colour, so the active chip
-        // always reads as the selected one (the mockups' blue chip).
         let base = tint ?? Color.accentColor
         if isActive { return AnyShapeStyle(base.opacity(tint == nil ? 0.22 : 0.30)) }
         if isHovered { return AnyShapeStyle(base.opacity(tint == nil ? 0.10 : 0.16)) }
@@ -136,7 +154,7 @@ struct DetailTabBar: View {
         Button("Close") { model.closeTab(tabID) }
             .keyboardShortcut("w", modifiers: .command)
         Button("Close Other Tabs") { model.closeOtherTabs(tabID) }
-            .disabled(model.tabs.count < 2)
+            .disabled(group.tabIDs.count < 2)
         Button("Close All Tabs") { model.closeAllTabs() }
         Divider()
         Button("Close Tabs to the Left") { model.closeTabsToLeft(of: tabID) }

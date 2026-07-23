@@ -16,6 +16,24 @@ final class QueryConsoleModel {
     var tabs: [QueryTab] = []
     var activeTabID: UUID?
 
+    /// Tiling: how the tabs are grouped into panes. The `QueryTab` objects stay in
+    /// `tabs`; the workspace only arranges their ids into groups and splits.
+    let workspace = WorkspaceLayout()
+
+    /// The `QueryTab` for an id, and the tabs of a group in their group order.
+    func tab(_ id: UUID) -> QueryTab? { tabs.first { $0.id == id } }
+    func tabs(in group: TabGroup) -> [QueryTab] { group.tabIDs.compactMap(tab) }
+    func activeTab(in group: TabGroup) -> QueryTab? { group.activeID.flatMap(tab) }
+
+    /// The schema/engine a specific tab edits against — its own connection's, so a
+    /// pane's editor completes against the right database even when another pane is
+    /// focused. Falls back to the cached schema when disconnected.
+    func schema(for tab: QueryTab) -> DatabaseTree? {
+        guard let session = tab.session else { return nil }
+        return session.schema ?? cachedSchemaProvider?(session.id)
+    }
+    func engine(for tab: QueryTab) -> DatabaseKind? { tab.session?.engine }
+
     private(set) var history: [QueryHistoryEntry] = []
     private let historyStore: QueryHistoryStore
 
@@ -77,15 +95,29 @@ final class QueryConsoleModel {
         if activeTabID != tab.id { activeTab?.valueEditor = nil }
         activeTabID = tab.id
         if let session = tab.session { currentSession = session }
+        // Keep the tiling layout in step: the tab's pane takes focus and shows it,
+        // and a tab that isn't in any group yet (freshly opened) joins the focused
+        // one. Every open/create path funnels through here, so this is the single
+        // point that registers tabs with the workspace.
+        if let group = workspace.group(containing: tab.id) {
+            group.activeID = tab.id
+            workspace.focusedGroupID = group.id
+        } else {
+            workspace.add(tabID: tab.id)
+        }
     }
 
     /// Drops a connection that no longer exists: closes it, closes its tabs, and
     /// clears it as the current one so nothing keeps pointing at a deleted profile.
     func forgetSession(profileID: UUID) {
         guard let session = session(for: profileID) else { return }
-        for tab in tabs where tab.session === session { tab.task?.cancel() }
+        let doomed = tabs.filter { $0.session === session }
+        for tab in doomed { tab.task?.cancel() }
         tabs.removeAll { $0.session === session }
-        if !tabs.contains(where: { $0.id == activeTabID }) { activeTabID = tabs.last?.id }
+        for tab in doomed { workspace.remove(tabID: tab.id) }
+        if !tabs.contains(where: { $0.id == activeTabID }) {
+            activeTabID = workspace.focusedGroup?.activeID ?? tabs.last?.id
+        }
         if currentSession === session { currentSession = nil }
         sessions.removeAll { $0 === session }
         Task { await session.close() }
@@ -129,12 +161,12 @@ final class QueryConsoleModel {
     /// Activates the session's most recent tab, creating a console tab if it has none.
     func activateTab(for session: ConnectionSession) {
         if let tab = tabs.last(where: { $0.session === session }) {
-            activeTabID = tab.id
+            activate(tab)
         } else {
             let tab = QueryTab(title: "Query 1")
             tab.session = session
             tabs.append(tab)
-            activeTabID = tab.id
+            activate(tab)
         }
     }
 
@@ -167,7 +199,8 @@ final class QueryConsoleModel {
         tab.task?.cancel()
         tab.autoRefreshTask?.cancel()
         tabs.removeAll { $0.id == id }
-        if activeTabID == id { activeTabID = tabs.last?.id }
+        workspace.remove(tabID: id)   // drops it from its pane, collapsing an empty one
+        if activeTabID == id { activeTabID = workspace.focusedGroup?.activeID ?? tabs.last?.id }
     }
 
     /// Closes every tab whose id is in `ids`, cancelling anything they were running.
@@ -178,11 +211,23 @@ final class QueryConsoleModel {
             tab.autoRefreshTask?.cancel()
         }
         tabs.removeAll { ids.contains($0.id) }
-        if let active = activeTabID, ids.contains(active) { activeTabID = tabs.last?.id }
+        for id in ids { workspace.remove(tabID: id) }
+        if let active = activeTabID, ids.contains(active) {
+            activeTabID = workspace.focusedGroup?.activeID ?? tabs.last?.id
+        }
     }
 
+    /// Closes a whole pane (its tab group) and every tab in it.
+    func closePane(_ groupID: UUID) {
+        let ids = workspace.closeGroup(groupID)
+        closeTabs(Set(ids))
+        activeTabID = workspace.focusedGroup?.activeID ?? activeTabID
+    }
+
+    /// The tab-menu "close others/left/right" now scope to the tab's own pane.
     func closeOtherTabs(_ id: UUID) {
-        closeTabs(Set(tabs.map(\.id).filter { $0 != id }))
+        guard let group = workspace.group(containing: id) else { return }
+        closeTabs(Set(group.tabIDs.filter { $0 != id }))
     }
 
     func closeAllTabs() {
@@ -190,23 +235,90 @@ final class QueryConsoleModel {
     }
 
     func closeTabsToLeft(of id: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        closeTabs(Set(tabs[..<index].map(\.id)))
+        guard let group = workspace.group(containing: id),
+              let index = group.tabIDs.firstIndex(of: id) else { return }
+        closeTabs(Set(group.tabIDs[..<index]))
     }
 
     func closeTabsToRight(of id: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        closeTabs(Set(tabs[(index + 1)...].map(\.id)))
+        guard let group = workspace.group(containing: id),
+              let index = group.tabIDs.firstIndex(of: id) else { return }
+        closeTabs(Set(group.tabIDs[(index + 1)...]))
     }
 
-    /// Whether there is anything to close on that side / elsewhere, so the tab menu
-    /// can grey out items that would do nothing.
+    /// Reorders `draggedID` to sit just before `targetID` within their shared pane.
+    /// Only reorders inside one group — cross-group moves happen via a split drop.
+    func moveTab(_ draggedID: UUID, before targetID: UUID) {
+        guard draggedID != targetID,
+              let group = workspace.group(containing: targetID),
+              group.tabIDs.contains(draggedID) else { return }
+        group.tabIDs.removeAll { $0 == draggedID }
+        let insertAt = group.tabIDs.firstIndex(of: targetID) ?? group.tabIDs.count
+        group.tabIDs.insert(draggedID, at: insertAt)
+    }
+
+    /// Reorders `draggedID` to the end of its own pane.
+    func moveTabToEnd(_ draggedID: UUID) {
+        guard let group = workspace.group(containing: draggedID) else { return }
+        group.tabIDs.removeAll { $0 == draggedID }
+        group.tabIDs.append(draggedID)
+    }
+
+    /// Drops `draggedID` into `group` (a drop on another pane's tab bar). Within the
+    /// same pane it reorders; across panes it moves the tab over — collapsing the
+    /// source pane if that empties it. `before` places it before that tab, else last.
+    func moveTab(_ draggedID: UUID, toGroup group: TabGroup, before targetID: UUID?) {
+        guard let from = workspace.group(containing: draggedID) else { return }
+        if from === group {
+            if let targetID { moveTab(draggedID, before: targetID) } else { moveTabToEnd(draggedID) }
+            return
+        }
+        workspace.remove(tabID: draggedID)   // pull from the old pane (collapse if empty)
+        let insertAt = targetID.flatMap { group.tabIDs.firstIndex(of: $0) } ?? group.tabIDs.count
+        group.tabIDs.insert(draggedID, at: min(insertAt, group.tabIDs.count))
+        group.activeID = draggedID
+        workspace.focusedGroupID = group.id
+        activeTabID = draggedID
+    }
+
+    /// Drag-drop onto a pane edge: splits `targetGroupID` and moves `draggedID` into
+    /// a fresh group on that side. If it was the only tab in its old pane, that pane
+    /// collapses. Ignores a drop back onto the tab's own solo pane.
+    func splitDrop(_ draggedID: UUID, into targetGroupID: UUID, edge: DropEdge) {
+        if let from = workspace.group(containing: draggedID),
+           from.id == targetGroupID, from.tabIDs.count == 1 { return }
+        workspace.splitDropping(tabID: draggedID, targetGroupID: targetGroupID, edge: edge)
+        activeTabID = draggedID
+    }
+
+    /// The pane's "+" — a new console tab that lands in that specific group.
+    func addTab(in group: TabGroup, boundTo session: ConnectionSession? = nil) {
+        workspace.focusedGroupID = group.id
+        addTab(boundTo: session)
+    }
+
+    /// After a restore that appended tabs straight into `tabs`, fold any that aren't
+    /// in a group yet into the focused pane, preserving order.
+    func adoptRestoredTabs() {
+        for tab in tabs where workspace.group(containing: tab.id) == nil {
+            workspace.add(tabID: tab.id)
+        }
+        if let id = activeTabID, let group = workspace.group(containing: id) {
+            group.activeID = id
+            workspace.focusedGroupID = group.id
+        }
+    }
+
+    /// Whether there is anything to close on that side, within the pane, so the tab
+    /// menu can grey out items that would do nothing.
     func hasTabs(toLeftOf id: UUID) -> Bool {
-        (tabs.firstIndex { $0.id == id }).map { $0 > 0 } ?? false
+        guard let group = workspace.group(containing: id) else { return false }
+        return (group.tabIDs.firstIndex(of: id)).map { $0 > 0 } ?? false
     }
 
     func hasTabs(toRightOf id: UUID) -> Bool {
-        (tabs.firstIndex { $0.id == id }).map { $0 < tabs.count - 1 } ?? false
+        guard let group = workspace.group(containing: id) else { return false }
+        return (group.tabIDs.firstIndex(of: id)).map { $0 < group.tabIDs.count - 1 } ?? false
     }
 
     // MARK: Running queries

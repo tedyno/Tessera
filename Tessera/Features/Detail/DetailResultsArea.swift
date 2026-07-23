@@ -6,13 +6,15 @@ import DBKit
 /// empty state.
 struct DetailResultsArea: View {
     @Bindable var model: QueryConsoleModel
+    /// The pane's active tab whose results this area shows.
+    var tab: QueryTab
     /// Grid row density; shared via `tessera.gridDensity` with the status bar and
     /// the Appearance settings tab.
     @AppStorage("tessera.gridDensity") private var gridComfortable = false
     @FocusState private var searchFieldFocused: Bool
 
     var body: some View {
-        if let tab = model.activeTab, tab.result != nil || tab.errorMessage != nil {
+        if tab.result != nil || tab.errorMessage != nil {
             // Error (red) and success (green) share the same banner at the top; a
             // row-returning result shows its grid below, keeping any prior grid on error.
             VStack(spacing: 0) {
@@ -41,7 +43,7 @@ struct DetailResultsArea: View {
                 }
             }
             .animation(.snappy(duration: 0.2), value: tab.errorMessage != nil)
-        } else if model.activeTab?.isRunning == true {
+        } else if tab.isRunning {
             // A first run (opening a table, or Run with no prior result) is in
             // flight — show progress rather than the "No results" empty state,
             // which reads as "this query returned nothing".
