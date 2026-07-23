@@ -36,19 +36,30 @@ struct SettingsView: View {
 /// Switches the Settings `NSWindow` to a full-size content view with a transparent
 /// titlebar, so the SwiftUI backdrop can paint edge to edge behind the tab strip.
 private struct SettingsWindowConfigurator: NSViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    final class Coordinator { var configured = false }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { [weak view] in configure(view?.window) }
+        let coordinator = context.coordinator
+        DispatchQueue.main.async { [weak view] in configure(view?.window, coordinator) }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        configure(nsView.window)
+        configure(nsView.window, context.coordinator)
     }
 
-    private func configure(_ window: NSWindow?) {
+    private func configure(_ window: NSWindow?, _ coordinator: Coordinator) {
         guard let window else { return }
         window.titlebarAppearsTransparent = true
         window.styleMask.insert(.fullSizeContentView)
+        // Let the window own its position like any macOS window: the system places
+        // it on first open and restores it thereafter via this autosave name. No
+        // manual centering — that would visibly hop the window after it's already
+        // on screen. Set once, so re-restoring the frame doesn't fight the user.
+        guard !coordinator.configured else { return }
+        coordinator.configured = true
+        _ = window.setFrameAutosaveName("TesseraSettings")
     }
 }
