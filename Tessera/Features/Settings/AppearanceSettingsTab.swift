@@ -20,11 +20,19 @@ struct AppearanceSettingsTab: View {
                         Text(theme.title).tag(theme.rawValue)
                     }
                 }
-                Picker("Window backdrop", selection: $backdropRaw) {
-                    ForEach(BackdropStyle.allCases) { style in
-                        Text(style.title).tag(style.rawValue)
+                // A swatch grid rather than a dropdown, so the actual gradient of
+                // each theme is visible before it's chosen.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Window backdrop")
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 74), spacing: 10)],
+                              alignment: .leading, spacing: 12) {
+                        ForEach(BackdropStyle.allCases) { style in
+                            BackdropSwatch(style: style, selected: style.rawValue == backdropRaw)
+                                .onTapGesture { backdropRaw = style.rawValue }
+                        }
                     }
                 }
+                .padding(.vertical, 2)
             }
             Section("Diagram") {
                 Picker("Diagram edges", selection: $edgeStyleRaw) {
@@ -46,5 +54,53 @@ struct AppearanceSettingsTab: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+    }
+}
+
+/// One selectable backdrop tile: a rounded preview of the theme's gradient (in the
+/// current light/dark), its name below, and a check when it's the active choice.
+private struct BackdropSwatch: View {
+    let style: BackdropStyle
+    let selected: Bool
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        VStack(spacing: 5) {
+            ZStack {
+                preview
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.15),
+                                          lineWidth: selected ? 2 : 1)
+                    }
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white, Color.accentColor)
+                        .padding(4)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                }
+            }
+            .frame(height: 46)
+            Text(style.title)
+                .font(.caption2)
+                .foregroundStyle(selected ? Color.accentColor : .secondary)
+                .lineLimit(1)
+        }
+        .contentShape(Rectangle())
+        .help(style.title)
+    }
+
+    @ViewBuilder
+    private var preview: some View {
+        if style == .none {
+            // No gradient — show the frosted surface it falls back to.
+            Rectangle().fill(.regularMaterial)
+        } else {
+            MeshGradient(width: 3, height: 3,
+                         points: TesseraBackdrop.meshPoints,
+                         colors: style.meshColors(for: scheme))
+        }
     }
 }

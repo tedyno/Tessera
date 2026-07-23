@@ -119,7 +119,9 @@ struct OrganizerSidebar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(.ultraThinMaterial)
+        // A faint translucent footer, not an opaque grey material — the themed
+        // glass card keeps glowing through.
+        .background(.primary.opacity(0.05))
     }
 
     private var actionsRow: some View {

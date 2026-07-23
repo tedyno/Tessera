@@ -92,6 +92,19 @@ enum BackdropStyle: String, CaseIterable, Identifiable {
         return Color(red: base.0, green: base.1, blue: base.2)
     }
 
+    /// Tint for a floating glass card so it carries the theme's hue instead of a
+    /// flat neutral grey, while still standing off the backdrop: darker than the
+    /// gradient in dark mode, brighter (toward white) in light mode.
+    func panelTint(for scheme: ColorScheme) -> Color {
+        let base = scheme == .dark ? seed.dark : seed.light
+        if scheme == .dark {
+            return Color(red: base.0 * 0.5, green: base.1 * 0.5, blue: base.2 * 0.5)
+        } else {
+            func lighten(_ c: Double) -> Double { c + (1 - c) * 0.5 }
+            return Color(red: lighten(base.0), green: lighten(base.1), blue: lighten(base.2))
+        }
+    }
+
     /// Solid fill used when `.none` needs a concrete colour (offscreen export).
     func solidFill(for scheme: ColorScheme) -> Color {
         baseColor(for: scheme)

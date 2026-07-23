@@ -74,17 +74,21 @@ private struct BehindWindowBlur: NSViewRepresentable {
 struct FloatingPanel: ViewModifier {
     var cornerRadius: CGFloat = 16
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(BackdropStyle.key) private var backdropRaw = BackdropStyle.monokai.rawValue
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let style = BackdropStyle(rawValue: backdropRaw) ?? .monokai
         content
             .scrollContentBackground(.hidden)
             .clipShape(shape)
-            // Real Liquid Glass, not a material: frosted, but the backdrop's
-            // hue keeps glowing through. A whisper of tint keeps text legible
-            // over the vivid gradient.
-            .glassEffect(.regular.tint(colorScheme == .dark ? Color.black.opacity(0.25)
-                                                            : Color.white.opacity(0.30)),
+            // Real Liquid Glass, not a material: frosted, tinted in the theme's own
+            // colour (not a flat black/white) so the card reads as themed, never
+            // grey. The tint is strong enough that both cards read as one consistent
+            // theme surface rather than picking up whichever slice of the gradient
+            // they happen to float over, while a hint of the backdrop still glows.
+            .glassEffect(.regular.tint(style.panelTint(for: colorScheme)
+                .opacity(colorScheme == .dark ? 0.72 : 0.62)),
                          in: shape)
             .shadow(color: .black.opacity(0.22), radius: 16, y: 6)
     }
