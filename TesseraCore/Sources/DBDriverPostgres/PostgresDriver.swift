@@ -109,6 +109,67 @@ public actor PostgresDriver: DatabaseDriver {
         }
     }
 
+    public func stream(_ sql: String, batchSize: Int, into sink: RowSink) async throws {
+        guard let client else { throw DatabaseError.notConnected }
+        let batchSize = max(1, batchSize)
+        let logger = Self.logger
+        do {
+            try await client.withConnection { connection in
+                var pid = self.backendPIDCache[connection.id]
+                if pid == nil,
+                   let row = try await connection.query("SELECT pg_backend_pid()", logger: logger)
+                    .collect().first, let value = try? row.decode(Int32.self) {
+                    pid = Int(value)
+                    self.backendPIDCache[connection.id] = pid
+                }
+                if let pid { self.runningBackendPIDs.insert(pid) }
+                defer { if let pid { self.runningBackendPIDs.remove(pid) } }
+
+                // DML has no result set; deliver an empty header so the sink can
+                // still produce a valid (empty) file.
+                if SQLText.isDML(sql) {
+                    _ = try await connection.query(PostgresQuery(unsafeSQL: sql), logger: logger).get()
+                    try sink.begin(columns: [])
+                    try sink.finish()
+                    return
+                }
+
+                let rows = try await connection.query(PostgresQuery(unsafeSQL: sql), logger: logger)
+                var columns: [ColumnDescriptor] = []
+                var began = false
+                var batch: [[Cell]] = []
+                batch.reserveCapacity(batchSize)
+
+                for try await row in rows {
+                    var cells: [Cell] = []
+                    var index = 0
+                    for cell in row {
+                        if columns.count <= index {
+                            columns.append(ColumnDescriptor(name: cell.columnName,
+                                                            typeName: Self.typeName(cell.dataType)))
+                        }
+                        cells.append(Cell(Self.stringify(cell)))
+                        index += 1
+                    }
+                    // Columns are known once the first row is decoded.
+                    if !began { try sink.begin(columns: columns); began = true }
+                    batch.append(cells)
+                    if batch.count >= batchSize {
+                        try sink.write(batch)
+                        batch.removeAll(keepingCapacity: true)
+                    }
+                }
+                if !began { try sink.begin(columns: []) }
+                if !batch.isEmpty { try sink.write(batch) }
+                try sink.finish()
+            }
+        } catch is CancellationError {
+            throw DatabaseError.cancelled
+        } catch {
+            throw DatabaseError.queryFailed(Self.queryErrorMessage(error))
+        }
+    }
+
     /// Cancels whatever this session is running, from a second connection.
     public func cancelRunningQuery() async {
         guard let client, !runningBackendPIDs.isEmpty else { return }

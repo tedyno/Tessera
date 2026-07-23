@@ -6,6 +6,8 @@ import Foundation
 struct SavedTab: Codable {
     enum Kind: String, Codable { case console, data, diagram }
 
+    struct SavedSortKey: Codable { var column: String; var ascending: Bool }
+
     var kind: Kind
     var profileID: UUID?
     var title: String
@@ -13,8 +15,9 @@ struct SavedTab: Codable {
     var dataSchema: String?
     var dataTable: String?
     var filterWhere: String
-    var sortColumn: String?
-    var sortAscending: Bool
+    /// Multi-column sort in priority order. Optional so documents saved before
+    /// multi-sort (which had `sortColumn`/`sortAscending`) still decode, as nil.
+    var sortOrder: [SavedSortKey]?
     var pageLimit: Int
     var diagramSchema: String?
     var diagramTable: String?

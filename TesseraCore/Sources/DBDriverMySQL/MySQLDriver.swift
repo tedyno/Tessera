@@ -108,6 +108,71 @@ public actor MySQLDriver: DatabaseDriver {
         }
     }
 
+    public func stream(_ sql: String, batchSize: Int, into sink: RowSink) async throws {
+        guard let connection else { throw DatabaseError.notConnected }
+        let batchSize = max(1, batchSize)
+        await lock()
+        defer { unlock() }
+
+        // DML has no result set; emit an empty header so the sink still yields a
+        // valid (empty) file.
+        if SQLText.isDML(sql) {
+            do {
+                _ = try await connection.simpleQuery(sql).get()
+            } catch is CancellationError {
+                throw DatabaseError.cancelled
+            } catch {
+                throw DatabaseError.queryFailed(String(describing: error))
+            }
+            try sink.begin(columns: [])
+            try sink.finish()
+            return
+        }
+
+        // Stream via the text-protocol `onRow` callback — the whole result never
+        // buffers. `onRow` runs serially on the connection's event loop; the
+        // captured state is only read back after `.get()` completes, so the future
+        // provides the happens-before. Sink calls are synchronous; a thrown sink
+        // error is stashed and rethrown (a callback can't throw or stop the query).
+        nonisolated(unsafe) var began = false
+        nonisolated(unsafe) var batch: [[Cell]] = []
+        nonisolated(unsafe) var sinkError: Error?
+        do {
+            try await connection.simpleQuery(sql) { row in
+                guard sinkError == nil else { return }
+                do {
+                    if !began {
+                        let columns = row.columnDefinitions.map {
+                            ColumnDescriptor(name: $0.name, typeName: String(describing: $0.columnType))
+                        }
+                        try sink.begin(columns: columns)
+                        began = true
+                    }
+                    var cells: [Cell] = []
+                    for definition in row.columnDefinitions {
+                        cells.append(Cell(Self.text(row.column(definition.name))))
+                    }
+                    batch.append(cells)
+                    if batch.count >= batchSize {
+                        try sink.write(batch)
+                        batch.removeAll(keepingCapacity: true)
+                    }
+                } catch {
+                    sinkError = error
+                }
+            }.get()
+        } catch is CancellationError {
+            throw DatabaseError.cancelled
+        } catch {
+            if let sinkError { throw sinkError }
+            throw DatabaseError.queryFailed(String(describing: error))
+        }
+        if let sinkError { throw sinkError }
+        if !began { try sink.begin(columns: []) }
+        if !batch.isEmpty { try sink.write(batch) }
+        try sink.finish()
+    }
+
     /// The single connection is already serialized by `lock()`, so a plain
     /// START TRANSACTION … COMMIT is atomic here.
     public func executeTransaction(_ statements: [String]) async throws {

@@ -23,6 +23,11 @@ public protocol DatabaseDriver: Sendable {
     /// keeps a huge result from being pulled entirely into memory; the result is
     /// then marked `isTruncated`.
     func execute(_ sql: String, maxRows: Int?) async throws -> QueryResult
+    /// Runs `sql` and streams its rows into `sink` in batches of up to `batchSize`,
+    /// so an arbitrarily large result never has to be held in memory at once. The
+    /// default implementation falls back to the buffered `execute` (correct, but
+    /// not constant-memory); drivers override it to pull rows incrementally.
+    func stream(_ sql: String, batchSize: Int, into sink: RowSink) async throws
     /// Runs `statements` atomically on a single connection (BEGIN … COMMIT, with
     /// ROLLBACK on the first failure), so a partial write can't be left behind.
     func executeTransaction(_ statements: [String]) async throws
@@ -38,5 +43,19 @@ public extension DatabaseDriver {
     /// Convenience for callers that don't need a row cap.
     func execute(_ sql: String) async throws -> QueryResult {
         try await execute(sql, maxRows: nil)
+    }
+
+    /// Buffered fallback: fetch the whole result, then feed it to `sink` in
+    /// batches. Correct for any driver; overridden where true streaming exists.
+    func stream(_ sql: String, batchSize: Int, into sink: RowSink) async throws {
+        let result = try await execute(sql, maxRows: nil)
+        try sink.begin(columns: result.columns)
+        var start = 0
+        while start < result.rows.count {
+            let end = Swift.min(start + batchSize, result.rows.count)
+            try sink.write(Array(result.rows[start..<end]))
+            start = end
+        }
+        try sink.finish()
     }
 }

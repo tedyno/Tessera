@@ -248,10 +248,28 @@ final class MCPBridge: MCPDataSource {
         let session = try await readySession(connection)
         guard let driver = session.driver else { throw MCPToolError("Not connected.") }
         do {
-            let cap = limit ?? (ExportSettings.maxRows > 0 ? ExportSettings.maxRows : nil)
-            let result = try await driver.execute(sql, maxRows: cap)
             let url = ExportSettings.directory.appendingPathComponent(
                 ExportSettings.fileName(base: connection, extension: exportFormat.fileExtension))
+
+            // CSV and SQL stream the full result to disk with no cap — unless the
+            // caller asked for an explicit `limit`, which the buffered path honors.
+            let streamFormat: StreamingResultExport.Format?
+            switch exportFormat {
+            case .csv: streamFormat = .csv
+            case .sql: streamFormat = .sql
+            case .json, .xlsx: streamFormat = nil
+            }
+            if let streamFormat, limit == nil {
+                let summary = try await StreamingResultExport.export(
+                    sql, from: driver, format: streamFormat, to: url)
+                app.mcpAudit.record(tool: "export_result", connection: connection, detail: sql,
+                                    outcome: "wrote \(url.path) (\(summary.rows) rows)")
+                return MCPExportResult(path: url.path, bytes: summary.bytes,
+                                       rows: summary.rows, truncated: false)
+            }
+
+            let cap = limit ?? (ExportSettings.maxRows > 0 ? ExportSettings.maxRows : nil)
+            let result = try await driver.execute(sql, maxRows: cap)
             let data = try ResultExport.data(from: result, format: exportFormat)
             try data.write(to: url, options: .atomic)
             app.mcpAudit.record(tool: "export_result", connection: connection, detail: sql,

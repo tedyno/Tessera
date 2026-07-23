@@ -371,8 +371,9 @@ final class AppModel {
                                 dataSchema: tab.dataSchema,
                                 dataTable: tab.dataTable,
                                 filterWhere: tab.filterWhere,
-                                sortColumn: tab.sortColumn,
-                                sortAscending: tab.sortAscending,
+                                sortOrder: tab.sortOrder.map {
+                                    SavedTab.SavedSortKey(column: $0.column, ascending: $0.ascending)
+                                },
                                 pageLimit: tab.pageLimit,
                                 diagramSchema: tab.diagram?.schemaName,
                                 diagramTable: diagramTable)
@@ -443,9 +444,10 @@ final class AppModel {
                 tab.dataSchema = saved.dataSchema
                 tab.dataTable = saved.dataTable
                 tab.filterWhere = saved.filterWhere
-                tab.sortColumn = saved.sortColumn
-                tab.sortAscending = saved.sortAscending
-                tab.pageLimit = saved.pageLimit
+                tab.sortOrder = (saved.sortOrder ?? []).map {
+                    QueryTab.SortKey(column: $0.column, ascending: $0.ascending)
+                }
+                tab.pageLimit = QueryTab.clampedPageLimit(saved.pageLimit)
                 console.tabs.append(tab)
                 restored.append(tab)
             case .console:
@@ -1029,6 +1031,23 @@ final class AppModel {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         // Qualify the table for generated INSERTs so they can be replayed elsewhere.
         let table = tab.dataSchema.map { "\($0).\(tab.dataTable ?? "")" } ?? tab.dataTable
+        // CSV and SQL stream the full result straight to disk — no row cap, nothing
+        // held in memory. JSON and XLSX keep the buffered in-memory path.
+        let streamFormat: StreamingResultExport.Format?
+        switch format {
+        case .csv: streamFormat = .csv
+        case .sql: streamFormat = .sql
+        case .json, .xlsx: streamFormat = nil
+        }
+        if let streamFormat {
+            Task {
+                if await console.streamExport(tab, format: streamFormat, table: table, to: url),
+                   ExportSettings.revealAfterExport {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            }
+            return
+        }
         do {
             let data = try ResultExport.data(from: result, format: format, table: table)
             try data.write(to: url, options: .atomic)

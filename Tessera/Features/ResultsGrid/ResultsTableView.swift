@@ -138,6 +138,9 @@ final class TypedHeaderCell: NSTableHeaderCell {
 final class ClearHeaderView: NSTableHeaderView {
     /// Builds the right-click menu for a column (local filter entry).
     var menuProvider: ((Int) -> NSMenu?)?
+    /// Column index → 1-based sort priority, drawn next to the arrow when a
+    /// multi-column sort is active (empty otherwise).
+    var sortPriorities: [Int: Int] = [:]
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
@@ -173,6 +176,15 @@ final class ClearHeaderView: NSTableHeaderView {
                                        width: size.width, height: size.height),
                             from: .zero, operation: .sourceOver, fraction: 1,
                             respectFlipped: true, hints: nil)
+                // Priority number for a multi-column sort, just left of the arrow.
+                if let rank = sortPriorities[index] {
+                    let badge = NSAttributedString(string: String(rank), attributes: [
+                        .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold),
+                        .foregroundColor: NSColor.secondaryLabelColor])
+                    let badgeSize = badge.size()
+                    badge.draw(at: NSPoint(x: rect.maxX - size.width - 6 - badgeSize.width,
+                                           y: rect.midY - badgeSize.height / 2))
+                }
             }
         }
     }
@@ -891,6 +903,8 @@ struct ResultsTableView: NSViewRepresentable {
             filterPopover = nil
             if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
             escapeMonitor = nil
+            // Drop the scroll frame/bounds observers so they don't outlive the grid.
+            NotificationCenter.default.removeObserver(self)
         }
 
         // MARK: Escape → discard edits
@@ -1674,7 +1688,7 @@ struct ResultsTableView: NSViewRepresentable {
                 // narrows what's on screen — the row indices it juggles only make
                 // sense over the full, unfiltered result.
                 grid.canEditRows = tab.isEditable && visibleRowMap == nil
-                grid.fetchedRowCount = result.rows.count
+                grid.fetchedRowCount = fetchedRowCount
             }
             // Reset the cell selection only when the underlying data actually changed
             // (new query / sort / filter / page) — not on the re-render after an edit.
@@ -1733,8 +1747,7 @@ struct ResultsTableView: NSViewRepresentable {
             hasher.combine(signature)
             hasher.combine(tab.pendingDeletes)
             hasher.combine(tab.edits)
-            hasher.combine(tab.sortColumn)
-            hasher.combine(tab.sortAscending)
+            hasher.combine(tab.sortOrder)
             hasher.combine(tab.localSortColumn)
             hasher.combine(tab.localSortAscending)
             hasher.combine(tab.localValueFilters)
@@ -1784,8 +1797,9 @@ struct ResultsTableView: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
             guard let result = tab.result,
                   let index = Int(tableColumn.identifier.rawValue), index < result.columns.count else { return }
-            if tab.isEditable {
-                // Table-backed results re-run with ORDER BY on the server.
+            if tab.kind == .data || tab.isEditable {
+                // Table-backed results (editable or read-only windowed) re-run with
+                // ORDER BY on the server — a data view owns its generated SQL.
                 onSort(result.columns[index].name)
             } else {
                 // Arbitrary query results sort the fetched rows client-side —
@@ -1894,26 +1908,37 @@ struct ResultsTableView: NSViewRepresentable {
             }
         }
 
-        /// Draws the ascending/descending arrow on the sorted column's header.
+        /// Draws the sort arrow on every sorted column's header, plus a priority
+        /// number (1, 2, …) when more than one column drives the sort. Server-side
+        /// multi-column sort (table views) wins; otherwise the single client-side
+        /// sort of a plain query result.
         private func updateSortIndicator(_ tableView: NSTableView, _ result: QueryResult) {
             for column in tableView.tableColumns { tableView.setIndicatorImage(nil, in: column) }
-            // Server-side sort (table views) wins; otherwise show the
-            // client-side sort of a plain query result.
-            var target: (index: Int, ascending: Bool)?
-            if let sortColumn = tab.sortColumn,
-               let index = result.columns.firstIndex(where: { $0.name == sortColumn }) {
-                target = (index, tab.sortAscending)
-            } else if let local = tab.localSortColumn {
-                target = (local, tab.localSortAscending)
-            }
-            guard let target, target.index < tableView.tableColumns.count else {
+            var priorities: [Int: Int] = [:]   // column index → 1-based rank
+
+            if !tab.sortOrder.isEmpty {
+                for (rank, key) in tab.sortOrder.enumerated() {
+                    guard let index = result.columns.firstIndex(where: { $0.name == key.column }),
+                          index < tableView.tableColumns.count else { continue }
+                    let arrow = key.ascending ? "NSAscendingSortIndicator" : "NSDescendingSortIndicator"
+                    tableView.setIndicatorImage(NSImage(named: arrow), in: tableView.tableColumns[index])
+                    priorities[index] = rank + 1
+                }
+                // Highlight the primary column only.
+                tableView.highlightedTableColumn = tab.sortOrder.first
+                    .flatMap { key in result.columns.firstIndex(where: { $0.name == key.column }) }
+                    .map { tableView.tableColumns[$0] }
+            } else if let local = tab.localSortColumn, local < tableView.tableColumns.count {
+                let arrow = tab.localSortAscending ? "NSAscendingSortIndicator" : "NSDescendingSortIndicator"
+                tableView.setIndicatorImage(NSImage(named: arrow), in: tableView.tableColumns[local])
+                tableView.highlightedTableColumn = tableView.tableColumns[local]
+            } else {
                 tableView.highlightedTableColumn = nil
-                return
             }
-            let column = tableView.tableColumns[target.index]
-            let arrow = target.ascending ? "NSAscendingSortIndicator" : "NSDescendingSortIndicator"
-            tableView.setIndicatorImage(NSImage(named: arrow), in: column)
-            tableView.highlightedTableColumn = column
+            // Show the numbers only when a multi-column sort makes priority meaningful.
+            (tableView.headerView as? ClearHeaderView)?.sortPriorities =
+                priorities.count > 1 ? priorities : [:]
+            tableView.headerView?.needsDisplay = true
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int {

@@ -80,7 +80,35 @@ struct DetailResultsArea: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        .overlay(alignment: .top) {
+            // A re-run over an existing result (sort, reload, load more) keeps the
+            // grid on screen — a clean floating pill with a Stop. Readable text on
+            // material with a soft shadow so it's clearly present without shouting.
+            if tab.isRunning {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small).tint(.white)
+                    Text("Loading…")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.white)
+                    Button {
+                        Task { await model.cancel(tab) }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop loading")
+                }
+                .padding(.vertical, 7)
+                .padding(.horizontal, 14)
+                .background(Color.black.opacity(0.72), in: Capsule())
+                .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+                .padding(.top, 10)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         .animation(.snappy(duration: 0.2), value: tab.isSearchBarVisible)
+        .animation(.snappy(duration: 0.15), value: tab.isRunning)
     }
 
     /// ⌘F find bar: filters the grid to rows containing the text, client-side, without

@@ -348,16 +348,25 @@ struct PaneView: View {
 
     private func sortMenu(_ tab: QueryTab) -> some View {
         let columns = tab.result?.columns.map(\.name) ?? []
-        let label = tab.sortColumn.map { "\($0) \(tab.sortAscending ? "↑" : "↓")" } ?? String(localized: "Sort")
+        // Label shows the primary sort, with a "+N" when more columns break ties.
+        let label: String
+        if let primary = tab.sortOrder.first {
+            let extra = tab.sortOrder.count - 1
+            label = "\(primary.column) \(primary.ascending ? "↑" : "↓")" + (extra > 0 ? " +\(extra)" : "")
+        } else {
+            label = String(localized: "Sort")
+        }
         return Menu {
             ForEach(columns, id: \.self) { column in
                 Button { Task { await model.sortByColumn(tab, column: column) } } label: {
-                    if tab.sortColumn == column {
-                        Label(column, systemImage: tab.sortAscending ? "arrow.up" : "arrow.down")
+                    if let key = tab.sortOrder.first(where: { $0.column == column }),
+                       let rank = tab.sortOrder.firstIndex(where: { $0.column == column }) {
+                        // Show priority (1-based) and direction for a sorted column.
+                        Label("\(rank + 1). \(column)", systemImage: key.ascending ? "arrow.up" : "arrow.down")
                     } else { Text(column) }
                 }
             }
-            if tab.sortColumn != nil {
+            if !tab.sortOrder.isEmpty {
                 Divider()
                 Button("Clear Sort") { Task { await model.clearSort(tab) } }
             }

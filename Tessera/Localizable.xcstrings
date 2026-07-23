@@ -4988,6 +4988,83 @@
           }
         }
       }
+    },
+    "This result can’t be edited — only a query that reads from a single table is editable.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tento výsledek nelze upravovat — editovat jde jen dotaz, který čte z jediné tabulky."
+          }
+        }
+      }
+    },
+    "read-only — too large to edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "jen ke čtení — příliš velké pro editaci"
+          }
+        }
+      }
+    },
+    "This table is larger than the buffer limit, so it opens read-only. Narrow it with a WHERE/LIMIT, or raise “Max rows per query” in Settings, to edit.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tato tabulka je větší než limit bufferu, takže se otevře jen ke čtení. Pro editaci ji zužte pomocí WHERE/LIMIT nebo zvyšte „Max. řádků na dotaz“ v Nastavení."
+          }
+        }
+      }
+    },
+    "Loading rows…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Načítám řádky…"
+          }
+        }
+      }
+    },
+    "Stop loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zastavit načítání"
+          }
+        }
+      }
+    },
+    "Default row limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Výchozí limit řádků"
+          }
+        }
+      }
+    },
+    "Caps console query results and is the starting Limit for a table view — table views then load more as you scroll. 0 removes the console cap.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omezuje výsledky dotazů v konzoli a je výchozím Limitem pro table view — ty pak donačítají další řádky při scrollování. 0 zruší strop v konzoli."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

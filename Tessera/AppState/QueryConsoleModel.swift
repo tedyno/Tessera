@@ -341,7 +341,7 @@ final class QueryConsoleModel {
         let sql = sqlToRun ?? tab.sql
         let clock = ContinuousClock()
         let started = clock.now
-        if !preserveSort { tab.sortColumn = nil }
+        if !preserveSort { tab.sortOrder = [] }
         tab.isRunning = true
         tab.errorMessage = nil
         // Reconnect a dropped connection first, then run.
@@ -351,7 +351,10 @@ final class QueryConsoleModel {
             return
         }
         do {
-            let cap = ExportSettings.maxRows
+            // A data view honors its own "Limit" field — an explicit row count the
+            // user asked for is never clipped by the global Max-rows safety cap,
+            // which only bounds free-form query results.
+            let cap = tab.kind == .data ? tab.pageLimit : ExportSettings.maxRows
             var result = try await driver.execute(sql, maxRows: cap > 0 ? cap : nil)
             // Both drivers derive column info from the fetched rows, so a query that
             // legitimately matches zero rows comes back with no columns at all — no
@@ -365,6 +368,9 @@ final class QueryConsoleModel {
                 result.columns = table.columns.map { ColumnDescriptor(name: $0.name, typeName: $0.dataType) }
             }
             tab.result = result
+            // Truncation means the fetch stopped at the limit and more rows exist —
+            // the signal for "Load more" and infinite scroll.
+            tab.hasMoreRows = tab.kind == .data && result.isTruncated
             tab.resultVersion &+= 1
             tab.currentPlan = (tab.expectedPlan?.sql == sql) ? tab.expectedPlan : nil
             tab.expectedPlan = nil
@@ -540,35 +546,44 @@ final class QueryConsoleModel {
     /// Header-click sorting on a full-table view: cycles ascending → descending →
     /// off for the clicked column, rewriting the query's `ORDER BY` and re-running.
     func sortByColumn(_ tab: QueryTab, column: String) async {
-        guard tab.isEditable, !tab.hasEdits, let session = tab.session else { return }
-        if tab.sortColumn == column {
-            if tab.sortAscending { tab.sortAscending = false }
-            else { tab.sortColumn = nil }
+        // Data views sort server-side whether editable or read-only windowed; a
+        // free-form single-table SELECT (editable) rewrites its own ORDER BY.
+        guard tab.isEditable || tab.kind == .data, !tab.hasEdits, let session = tab.session else { return }
+        // Cycle this column: absent → append ascending (next-lowest priority);
+        // ascending → descending; descending → removed. Other columns keep their
+        // place, so successive clicks build up a multi-column sort.
+        if let index = tab.sortOrder.firstIndex(where: { $0.column == column }) {
+            if tab.sortOrder[index].ascending {
+                tab.sortOrder[index].ascending = false
+            } else {
+                tab.sortOrder.remove(at: index)
+            }
         } else {
-            tab.sortColumn = column
-            tab.sortAscending = true
+            tab.sortOrder.append(QueryTab.SortKey(column: column, ascending: true))
         }
         if tab.kind == .data {
             await reloadData(tab)   // rebuilds the generated query with the new ORDER BY
             return
         }
-        let newSQL = rewriteOrderBy(tab.sql, column: tab.sortColumn, ascending: tab.sortAscending, session: session)
+        let newSQL = rewriteOrderBy(tab.sql, sortOrder: tab.sortOrder, session: session)
         tab.sql = newSQL
         await run(tab, sqlToRun: newSQL, preserveSort: true)
     }
 
     /// Replaces the top-level `ORDER BY` of a full-table query (inserted before any
-    /// `LIMIT`/`OFFSET`/`;`). A nil column removes ordering entirely. Matching ignores
-    /// text inside string literals, so a WHERE value like `'a limit b'` is safe.
-    private func rewriteOrderBy(_ sql: String, column: String?, ascending: Bool,
+    /// `LIMIT`/`OFFSET`/`;`). An empty `sortOrder` removes ordering entirely. Matching
+    /// ignores text inside string literals, so a WHERE value like `'a limit b'` is safe.
+    private func rewriteOrderBy(_ sql: String, sortOrder: [QueryTab.SortKey],
                                 session: ConnectionSession) -> String {
         var body = sql
         if let existing = Self.topLevelRange(
             in: body, pattern: #"(?is)\s+ORDER\s+BY\s+.*?(?=(\s+LIMIT\b|\s+OFFSET\b|\s*;\s*$|$))"#) {
             body.removeSubrange(existing)
         }
-        guard let column else { return body }
-        let clause = " ORDER BY \(session.quote(column)) \(ascending ? "ASC" : "DESC")"
+        guard !sortOrder.isEmpty else { return body }
+        let clause = " ORDER BY " + sortOrder
+            .map { "\(session.quote($0.column)) \($0.ascending ? "ASC" : "DESC")" }
+            .joined(separator: ", ")
         if let tail = Self.topLevelRange(in: body, pattern: #"(?is)\s*(LIMIT\b|OFFSET\b|;\s*$)"#) {
             body.insert(contentsOf: clause, at: tail.lowerBound)
         } else {
@@ -815,7 +830,7 @@ final class QueryConsoleModel {
         tab.kind = .data
         tab.dataSchema = schema
         tab.dataTable = table
-        tab.pageLimit = QueryTab.pageSize
+        tab.pageLimit = QueryTab.defaultPageLimit
         tabs.append(tab)
         activate(tab)
         await reloadData(tab, refreshCount: true)
@@ -829,8 +844,8 @@ final class QueryConsoleModel {
         await openTable(schema: schema, table: table, on: activeSession)
         guard let tab = activeTab, tab.kind == .data else { return }
         tab.filterWhere = clause
-        tab.sortColumn = nil
-        tab.pageLimit = QueryTab.pageSize
+        tab.sortOrder = []
+        tab.pageLimit = QueryTab.defaultPageLimit
         await reloadData(tab, refreshCount: true)
     }
 
@@ -879,26 +894,60 @@ final class QueryConsoleModel {
 
     /// The generated `SELECT *` for a data view, folding in the filter, sort, and page limit.
     private func dataSQL(_ tab: QueryTab, limit: Int? = nil, offset: Int? = nil,
-                         orderOverride: [String]? = nil) -> String {
+                         orderOverride: [String]? = nil, unlimited: Bool = false) -> String {
         guard let session = tab.session, let schema = tab.dataSchema, let table = tab.dataTable else { return tab.sql }
         var sql = "SELECT * FROM \(session.quote(schema)).\(session.quote(table))"
         let filter = tab.filterWhere.trimmingCharacters(in: .whitespacesAndNewlines)
         if !filter.isEmpty { sql += " WHERE \(filter)" }
-        if let column = tab.sortColumn {
-            sql += " ORDER BY \(session.quote(column)) \(tab.sortAscending ? "ASC" : "DESC")"
+        if !tab.sortOrder.isEmpty {
+            sql += " ORDER BY " + tab.sortOrder
+                .map { "\(session.quote($0.column)) \($0.ascending ? "ASC" : "DESC")" }
+                .joined(separator: ", ")
         } else if let orderOverride, !orderOverride.isEmpty {
             sql += " ORDER BY " + orderOverride.map { session.quote($0) }.joined(separator: ", ")
         }
-        sql += " LIMIT \(limit ?? tab.pageLimit)"
-        if let offset, offset > 0 { sql += " OFFSET \(offset)" }
+        // A streamed export wants the whole table, so it omits the paging cap.
+        if !unlimited {
+            sql += " LIMIT \(limit ?? tab.pageLimit)"
+            if let offset, offset > 0 { sql += " OFFSET \(offset)" }
+        }
         return sql
     }
 
+    /// SQL that yields the full intended result for a streamed export: a data
+    /// view's whole table (respecting its filter/sort but no paging LIMIT), or a
+    /// free-form tab's query exactly as written.
+    func exportSQL(_ tab: QueryTab) -> String {
+        tab.kind == .data ? dataSQL(tab, unlimited: true) : tab.sql
+    }
+
+    /// Streams the tab's full result to `url` as CSV or SQL, bypassing the row cap
+    /// so nothing is buffered in memory. Returns `true` on success.
+    func streamExport(_ tab: QueryTab, format: StreamingResultExport.Format,
+                      table: String?, to url: URL) async -> Bool {
+        guard let session = tab.session else { return false }
+        guard await ensureReady(session), let driver = session.driver else {
+            tab.errorMessage = session.errorMessage ?? "Not connected"
+            return false
+        }
+        do {
+            _ = try await StreamingResultExport.export(exportSQL(tab), from: driver,
+                                                       format: format, table: table ?? "table", to: url)
+            return true
+        } catch {
+            tab.errorMessage = "Could not write \(url.lastPathComponent): "
+                + ConnectionSession.message(for: error)
+            return false
+        }
+    }
+
     /// A deterministic ordering for OFFSET paging. Without one the server may return
-    /// rows in a different order per page, duplicating or skipping some; in that case
-    /// we page by re-running with a bigger LIMIT instead.
+    /// rows in a different order per page, duplicating or skipping some. Only the
+    /// primary key qualifies — physical row ids (`ctid`/`rowid`) aren't universal
+    /// (views, and Postgres compressed/foreign tables reject `ctid`), so a keyless
+    /// table isn't windowed; it just honors its explicit row limit, buffered.
     private func stableOrdering(for tab: QueryTab) -> [String]? {
-        if tab.sortColumn != nil { return [] }        // already ordered by the user
+        if !tab.sortOrder.isEmpty { return [] }       // already ordered by the user
         let keys = tab.editSource?.primaryKeys ?? []
         return keys.isEmpty ? nil : keys
     }
@@ -991,10 +1040,11 @@ final class QueryConsoleModel {
         let sql = dataSQL(tab, limit: QueryTab.pageSize, offset: offset, orderOverride: ordering)
         do {
             let page = try await driver.execute(sql, maxRows: QueryTab.pageSize)
-            guard !page.rows.isEmpty else { return }
+            guard !page.rows.isEmpty else { tab.hasMoreRows = false; return }
             existing.rows.append(contentsOf: page.rows)
             existing.isTruncated = page.isTruncated
             tab.result = existing
+            tab.hasMoreRows = page.isTruncated   // a full page means more may follow
             tab.resultVersion &+= 1
             tab.pageLimit = existing.rows.count
             tab.sql = dataSQL(tab)
@@ -1006,18 +1056,18 @@ final class QueryConsoleModel {
     /// Sets an explicit row limit for a data view (overrides the paging default) and re-runs.
     func setLimit(_ tab: QueryTab, _ limit: Int) async {
         guard tab.kind == .data, !tab.hasEdits else { return }
-        tab.pageLimit = max(1, limit)
+        tab.pageLimit = QueryTab.clampedPageLimit(limit)
         await reloadData(tab)
     }
 
     /// Clears the active sort and re-runs.
     func clearSort(_ tab: QueryTab) async {
-        guard tab.sortColumn != nil, let session = tab.session else { return }
-        tab.sortColumn = nil
+        guard !tab.sortOrder.isEmpty, let session = tab.session else { return }
+        tab.sortOrder = []
         if tab.kind == .data {
             await reloadData(tab)
         } else {
-            tab.sql = rewriteOrderBy(tab.sql, column: nil, ascending: true, session: session)
+            tab.sql = rewriteOrderBy(tab.sql, sortOrder: [], session: session)
             await run(tab, sqlToRun: tab.sql, preserveSort: true)
         }
     }
@@ -1027,7 +1077,7 @@ final class QueryConsoleModel {
     func applyFilter(_ tab: QueryTab, where clause: String) async {
         guard tab.kind == .data, !tab.hasEdits else { return }
         tab.filterWhere = clause
-        tab.pageLimit = QueryTab.pageSize
+        tab.pageLimit = QueryTab.defaultPageLimit
         await reloadData(tab, refreshCount: true)
     }
 

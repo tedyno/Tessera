@@ -45,6 +45,7 @@ struct ValueEditorSheet: View {
                     Text("Read-only")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .help("This result can’t be edited — only a query that reads from a single table is editable.")
                 }
             }
             .padding(12)

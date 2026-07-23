@@ -82,6 +82,72 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
         }
     }
 
+    public func stream(_ sql: String, batchSize: Int, into sink: RowSink) async throws {
+        try await onQueue {
+            guard let db = self.db else { throw DatabaseError.notConnected }
+            try Self.stream(sql, on: db, batchSize: max(1, batchSize), into: sink)
+        }
+    }
+
+    /// Streams the first result-producing statement's rows to `sink` in batches,
+    /// executing any other statements for their side effects. Export runs a single
+    /// SELECT, so "first columned statement" is unambiguous in practice.
+    private static func stream(_ sql: String, on db: OpaquePointer,
+                               batchSize: Int, into sink: RowSink) throws {
+        var began = false
+        try sql.withCString { base in
+            var cursor: UnsafePointer<CChar>? = base
+            while let current = cursor, current.pointee != 0 {
+                var statement: OpaquePointer?
+                var tail: UnsafePointer<CChar>?
+                guard sqlite3_prepare_v2(db, current, -1, &statement, &tail) == SQLITE_OK else {
+                    throw queryError(db)
+                }
+                cursor = tail
+                guard let statement else { continue }
+                defer { sqlite3_finalize(statement) }
+
+                let columnCount = Int(sqlite3_column_count(statement))
+                // Stream only the first result-producing statement; deliver its
+                // columns once, up front — SQLite knows them before the first row,
+                // so an empty result still yields a header.
+                let stream = columnCount > 0 && !began
+                if stream {
+                    let columns = (0..<columnCount).map { index in
+                        ColumnDescriptor(
+                            name: String(cString: sqlite3_column_name(statement, Int32(index))),
+                            typeName: sqlite3_column_decltype(statement, Int32(index))
+                                .map { String(cString: $0).lowercased() } ?? "")
+                    }
+                    try sink.begin(columns: columns)
+                    began = true
+                }
+
+                var batch: [[Cell]] = []
+                stepping: while true {
+                    switch sqlite3_step(statement) {
+                    case SQLITE_ROW:
+                        guard stream else { continue }
+                        batch.append((0..<columnCount).map { cell(statement, Int32($0)) })
+                        if batch.count >= batchSize {
+                            try sink.write(batch)
+                            batch.removeAll(keepingCapacity: true)
+                        }
+                    case SQLITE_DONE:
+                        break stepping
+                    case SQLITE_INTERRUPT:
+                        throw DatabaseError.cancelled
+                    default:
+                        throw queryError(db)
+                    }
+                }
+                if stream, !batch.isEmpty { try sink.write(batch) }
+            }
+        }
+        if !began { try sink.begin(columns: []) }
+        try sink.finish()
+    }
+
     public func executeTransaction(_ statements: [String]) async throws {
         try await onQueue {
             guard let db = self.db else { throw DatabaseError.notConnected }

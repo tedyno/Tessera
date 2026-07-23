@@ -51,7 +51,7 @@ struct DetailStatusBar: View {
                     if let ms = tab.elapsedMS, tab.isRunning == false {
                         Text("\(ms) ms").foregroundStyle(.secondary)
                     }
-                    if canLoadMore(tab, loaded: result.rows.count) {
+                    if tab.hasMoreRows {
                         Button("Load more") { Task { await model.loadMore(tab) } }
                             .buttonStyle(.link)
                     }
@@ -70,6 +70,11 @@ struct DetailStatusBar: View {
                         Label("truncated at the row limit", systemImage: "scissors")
                             .foregroundStyle(.orange)
                             .help("Raise “Max rows per query” in Settings to fetch more.")
+                    }
+                    if model.activeTab?.resultIsReadOnly == true {
+                        Label("read-only", systemImage: "pencil.slash")
+                            .foregroundStyle(.secondary)
+                            .help("This result can’t be edited — only a query that reads from a single table is editable.")
                     }
                 } else {
                     Text("Ready")
@@ -137,13 +142,6 @@ struct DetailStatusBar: View {
         // item hug the curve.
         .padding(.horizontal, 18)
         .padding(.vertical, 4)
-    }
-
-    /// More rows are available when the page came back full and we're below the total.
-    private func canLoadMore(_ tab: QueryTab, loaded: Int) -> Bool {
-        guard loaded >= tab.pageLimit else { return false }
-        if let total = tab.totalRows { return loaded < total }
-        return true
     }
 
     private func pendingSummary(updates: Int, deletes: Int) -> String {

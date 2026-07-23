@@ -49,8 +49,22 @@ final class QueryTab: Identifiable {
     /// diagram of one schema (canvas, no SQL at all).
     enum Kind: Equatable { case console, data, diagram }
 
-    /// Default page size for data views; "Load more" grows the LIMIT by this.
+    /// Increment for infinite scroll / "Load more" — how many extra rows each
+    /// auto-fetch pulls.
     static let pageSize = 200
+    /// Safety ceiling on a data view's Limit, so an accidental huge value can't
+    /// pull enough rows to exhaust memory. Explicit limits below this are honored.
+    static let maxPageLimit = 1_000_000
+    /// The starting Limit for a freshly opened data view: the "Default row limit"
+    /// setting, clamped to the ceiling. The setting's `0` means "no console cap" —
+    /// a table view can't show zero rows, so it falls back to a sensible page and
+    /// relies on infinite scroll for the rest.
+    static var defaultPageLimit: Int {
+        let setting = ExportSettings.maxRows
+        return setting > 0 ? min(setting, maxPageLimit) : pageSize * 5
+    }
+    /// Clamps a user-entered Limit to `1...maxPageLimit`.
+    static func clampedPageLimit(_ value: Int) -> Int { min(max(1, value), maxPageLimit) }
 
     let id = UUID()
     var title: String
@@ -67,7 +81,7 @@ final class QueryTab: Identifiable {
     var dataSchema: String?
     var dataTable: String?
     var filterWhere = ""
-    var pageLimit = QueryTab.pageSize
+    var pageLimit = QueryTab.defaultPageLimit
     /// Total row count for the current filter (`SELECT count(*)`), if known.
     var totalRows: Int?
     var result: QueryResult?
@@ -77,6 +91,9 @@ final class QueryTab: Identifiable {
     var resultVersion = 0
     var elapsedMS: Int?
     var isRunning = false
+    /// Whether more rows exist beyond what's loaded — drives "Load more" and the
+    /// infinite-scroll auto-fetch. Set from the last fetch's truncation.
+    var hasMoreRows = false
     var errorMessage: String?
     /// Summary after running a multi-statement script (e.g. "Executed 12 statements").
     var scriptSummary: String?
@@ -95,6 +112,16 @@ final class QueryTab: Identifiable {
 
     var hasEdits: Bool { !edits.isEmpty || !pendingDeletes.isEmpty || !pendingInserts.isEmpty }
     var isEditable: Bool { editSource != nil }
+
+    /// True when a result with columns is on screen but can't be edited in place
+    /// because it isn't a single-table SELECT (a join/aggregate). Drives the
+    /// status-bar hint that explains why editing is unavailable — otherwise a
+    /// double-click that does nothing looks like a bug. A DML result (no columns)
+    /// has no grid to edit.
+    var resultIsReadOnly: Bool {
+        guard let result else { return false }
+        return editSource == nil && !result.columns.isEmpty
+    }
 
     /// One undoable step of the grid's pending-change state. Row indices inside are
     /// only valid against the result they were captured on, so the history is
@@ -151,10 +178,17 @@ final class QueryTab: Identifiable {
         pendingInserts = state.pendingInserts
     }
 
-    /// Active header sort on a full-table view (nil = unsorted). Clicking a header
-    /// cycles ascending → descending → off.
-    var sortColumn: String?
-    var sortAscending = true
+    /// One column of a multi-column server-side sort.
+    struct SortKey: Equatable, Hashable, Sendable {
+        var column: String
+        var ascending: Bool
+    }
+
+    /// Active header sort on a full-table view (empty = unsorted), in priority
+    /// order: the first key is the primary sort, the next breaks its ties, and so
+    /// on. Clicking a header cycles that column ascending → descending → off, and a
+    /// column not yet in the list is appended as the next-lowest priority.
+    var sortOrder: [SortKey] = []
 
     /// Client-side header sort of an arbitrary query result: a display-order
     /// permutation of the fetched rows, no re-query. Column index into

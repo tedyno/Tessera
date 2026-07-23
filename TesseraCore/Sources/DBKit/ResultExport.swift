@@ -83,7 +83,7 @@ public enum ResultExport {
         return string
     }
 
-    private static func escapeCSV(_ field: String) -> String {
+    static func escapeCSV(_ field: String) -> String {
         guard field.contains(",") || field.contains("\"") || field.contains("\n") || field.contains("\r")
         else { return field }
         return "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""

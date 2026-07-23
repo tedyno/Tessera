@@ -27,8 +27,8 @@ struct GeneralSettingsTab: View {
                     }
                 }
             }
-            Section("Results") {
-                LabeledContent("Max rows per query") {
+            Section {
+                LabeledContent("Default row limit") {
                     HStack {
                         TextField("", value: $maxRows, format: .number)
                             .frame(width: 90)
@@ -36,6 +36,11 @@ struct GeneralSettingsTab: View {
                         Text("0 = unlimited").font(.caption).foregroundStyle(.secondary)
                     }
                 }
+            } header: {
+                Text("Results")
+            } footer: {
+                Text("Caps console query results and is the starting Limit for a table view — table views then load more as you scroll. 0 removes the console cap.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
