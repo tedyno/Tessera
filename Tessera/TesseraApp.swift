@@ -10,9 +10,12 @@ struct TesseraApp: App {
     @AppStorage(AppTheme.key) private var themeRaw = AppTheme.system.rawValue
     /// Drives the Dock icon, which follows the chosen backdrop + light/dark.
     @AppStorage(BackdropStyle.key) private var backdropRaw = BackdropStyle.monokai.rawValue
-    /// Drives Sparkle auto-updates (checks the appcast, downloads, installs).
+    /// Sparkle updater. Parked for now: while the repo (and its release assets) is
+    /// private, Sparkle can't fetch the appcast/DMG anonymously, so auto-update is
+    /// hidden — flip `startingUpdater` back on and restore the menu item once the
+    /// appcast + DMG are hosted somewhere public.
     private let updaterController = SPUStandardUpdaterController(
-        startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+        startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
 
     private func applyAppearance() {
         AppTheme.applyToApp()
@@ -35,9 +38,8 @@ struct TesseraApp: App {
         .defaultSize(width: 1240, height: 760)
         .commands {
             TesseraCommands(app: app)
-            CommandGroup(after: .appInfo) {
-                Button("Check for Updates…") { updaterController.updater.checkForUpdates() }
-            }
+            // "Check for Updates…" is hidden while auto-update is parked (private
+            // repo). Restore this CommandGroup when the appcast goes public.
         }
 
         Settings {
