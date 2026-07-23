@@ -253,7 +253,8 @@ struct PaneView: View {
                   schema: model.schema(for: tab),
                   focusTrigger: isFocused ? focusTrigger : 0,
                   cursor: Binding(get: { tab.cursorPosition }, set: { tab.cursorPosition = $0 }),
-                  engine: model.engine(for: tab))
+                  engine: model.engine(for: tab),
+                  onFocus: { model.activate(tab) })
             .frame(height: 150)
     }
 

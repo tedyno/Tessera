@@ -201,6 +201,8 @@ enum GridCopyFormat { case tsv, csv, json, insert }
 /// rectangular block of cells, double-click edits, ⌘C/⌘V copy/paste the block.
 final class GridTableView: NSTableView {
     var onSelect: ((Int, Int, Bool, Bool) -> Void)?   // row, col, extend(shift), toggle(cmd)
+    /// Clicking the grid gives its pane focus (tiled layout).
+    var onFocus: (() -> Void)?
     var onBeginEdit: ((Int, Int) -> Void)?
     var onDeleteRows: (() -> Void)?
     var onAddRow: (() -> Void)?
@@ -442,6 +444,7 @@ final class GridTableView: NSTableView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        onFocus?()   // give this pane focus in a tiled layout
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
         let col = self.column(at: point)
@@ -476,6 +479,8 @@ struct ResultsTableView: NSViewRepresentable {
     var onFollowForeignKey: (ForeignKeyTarget, String) -> Void = { _, _ in }
     /// Discards this tab's uncommitted edits — bound to Escape when they exist.
     var onDiscardPending: () -> Void = {}
+    /// Clicking the grid gives its pane focus (tiled layout).
+    var onFocus: () -> Void = {}
     /// Row height: 18 (compact) or 24 (comfortable), from the density toggle.
     var rowHeight: CGFloat = 18
 
@@ -501,6 +506,7 @@ struct ResultsTableView: NSViewRepresentable {
         tableView.selectionHighlightStyle = .none
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
+        tableView.onFocus = onFocus
         tableView.onSelect = { [c = context.coordinator] row, col, extend, toggle in
             c.selectCell(row: row, col: col, extend: extend, toggle: toggle)
         }
@@ -566,6 +572,7 @@ struct ResultsTableView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        (nsView.documentView as? GridTableView)?.onFocus = onFocus
         context.coordinator.onSort = onSort
         context.coordinator.onFollowForeignKey = onFollowForeignKey
         context.coordinator.onDiscardPending = onDiscardPending

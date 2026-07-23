@@ -217,11 +217,12 @@ final class QueryConsoleModel {
         }
     }
 
-    /// Closes a whole pane (its tab group) and every tab in it.
+    /// Closes a whole pane (its tab group) and every tab in it. `closeTabs` already
+    /// reconciles `activeTabID` (only if the active tab was among the closed ones),
+    /// so closing a background pane leaves the focus where it was.
     func closePane(_ groupID: UUID) {
         let ids = workspace.closeGroup(groupID)
         closeTabs(Set(ids))
-        activeTabID = workspace.focusedGroup?.activeID ?? activeTabID
     }
 
     /// The tab-menu "close others/left/right" now scope to the tab's own pane.

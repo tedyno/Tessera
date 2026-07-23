@@ -165,7 +165,10 @@ final class WorkspaceLayout {
     /// Splits the pane holding `targetGroupID` and drops `tabID` into a new group
     /// on `edge`. The tab is first removed from wherever it currently lives.
     func splitDropping(tabID: UUID, targetGroupID: UUID, edge: DropEdge) {
-        remove(tabID: tabID)   // pull it out of its old group first
+        // Validate the target before mutating, or a target that vanished mid-drag
+        // would leave the tab pulled from its old group but dropped nowhere.
+        guard root.leaf(groupID: targetGroupID) != nil else { return }
+        remove(tabID: tabID)   // pull it out of its old group (may collapse a pane)
         guard let target = root.leaf(groupID: targetGroupID) else { return }
         let newGroup = TabGroup(tabIDs: [tabID], activeID: tabID)
         target.split(with: newGroup, on: edge)

@@ -16,6 +16,8 @@ struct SQLEditor: NSViewRepresentable {
     /// Which SQL dialect drives completion: keyword pools and identifier quoting
     /// differ between PostgreSQL and MySQL.
     var engine: DatabaseKind? = nil
+    /// Called when the editor is clicked, so its pane takes focus in a tiled layout.
+    var onFocus: () -> Void = {}
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -43,6 +45,10 @@ struct SQLEditor: NSViewRepresentable {
         textView.allowsUndo = true
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(width: 4, height: 6)
+        textView.onFocus = onFocus
+        // An editable NSTextView accepts string drags by default, which would eat a
+        // tab dragged onto it (pasting its id) instead of letting the pane split.
+        textView.unregisterDraggedTypes()
         context.coordinator.textView = textView
         context.coordinator.schema = schema
         context.coordinator.engine = engine
@@ -59,7 +65,8 @@ struct SQLEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-        guard let textView = context.coordinator.textView else { return }
+        guard let textView = context.coordinator.textView as? CompletingTextView else { return }
+        textView.onFocus = onFocus
         context.coordinator.schema = schema
         context.coordinator.engine = engine
         if textView.string != text {

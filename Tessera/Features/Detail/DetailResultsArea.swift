@@ -72,6 +72,7 @@ struct DetailResultsArea: View {
                 }
             },
             onDiscardPending: { model.discardPending(tab) },
+            onFocus: { model.activate(tab) },
             rowHeight: gridComfortable ? 24 : 18)
         .overlay(alignment: .topTrailing) {
             if tab.isSearchBarVisible {

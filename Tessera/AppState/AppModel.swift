@@ -430,8 +430,12 @@ final class AppModel {
                     continue
                 }
                 let scope: DiagramModel.Scope = saved.diagramTable.map { .table($0) } ?? .schema
+                // openDiagram is a no-op when the schema is no longer in the cache;
+                // only record a tab if one was actually appended, or the positional
+                // index map desyncs and a tab ends up in two panes.
+                let before = console.tabs.count
                 console.openDiagram(schema: schema, scope: scope, on: session)
-                restored.append(console.tabs.last)
+                restored.append(console.tabs.count > before ? console.tabs.last : nil)
             case .data:
                 let tab = QueryTab(title: saved.title, sql: saved.sql)
                 tab.session = session

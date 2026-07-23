@@ -110,7 +110,10 @@ private struct SplitView: View {
                 // fraction jump the way a cumulative-translation baseline did.
                 DragGesture(minimumDistance: 1, coordinateSpace: .named(space))
                     .onChanged { value in
-                        let position = axis == .horizontal ? value.location.x : value.location.y
+                        // Centre the divider under the cursor: `location` spans the
+                        // full split (incl. the divider), `available` excludes the
+                        // divider thickness — so offset by half to avoid a grab jump.
+                        let position = (axis == .horizontal ? value.location.x : value.location.y) - thickness / 2
                         let next = min(max(position / available, minFraction), 1 - minFraction)
                         node.fractions = [next, 1 - next]
                     }

@@ -25,6 +25,10 @@ final class CompletingTextView: NSTextView {
     /// Return an empty list to hide the popup.
     var completionSource: ((_ text: String, _ caret: Int, _ forced: Bool) -> (range: NSRange, items: [SQLCompletionItem]))?
 
+    /// Called when the editor is clicked/focused, so its pane can take focus in a
+    /// tiled layout (menus and ⌘-shortcuts otherwise target the wrong pane).
+    var onFocus: (() -> Void)?
+
     private var completionRange = NSRange(location: 0, length: 0)
     private var suppressNextUpdate = false
 
@@ -81,6 +85,7 @@ final class CompletingTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        onFocus?()
         popup.hide()
         super.mouseDown(with: event)
     }

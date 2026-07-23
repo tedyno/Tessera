@@ -16,6 +16,14 @@ which the whole picture is assembled.
   labelled with its connection and a live status dot, and a per-tab picker points it at any
   connection. SQLite needs no server at all: point a connection at a file (or a new path —
   the file is created on first connect).
+- **Split-pane tiling** — drag a tab onto a pane's edge to split the workspace four ways,
+  drop it on another pane's tab bar to move it there, drag the dividers to resize, and close
+  a whole pane with its tabs. Tabs reorder within a pane by drag. The whole layout persists
+  across launches.
+- **Window themes** — choose a backdrop from a grid of live gradient swatches (the Monokai
+  Pro filters plus Catppuccin, Tokyo Night, Dracula, Nord, Gruvbox, Rosé Pine, One Dark) and
+  a light / dark / system appearance. The whole app follows the theme — sheets, sidebar,
+  results header — and the Dock icon changes with it.
 - **Connection organizer** — nest connections in folders, colour-code them, mark the
   dangerous ones read-only, and connect / disconnect / reconnect / re-introspect from the
   sidebar (with a live green status dot).
