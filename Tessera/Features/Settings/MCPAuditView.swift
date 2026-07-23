@@ -18,6 +18,7 @@ struct MCPAuditView: View {
                 List(app.mcpAudit.entries) { entry in
                     row(entry)
                 }
+                .scrollContentBackground(.hidden)   // let the themed modal backdrop show through
             }
         }
         .frame(width: 640, height: 460)

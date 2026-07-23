@@ -246,6 +246,7 @@ struct NewConnectionView: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)   // let the themed modal backdrop show through
 
             Divider()
             testStatus
