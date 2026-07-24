@@ -31,9 +31,18 @@ final class ConnectionsModel {
             ?? dir.appendingPathComponent("tessera-schema-visibility.json")
         loadAll()
         loadVisibility()
-        // Drop any Keychain secret left behind by a connection that no longer exists
-        // (e.g. deleted by an older build). Enumerating attributes doesn't prompt.
-        secretsStore.purgeOrphans(keeping: Set(profiles.map(\.keychainAccount)))
+    }
+
+    /// Drops any Keychain secret left behind by a connection that no longer exists
+    /// (e.g. deleted by an older build). Reading the vault item prompts on a
+    /// freshly-signed build, so this runs off the main thread and is deliberately
+    /// *not* called during launch — doing it mid-launch pops the system dialog
+    /// before the app is frontmost, and focus never returns to it. `AppModel` calls
+    /// this once the app has become active.
+    func purgeOrphanSecrets() {
+        let store = secretsStore
+        let accounts = Set(profiles.map(\.keychainAccount))
+        Task.detached(priority: .utility) { store.purgeOrphans(keeping: accounts) }
     }
 
     // MARK: Schema visibility

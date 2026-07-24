@@ -77,7 +77,21 @@ final class AppModel {
                                                object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.saveOpenTabs() }
         }
+        // Keychain housekeeping waits until the app is frontmost: reading the vault
+        // prompts on a freshly-signed build, and doing it mid-launch would pop the
+        // dialog before the app activates, leaving it stuck in the background.
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
+                                               object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.didPurgeOrphans else { return }
+                self.didPurgeOrphans = true
+                self.connections.purgeOrphanSecrets()
+            }
+        }
     }
+
+    /// One-shot guard so the orphan purge runs on the first activation only.
+    @ObservationIgnored private var didPurgeOrphans = false
 
     /// Brings the MCP server in line with the setting: running when enabled, stopped
     /// otherwise. Safe to call repeatedly.
