@@ -66,7 +66,8 @@ struct PaneView: View {
                                },
                                onShowWholeSchema: {
                                    model.openDiagram(schema: diagram.schemaName, on: tab.session)
-                               })
+                               },
+                               onRefresh: { Task { await model.refreshDiagram(tab) } })
             } else {
                 VStack(spacing: 0) {
                     if tab.kind == .data {
@@ -169,45 +170,36 @@ struct PaneView: View {
     }
 
     private func editorToolbar(_ tab: QueryTab) -> some View {
-        // Horizontal scroll: a narrow pane can't fit every control, and clipping
-        // them off with no way to reach them (or overflowing into the next pane)
-        // is worse than a scroll.
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                connectionPicker(tab)
-                Button { model.activate(tab); onRun() } label: {
-                    let editing = tab.hasEdits
-                    Label(editing ? "Commit" : "Run", systemImage: editing ? "checkmark" : "play.fill")
-                }
-                .buttonStyle(.glassPillProminent)
-                .disabled(tab.session?.status == .connecting || tab.isRunning || tab.session == nil)
-
-                Button { Task { await model.cancel(tab) } } label: {
-                    Label("Stop", systemImage: "stop.fill").labelStyle(.iconOnly)
-                }
-                .buttonStyle(.glassPill)
-                .disabled(!tab.isRunning)
-
-                explainMenu(tab)
-                autoRefreshMenu(tab)
-
-                if tab.isEditable {
-                    Button { model.addInsertRow(tab) } label: {
-                        Label("Add Row", systemImage: "plus.rectangle")
-                    }
-                    .buttonStyle(.glassPill)
-                }
-                if let ms = tab.elapsedMS, tab.isRunning == false {
-                    Text("\(ms) ms").font(.caption).foregroundStyle(.secondary)
-                }
-                savedQueriesMenu(tab)
-                Button { model.activate(tab); showingHistory = true } label: {
-                    Label("History", systemImage: "clock.arrow.circlepath").labelStyle(.iconOnly)
-                }
-                .buttonStyle(.glassPill)
-                .help("Query history")
+        TabToolbar(name: tab.title, systemImage: tab.kind.icon) {
+            connectionPicker(tab)
+            Button { model.activate(tab); onRun() } label: {
+                let editing = tab.hasEdits
+                Label(editing ? "Commit" : "Run", systemImage: editing ? "checkmark" : "play.fill")
             }
-            .padding(6)
+            .buttonStyle(.glassPillProminent)
+            .disabled(tab.session?.status == .connecting || tab.isRunning || tab.session == nil)
+
+            Button { Task { await model.cancel(tab) } } label: {
+                Label("Stop", systemImage: "stop.fill").labelStyle(.iconOnly)
+            }
+            .buttonStyle(.glassPill)
+            .disabled(!tab.isRunning)
+
+            explainMenu(tab)
+            autoRefreshMenu(tab)
+
+            if tab.isEditable {
+                Button { model.addInsertRow(tab) } label: {
+                    Label("Add Row", systemImage: "plus.rectangle")
+                }
+                .buttonStyle(.glassPill)
+            }
+            savedQueriesMenu(tab)
+            Button { model.activate(tab); showingHistory = true } label: {
+                Label("History", systemImage: "clock.arrow.circlepath").labelStyle(.iconOnly)
+            }
+            .buttonStyle(.glassPill)
+            .help("Query history")
         }
     }
 
@@ -261,46 +253,43 @@ struct PaneView: View {
     // MARK: Data view toolbar
 
     private func dataToolbar(_ tab: QueryTab) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                Button { model.activate(tab); onRun() } label: {
-                    Label(tab.hasEdits ? "Commit" : "Refresh",
-                          systemImage: tab.hasEdits ? "checkmark" : "arrow.clockwise")
-                }
-                .buttonStyle(.glassPillProminent)
-                .disabled(tab.session?.status == .connecting || tab.isRunning || tab.session == nil)
+        TabToolbar(name: tab.dataTable ?? tab.title, systemImage: tab.kind.icon) {
+            Button { model.activate(tab); onRun() } label: {
+                Label(tab.hasEdits ? "Commit" : "Refresh",
+                      systemImage: tab.hasEdits ? "checkmark" : "arrow.clockwise")
+            }
+            .buttonStyle(.glassPillProminent)
+            .disabled(tab.session?.status == .connecting || tab.isRunning || tab.session == nil)
 
-                if tab.isEditable {
-                    Button { model.addInsertRow(tab) } label: {
-                        Label("Add Row", systemImage: "plus.rectangle")
-                    }
-                    .buttonStyle(.glassPill)
-                }
-
-                Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
-                FilterField(
-                    text: Binding(get: { tab.filterWhere }, set: { tab.filterWhere = $0 }),
-                    columns: tab.result?.columns.map(\.name) ?? [],
-                    placeholder: String(localized: "WHERE …"),
-                    onSubmit: { clause in Task { await model.applyFilter(tab, where: clause) } })
-                    .frame(width: 160, height: 24)
-                    .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.primary.opacity(0.12)))
-
-                sortMenu(tab)
-                limitField(tab)
-                explainMenu(tab)
-                autoRefreshMenu(tab)
-
-                if tab.isRunning { ProgressView().controlSize(.mini) }
-                savedQueriesMenu(tab)
-                Button { model.activate(tab); showingHistory = true } label: {
-                    Label("History", systemImage: "clock.arrow.circlepath").labelStyle(.iconOnly)
+            if tab.isEditable {
+                Button { model.addInsertRow(tab) } label: {
+                    Label("Add Row", systemImage: "plus.rectangle")
                 }
                 .buttonStyle(.glassPill)
-                .help("Query history")
             }
-            .padding(6)
+
+            Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
+            FilterField(
+                text: Binding(get: { tab.filterWhere }, set: { tab.filterWhere = $0 }),
+                columns: tab.result?.columns.map(\.name) ?? [],
+                placeholder: String(localized: "WHERE …"),
+                onSubmit: { clause in Task { await model.applyFilter(tab, where: clause) } })
+                .frame(width: 160, height: 24)
+                .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.primary.opacity(0.12)))
+
+            sortMenu(tab)
+            limitField(tab)
+            explainMenu(tab)
+            autoRefreshMenu(tab)
+
+            if tab.isRunning { ProgressView().controlSize(.mini) }
+            savedQueriesMenu(tab)
+            Button { model.activate(tab); showingHistory = true } label: {
+                Label("History", systemImage: "clock.arrow.circlepath").labelStyle(.iconOnly)
+            }
+            .buttonStyle(.glassPill)
+            .help("Query history")
         }
     }
 
@@ -391,11 +380,9 @@ struct PaneView: View {
     }
 
     private func dataSQLView(_ tab: QueryTab) -> some View {
+        // Flush, like the query editor — no boxed chrome around the generated SQL.
         SQLEditor(text: .constant(tab.sql), schema: nil, focusTrigger: 0, cursor: nil, readOnly: true)
             .frame(height: 52)
-            .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.primary.opacity(0.08)))
-            .padding(.horizontal, 8).padding(.bottom, 4)
     }
 }
 

@@ -126,8 +126,11 @@ struct TesseraCommands: Commands {
 
             Button("Focus Editor") { app.focusEditor() }
                 .keyboardShortcut("l")
-            Button("Refresh Schema") { app.refreshSchema() }
+            Button("Refresh") { app.refreshActiveTab() }
                 .keyboardShortcut("r")
+                .disabled(!app.canRefreshActiveTab)
+            Button("Refresh Schema") { app.refreshSchema() }
+                .keyboardShortcut("r", modifiers: [.option, .command])
                 .disabled(!app.isConnected)
             Button("Query History") { app.showHistory() }
                 .keyboardShortcut("y")

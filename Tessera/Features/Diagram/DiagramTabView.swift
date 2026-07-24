@@ -8,6 +8,8 @@ struct DiagramTabView: View {
     var onOpenTable: (String, String) -> Void
     /// Table-scoped diagrams offer a jump to the full schema diagram.
     var onShowWholeSchema: () -> Void = { }
+    /// ⌘R equivalent: re-read the schema and rebuild the diagram.
+    var onRefresh: () -> Void = { }
 
     /// The scroll view's magnification range, shared with the zoom slider.
     static let zoomRange: ClosedRange<CGFloat> = 0.25...3.0
@@ -23,6 +25,8 @@ struct DiagramTabView: View {
     @State private var zoom: CGFloat = 1
     @State private var canvas: DiagramCanvasView?
     @State private var exportError: String?
+    /// Briefly flips the copy button to a checkmark after a successful copy.
+    @State private var pngCopied = false
     @AppStorage("tessera.diagram.edgeStyle") private var edgeStyleRaw = DiagramEdgeStyle.curved.rawValue
     @AppStorage("tessera.diagram.background") private var backgroundRaw = DiagramBackgroundStyle.plain.rawValue
     @Environment(\.colorScheme) private var colorScheme
@@ -61,12 +65,9 @@ struct DiagramTabView: View {
 
     private var toolbar: some View {
         HStack(spacing: 12) {
-            Label {
-                Text(verbatim: model.schemaName)
-            } icon: {
-                Image(systemName: "point.3.connected.trianglepath.dotted")
-            }
-            .font(.callout.weight(.semibold))
+            TabHeaderLabel(name: model.schemaName,
+                           systemImage: QueryTab.Kind.diagram.icon,
+                           divider: false)
             Spacer()
             Toggle("Keys only", isOn: $model.showKeysOnly)
                 .toggleStyle(.checkbox)
@@ -76,10 +77,14 @@ struct DiagramTabView: View {
                     .toggleStyle(.checkbox)
                     .font(.caption)
             }
+            Button { onRefresh() } label: {
+                Label("Refresh", systemImage: "arrow.clockwise").labelStyle(.iconOnly)
+            }
+            .help("Reconnect if needed, re-read the schema, and rebuild the diagram")
         }
         .controlSize(.small)
         .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .frame(height: TabChrome.toolbarHeight)
     }
 
     /// Floating appearance controls along the canvas' bottom edge: glass
@@ -146,6 +151,8 @@ struct DiagramTabView: View {
                     onShowWholeSchema()
                 }
             }
+            railButton(pngCopied ? "checkmark" : "doc.on.clipboard",
+                       help: "Copy PNG to Clipboard") { copyPNG() }
             railButton("square.and.arrow.up", help: "Export PNG…") { exportPNG() }
         }
     }
@@ -157,6 +164,7 @@ struct DiagramTabView: View {
                 .font(.system(size: 13, weight: .medium))
                 .frame(width: 34, height: 34)
                 .foregroundStyle(.primary)
+                .contentTransition(.symbolEffect(.replace))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -225,6 +233,24 @@ struct DiagramTabView: View {
     /// a 2× PNG) into a file, mirroring the result-export flow — same default
     /// folder, timestamped name, reveal-in-Finder preference. Unaffected by the
     /// current zoom: magnification scales the clip view, not the canvas bounds.
+    /// Puts the same rendered PNG on the clipboard, to paste into a doc or chat.
+    private func copyPNG() {
+        guard let canvas,
+              let data = DiagramExportRenderer.png(canvas: canvas, colorScheme: colorScheme),
+              let image = NSImage(data: data) else {
+            exportError = String(localized: "The diagram could not be rendered.")
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([image])
+        pasteboard.setData(data, forType: .png)
+        withAnimation { pngCopied = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            withAnimation { pngCopied = false }
+        }
+    }
+
     private func exportPNG() {
         guard let canvas else { return }
         let panel = NSSavePanel()

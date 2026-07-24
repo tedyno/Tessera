@@ -1098,6 +1098,25 @@ final class QueryConsoleModel {
         await activeSession?.refreshSchema()
     }
 
+    /// ⌘R on a diagram tab: reconnect a dropped session, re-introspect the schema,
+    /// and rebuild the diagram from the fresh snapshot (positions re-layout, like
+    /// reopening it). Mirrors how a query/table view refreshes.
+    func refreshDiagram(_ tab: QueryTab) async {
+        guard tab.kind == .diagram, let session = tab.session,
+              let diagram = tab.diagram else { return }
+        tab.isRunning = true
+        defer { tab.isRunning = false }
+        guard await ensureReady(session) else {
+            tab.errorMessage = session.errorMessage ?? "Not connected"
+            return
+        }
+        await session.refreshSchema()
+        guard let namespace = session.schema?.schemas.first(where: { $0.name == diagram.schemaName })
+        else { return }
+        tab.diagram = DiagramModel(schemaName: diagram.schemaName, namespace: namespace, scope: diagram.scope)
+        focus(tab.diagram)
+    }
+
     // MARK: History
 
     /// Applies a schema change on the active connection and re-introspects, so the

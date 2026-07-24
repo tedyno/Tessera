@@ -13,6 +13,7 @@ struct DetailStatusBar: View {
     @AppStorage("tessera.gridDensity") private var gridComfortable = false
     @Binding var showingConnectionLog: Bool
     var onExportResult: (ResultExport.Format) -> Void
+    @State private var showingExportMenu = false
 
     /// The inspector toggle acts on whichever pane has focus — its state lives on
     /// the group, so the shared status bar drives the right pane.
@@ -66,6 +67,9 @@ struct DetailStatusBar: View {
                 } else if let result = model.activeTab?.result {
                     Text("\(result.rows.count) rows")
                     Text("\(result.columns.count) columns")
+                    if let ms = model.activeTab?.elapsedMS, model.activeTab?.isRunning == false {
+                        Text("\(ms) ms").foregroundStyle(.secondary)
+                    }
                     if result.isTruncated {
                         Label("truncated at the row limit", systemImage: "scissors")
                             .foregroundStyle(.orange)
@@ -106,17 +110,26 @@ struct DetailStatusBar: View {
                 .buttonStyle(.borderless)
                 .foregroundStyle(showInspector ? Color.accentColor : .secondary)
                 .help("Show the value inspector for the selected cell")
-                Menu {
-                    Button("CSV…") { onExportResult(.csv) }
-                    Button("Excel…") { onExportResult(.xlsx) }
-                    Button("JSON…") { onExportResult(.json) }
-                    Button("SQL INSERT…") { onExportResult(.sql) }
-                } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
+                // A plain Button (not a Menu) so it's visually identical to the
+                // neighbouring icon buttons — `Menu` renders its label as a larger,
+                // brighter control that ignores the inherited font and tint. The
+                // format choices live in a popover.
+                Button { showingExportMenu = true } label: {
+                    Label("Export", systemImage: "square.and.arrow.up").labelStyle(.iconOnly)
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
                 .help("Export these results to a file")
+                .popover(isPresented: $showingExportMenu, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        exportRow("CSV…", .csv)
+                        exportRow("Excel…", .xlsx)
+                        exportRow("JSON…", .json)
+                        exportRow("SQL INSERT…", .sql)
+                    }
+                    .padding(6)
+                    .frame(minWidth: 130)
+                }
             }
             Button { showingConnectionLog = true } label: {
                 Label("Log", systemImage: model.connectionLog.hasRecentFailure
@@ -141,7 +154,22 @@ struct DetailStatusBar: View {
         // Clear of the window's rounded bottom corners — 12 pt let the first
         // item hug the curve.
         .padding(.horizontal, 18)
+        // Fixed height so the footer stays the same across tab kinds, regardless of
+        // which (result-only) buttons are present.
+        .frame(height: TabChrome.statusBarHeight)
+    }
+
+    private func exportRow(_ title: LocalizedStringKey, _ format: ResultExport.Format) -> some View {
+        Button {
+            showingExportMenu = false
+            onExportResult(format)
+        } label: {
+            Text(title).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     private func pendingSummary(updates: Int, deletes: Int) -> String {

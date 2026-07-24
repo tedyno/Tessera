@@ -47,7 +47,19 @@ final class QueryTab: Identifiable {
     /// A tab is a SQL console (editor + result), a data view opened from the
     /// schema tree (grid + filter + pagination, no SQL editor), or an ER
     /// diagram of one schema (canvas, no SQL at all).
-    enum Kind: Equatable { case console, data, diagram }
+    enum Kind: Equatable {
+        case console, data, diagram
+
+        /// The SF Symbol for this kind — one source of truth so the tab chip and
+        /// the toolbar header always show the same icon.
+        var icon: String {
+            switch self {
+            case .console: "terminal"
+            case .data: "tablecells"
+            case .diagram: "point.3.connected.trianglepath.dotted"
+            }
+        }
+    }
 
     /// Increment for infinite scroll / "Load more" — how many extra rows each
     /// auto-fetch pulls.

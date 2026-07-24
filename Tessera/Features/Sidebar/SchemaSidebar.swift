@@ -57,18 +57,11 @@ struct SchemaSidebar: View {
     var onDumpSchemas: (_ schemas: [String]) -> Void = { _ in }
 
     @State private var showingFilter = false
-    @State private var searchText = ""
-    /// Relay tokens: ↑/↓ and Return typed in the search field drive the tree.
-    @State private var keyboardStepToken = 0
-    @State private var keyboardStep = 0
-    @State private var keyboardCommitToken = 0
-    /// Current match position/count reported by the speed search.
-    @State private var matchPosition = 0
-    @State private var matchCount = 0
+    @State private var speed = SpeedSearchState()
 
     /// Lowercased, trimmed name filter; empty means "show everything".
     private var query: String {
-        searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        speed.searchText.trimmingCharacters(in: .whitespaces).lowercased()
     }
 
     var body: some View {
@@ -114,15 +107,13 @@ struct SchemaSidebar: View {
                         // edits retarget the search — matches are jumped to
                         // and tinted, never filtered out.
                         onSpeedSearch: { term, position, count in
-                            if searchText != term { searchText = term }
-                            matchPosition = position
-                            matchCount = count
+                            speed.update(term: term, position: position, count: count)
                         },
-                        searchTerm: searchText,
+                        searchTerm: speed.searchText,
                         onFilterCommit: { openFirstMatch() },
-                        keyboardStepToken: keyboardStepToken,
-                        keyboardStep: keyboardStep,
-                        keyboardCommitToken: keyboardCommitToken,
+                        keyboardStepToken: speed.keyboardStepToken,
+                        keyboardStep: speed.keyboardStep,
+                        keyboardCommitToken: speed.keyboardCommitToken,
                         onRevealHandled: onRevealHandled)
                 }
                 .safeAreaInset(edge: .bottom) { filterBar(tree) }
@@ -182,39 +173,7 @@ struct SchemaSidebar: View {
     }
 
     private func filterBar(_ tree: DatabaseTree) -> some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
-                TextField("Search", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.caption)
-                    // The field drives the tree: ↑/↓ walk the matched tables
-                    // and Return opens the picked row (or the first match) —
-                    // connect → type → arrows → Enter, no mouse needed.
-                    .onKeyPress(.downArrow) {
-                        keyboardStep = 1
-                        keyboardStepToken += 1
-                        return .handled
-                    }
-                    .onKeyPress(.upArrow) {
-                        keyboardStep = -1
-                        keyboardStepToken += 1
-                        return .handled
-                    }
-                    .onSubmit { keyboardCommitToken += 1 }
-                if !searchText.isEmpty {
-                    Text(verbatim: "\(matchPosition)/\(matchCount)")
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(matchCount == 0 ? AnyShapeStyle(.red)
-                                                         : AnyShapeStyle(.secondary))
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                }
-            }
+        SidebarFooter(speed: speed) {
             HStack {
                 Button {
                     showingFilter.toggle()
@@ -232,11 +191,6 @@ struct SchemaSidebar: View {
                 Spacer()
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        // A faint translucent footer, not an opaque grey material — the themed
-        // glass card keeps glowing through.
-        .background(.primary.opacity(0.05))
     }
 
     /// A checklist of schemas that stays open across clicks (dismisses on click-away),

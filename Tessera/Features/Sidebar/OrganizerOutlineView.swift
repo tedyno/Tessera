@@ -677,7 +677,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
             dot.identifier = NSUserInterfaceItemIdentifier("statusDot")
             dot.translatesAutoresizingMaskIntoConstraints = false
             dot.wantsLayer = true
-            dot.layer?.cornerRadius = 4
+            dot.layer?.cornerRadius = StatusDot.diameter / 2
             dot.isHidden = true
             // Shown instead of the dot while connecting/disconnecting, so there's some
             // sign of life during what can otherwise look like a stuck, silent wait.
@@ -704,8 +704,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
                 dot.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
                 dot.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                dot.widthAnchor.constraint(equalToConstant: 8),
-                dot.heightAnchor.constraint(equalToConstant: 8),
+                dot.widthAnchor.constraint(equalToConstant: StatusDot.diameter),
+                dot.heightAnchor.constraint(equalToConstant: StatusDot.diameter),
                 spinner.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
                 spinner.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
                 spinner.widthAnchor.constraint(equalToConstant: 12),

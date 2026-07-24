@@ -55,14 +55,6 @@ struct DetailTabBar: View {
         .frame(height: 34)
     }
 
-    private func chipIcon(_ tab: QueryTab) -> String {
-        switch tab.kind {
-        case .console: "terminal"
-        case .data: "tablecells"
-        case .diagram: "point.3.connected.trianglepath.dotted"
-        }
-    }
-
     private func tabChip(_ tab: QueryTab) -> some View {
         let isActive = tab.id == group.activeID
         let showConnection = model.sessions.count > 1
@@ -70,13 +62,13 @@ struct DetailTabBar: View {
             if tab.isRunning {
                 ProgressView().controlSize(.mini)
             } else {
-                Image(systemName: chipIcon(tab))
+                Image(systemName: tab.kind.icon)
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
-            if showConnection, let session = tab.session {
-                Circle().fill(connectionColor(session)).frame(width: 7, height: 7)
-            }
+            // Always present, so a tab never loses its connection status just
+            // because it isn't reconnected yet.
+            StatusDot(tab.session?.status)
             Text(tab.title)
                 .font(.system(size: 12, weight: isActive ? .medium : .regular))
                 .foregroundStyle(isActive ? .primary : .secondary)
@@ -126,15 +118,6 @@ struct DetailTabBar: View {
             guard let first = items.first, let dragged = UUID(uuidString: first) else { return false }
             model.moveTab(dragged, toGroup: group, before: tab.id)
             return true
-        }
-    }
-
-    private func connectionColor(_ session: ConnectionSession) -> Color {
-        switch session.status {
-        case .ready: .green
-        case .connecting: .yellow
-        case .failed: .red
-        case .idle: .secondary
         }
     }
 

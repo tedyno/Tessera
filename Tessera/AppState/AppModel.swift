@@ -867,6 +867,22 @@ final class AppModel {
         }
     }
 
+    /// ⌘R: refresh whatever the active tab shows — re-run a console query, reload a
+    /// table view, or rebuild a diagram — reconnecting a dropped session first
+    /// (`runActiveQuery`/`refreshDiagram` both go through `ensureReady`). Uniform
+    /// across tab kinds, and works while disconnected so it can trigger the connect.
+    func refreshActiveTab() {
+        guard let tab = console.activeTab else { return }
+        switch tab.kind {
+        case .console, .data:
+            runActiveQuery()
+        case .diagram:
+            tab.task = Task { await console.refreshDiagram(tab) }
+        }
+    }
+
+    var canRefreshActiveTab: Bool { console.activeTab != nil }
+
     func runResolved(_ sql: String) {
         guard let tab = console.activeTab else { return }
         pendingRun = nil

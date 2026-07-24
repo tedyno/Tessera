@@ -132,6 +132,16 @@ extension View {
 /// Capsule chrome for toolbar buttons over the gradient backdrop — the
 /// mockups' pill look. `prominent` fills with the accent colour (the primary
 /// action of a toolbar); the rest stay translucent.
+/// Shared pill metrics, so buttons (`GlassPillButtonStyle`) and menu labels
+/// (`PillChrome`) come out the exact same height across the toolbar.
+enum PillMetrics {
+    static let horizontal: CGFloat = 10
+    static let vertical: CGFloat = 4
+    /// Minimum content height, so an icon-only pill (Stop) is the same height as a
+    /// text pill (Run) — a lone glyph is shorter than a line of caption text.
+    static let minContentHeight: CGFloat = 15
+}
+
 struct GlassPillButtonStyle: ButtonStyle {
     var prominent = false
     @Environment(\.isEnabled) private var isEnabled
@@ -142,8 +152,9 @@ struct GlassPillButtonStyle: ButtonStyle {
             // Never wrap: a squeezed toolbar must not fold the title into a
             // one-letter-per-line column.
             .fixedSize()
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .frame(minHeight: PillMetrics.minContentHeight)
+            .padding(.horizontal, PillMetrics.horizontal)
+            .padding(.vertical, PillMetrics.vertical)
             .foregroundStyle(prominent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             .background(prominent ? AnyShapeStyle(Color.accentColor)
                                   : AnyShapeStyle(.primary.opacity(0.06)),
@@ -165,8 +176,9 @@ struct PillChrome: ViewModifier {
         content
             .font(.caption.weight(.medium))
             .fixedSize()
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
+            .frame(minHeight: PillMetrics.minContentHeight)
+            .padding(.horizontal, PillMetrics.horizontal)
+            .padding(.vertical, PillMetrics.vertical)
             .background(.primary.opacity(0.06), in: Capsule())
             .overlay(Capsule().strokeBorder(.primary.opacity(0.12)))
     }

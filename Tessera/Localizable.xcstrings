@@ -5065,6 +5065,28 @@
           }
         }
       }
+    },
+    "Reconnect if needed, re-read the schema, and rebuild the diagram": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "V případě potřeby se znovu připojí, načte schéma a přestaví diagram"
+          }
+        }
+      }
+    },
+    "Copy PNG to Clipboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopírovat PNG do schránky"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

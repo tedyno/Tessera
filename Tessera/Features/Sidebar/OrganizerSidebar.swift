@@ -36,12 +36,7 @@ struct OrganizerSidebar: View {
     @State private var editText = ""
     /// The unified search: the bottom field and tree-typed characters drive
     /// one speed search (matches are jumped to and tinted, never filtered).
-    @State private var searchText = ""
-    @State private var matchPosition = 0
-    @State private var matchCount = 0
-    @State private var keyboardStepToken = 0
-    @State private var keyboardStep = 0
-    @State private var keyboardCommitToken = 0
+    @State private var speed = SpeedSearchState()
 
     var body: some View {
         OrganizerOutlineView(
@@ -66,14 +61,12 @@ struct OrganizerSidebar: View {
             connectionDot: connectionDot,
             version: model.stateVersion,
             onSpeedSearch: { term, position, count in
-                if searchText != term { searchText = term }
-                matchPosition = position
-                matchCount = count
+                speed.update(term: term, position: position, count: count)
             },
-            searchTerm: searchText,
-            keyboardStepToken: keyboardStepToken,
-            keyboardStep: keyboardStep,
-            keyboardCommitToken: keyboardCommitToken,
+            searchTerm: speed.searchText,
+            keyboardStepToken: speed.keyboardStepToken,
+            keyboardStep: speed.keyboardStep,
+            keyboardCommitToken: speed.keyboardCommitToken,
             statusVersion: statusVersion)
         .safeAreaInset(edge: .bottom) { bottomBar }
         .alert(alertTitle, isPresented: pendingBinding) {
@@ -84,44 +77,9 @@ struct OrganizerSidebar: View {
     }
 
     private var bottomBar: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").font(.caption).foregroundStyle(.secondary)
-                TextField("Search", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.caption)
-                    .onKeyPress(.downArrow) {
-                        keyboardStep = 1
-                        keyboardStepToken += 1
-                        return .handled
-                    }
-                    .onKeyPress(.upArrow) {
-                        keyboardStep = -1
-                        keyboardStepToken += 1
-                        return .handled
-                    }
-                    // Return connects the row the search/arrows landed on.
-                    .onSubmit { keyboardCommitToken += 1 }
-                if !searchText.isEmpty {
-                    Text(verbatim: "\(matchPosition)/\(matchCount)")
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(matchCount == 0 ? AnyShapeStyle(.red)
-                                                         : AnyShapeStyle(.secondary))
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                }
-            }
+        SidebarFooter(speed: speed) {
             actionsRow
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        // A faint translucent footer, not an opaque grey material — the themed
-        // glass card keeps glowing through.
-        .background(.primary.opacity(0.05))
     }
 
     private var actionsRow: some View {
