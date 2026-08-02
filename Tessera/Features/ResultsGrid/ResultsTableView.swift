@@ -455,6 +455,10 @@ final class GridTableView: NSTableView {
         if let cell = sender.representedObject as? CellPos { onFollowForeignKey?(cell.row, cell.col) }
     }
 
+    /// The cell the last drag-select event targeted, so a drag that stays within
+    /// one cell doesn't rebuild the whole rectangular selection on every mouse move.
+    private var lastDragCell: CellPos?
+
     override func mouseDown(with event: NSEvent) {
         onFocus?()   // give this pane focus in a tiled layout
         let point = convert(event.locationInWindow, from: nil)
@@ -462,6 +466,7 @@ final class GridTableView: NSTableView {
         let col = self.column(at: point)
         guard row >= 0, col >= 0 else { super.mouseDown(with: event); return }
         window?.makeFirstResponder(self)
+        lastDragCell = CellPos(row: row, col: col)
         if event.clickCount >= 2 {
             onBeginEdit?(row, col)
             return
@@ -473,7 +478,13 @@ final class GridTableView: NSTableView {
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
         let col = self.column(at: point)
-        if row >= 0, col >= 0 { onSelect?(row, col, true, false) }
+        guard row >= 0, col >= 0 else { return }
+        // Extending the selection rebuilds a Set of every enclosed cell; skip it
+        // while the pointer is still inside the cell it last targeted.
+        let cell = CellPos(row: row, col: col)
+        guard cell != lastDragCell else { return }
+        lastDragCell = cell
+        onSelect?(row, col, true, false)
     }
 
     @objc func paste(_ sender: Any?) { onPaste?() }
@@ -632,6 +643,19 @@ struct ResultsTableView: NSViewRepresentable {
         /// Data-row indices shown, in display order, while a ⌘F filter is active;
         /// nil when unfiltered (display row == data row).
         private var visibleRowMap: [Int]?
+
+        /// Everything `visibleRowMap` depends on. `configure` recomputes the map
+        /// only when this changes, so purely visual mutations (selection, hover,
+        /// inspector) don't trigger a full-result rescan.
+        private struct VisibleMapKey: Equatable {
+            var tab: ObjectIdentifier
+            var searchQuery: String
+            var valueFilters: [String: Set<String?>]
+            var sortColumn: Int?
+            var sortAscending: Bool
+            var resultVersion: Int
+        }
+        private var lastVisibleMapKey: VisibleMapKey?
 
         init(tab: QueryTab) { self.tab = tab }
 
@@ -1661,27 +1685,45 @@ struct ResultsTableView: NSViewRepresentable {
             }
             self.tab = tab
             guard let tableView, let result = tab.result else { return }
-            visibleRowMap = tab.matchingRowIndices()
-            // Local per-column value filters (header right-click) stack on the
-            // ⌘F filter. Like it, they park editing while active.
-            if !tab.localValueFilters.isEmpty {
-                let base = visibleRowMap ?? Array(result.rows.indices)
-                visibleRowMap = base.filter { row in
-                    tab.localValueFilters.allSatisfy { column, allowed in
-                        guard let index = result.columns.firstIndex(where: { $0.name == column })
-                        else { return true }
-                        let value = index < result.rows[row].count ? result.rows[row][index].text : nil
-                        return allowed.contains(value)
+            // Recompute the filter/sort display map only when an input actually
+            // changed. `configure` runs on *every* observed mutation of the tab
+            // (cell selection, inspector, hover…), and this scan is O(rows) with
+            // locale-aware matching — recomputing it per invalidation stalls large
+            // results. The key covers everything the map depends on; anything else
+            // (selection, inspector) leaves the cached map untouched.
+            let mapKey = VisibleMapKey(tab: ObjectIdentifier(tab),
+                                       searchQuery: tab.searchQuery,
+                                       valueFilters: tab.localValueFilters,
+                                       sortColumn: tab.localSortColumn,
+                                       sortAscending: tab.localSortAscending,
+                                       resultVersion: tab.resultVersion)
+            if mapKey != lastVisibleMapKey {
+                lastVisibleMapKey = mapKey
+                visibleRowMap = tab.matchingRowIndices()
+                // Local per-column value filters (header right-click) stack on the
+                // ⌘F filter. Like it, they park editing while active.
+                if !tab.localValueFilters.isEmpty {
+                    // Resolve each filtered column to an index once, not per row.
+                    let columnIndex = Dictionary(
+                        result.columns.enumerated().map { ($0.element.name, $0.offset) },
+                        uniquingKeysWith: { first, _ in first })
+                    let base = visibleRowMap ?? Array(result.rows.indices)
+                    visibleRowMap = base.filter { row in
+                        tab.localValueFilters.allSatisfy { column, allowed in
+                            guard let index = columnIndex[column] else { return true }
+                            let value = index < result.rows[row].count ? result.rows[row][index].text : nil
+                            return allowed.contains(value)
+                        }
                     }
                 }
-            }
-            // Client-side sort (console results): permute the display order on
-            // top of any ⌘F filter. Like the filter, it parks editing — the
-            // row juggling only makes sense over the raw result order.
-            if let sortColumn = tab.localSortColumn, sortColumn < result.columns.count {
-                let base = visibleRowMap ?? Array(result.rows.indices)
-                visibleRowMap = sortedRows(base, by: sortColumn,
-                                           ascending: tab.localSortAscending, result: result)
+                // Client-side sort (console results): permute the display order on
+                // top of any ⌘F filter. Like the filter, it parks editing — the
+                // row juggling only makes sense over the raw result order.
+                if let sortColumn = tab.localSortColumn, sortColumn < result.columns.count {
+                    let base = visibleRowMap ?? Array(result.rows.indices)
+                    visibleRowMap = sortedRows(base, by: sortColumn,
+                                               ascending: tab.localSortAscending, result: result)
+                }
             }
             if let grid = tableView as? GridTableView {
                 // Editing (and pending-insert rows) is unavailable while a ⌘F filter
@@ -1885,27 +1927,33 @@ struct ResultsTableView: NSViewRepresentable {
         private func sortedRows(_ base: [Int], by column: Int, ascending: Bool,
                                 result: QueryResult) -> [Int] {
             let numeric = isNumericColumnType(result.columns[column].typeName)
-            func text(_ row: Int) -> String? {
-                column < result.rows[row].count ? result.rows[row][column].text : nil
+            // Decorate each row with its cell text (and parsed number for numeric
+            // columns) once, then sort — the old form re-fetched the cell and
+            // re-parsed `Double` on every comparison, i.e. O(n log n) parses.
+            struct Key { let row: Int; let text: String?; let number: Double? }
+            let decorated = base.map { row -> Key in
+                let text = column < result.rows[row].count ? result.rows[row][column].text : nil
+                return Key(row: row, text: text, number: numeric ? text.flatMap(Double.init) : nil)
             }
-            return base.sorted { a, b in
-                switch (text(a), text(b)) {
-                case (nil, nil): return a < b
+            let sorted = decorated.sorted { a, b in
+                switch (a.text, b.text) {
+                case (nil, nil): return a.row < b.row
                 case (nil, _): return false
                 case (_, nil): return true
                 case (let x?, let y?):
                     let ordered: Bool
-                    if numeric, let dx = Double(x), let dy = Double(y) {
-                        if dx == dy { return a < b }
+                    if numeric, let dx = a.number, let dy = b.number {
+                        if dx == dy { return a.row < b.row }
                         ordered = dx < dy
                     } else {
                         let comparison = x.localizedStandardCompare(y)
-                        if comparison == .orderedSame { return a < b }
+                        if comparison == .orderedSame { return a.row < b.row }
                         ordered = comparison == .orderedAscending
                     }
                     return ascending ? ordered : !ordered
                 }
             }
+            return sorted.map(\.row)
         }
 
         /// Draws the sort arrow on every sorted column's header, plus a priority

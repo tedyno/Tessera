@@ -93,9 +93,13 @@ public actor MySQLDriver: DatabaseDriver {
                 // COM_QUERY buffers the whole result, so the cap trims what we keep
                 // and decode rather than what the server sends.
                 if let maxRows, resultRows.count >= maxRows { truncated = true; break }
+                // Read values positionally: `row.column(name:)` does a linear scan of
+                // the column list per cell (O(cols²) per row), and the text protocol
+                // only needs the raw buffer anyway.
                 var cells: [Cell] = []
-                for definition in row.columnDefinitions {
-                    cells.append(Cell(Self.text(row.column(definition.name))))
+                cells.reserveCapacity(row.values.count)
+                for value in row.values {
+                    cells.append(Cell(Self.text(buffer: value)))
                 }
                 resultRows.append(cells)
             }
@@ -149,8 +153,9 @@ public actor MySQLDriver: DatabaseDriver {
                         began = true
                     }
                     var cells: [Cell] = []
-                    for definition in row.columnDefinitions {
-                        cells.append(Cell(Self.text(row.column(definition.name))))
+                    cells.reserveCapacity(row.values.count)
+                    for value in row.values {
+                        cells.append(Cell(Self.text(buffer: value)))
                     }
                     batch.append(cells)
                     if batch.count >= batchSize {
@@ -358,7 +363,13 @@ public actor MySQLDriver: DatabaseDriver {
     private static func text(_ data: MySQLData?) -> String? {
         // COM_QUERY uses the text protocol, so every non-null value is UTF-8 text
         // in the buffer regardless of column type (int, decimal, datetime, …).
-        guard let data, var buffer = data.buffer else { return nil }
+        text(buffer: data?.buffer)
+    }
+
+    /// Decodes a raw column buffer straight to text, skipping the `MySQLData`
+    /// wrapper — the row loop reads values positionally.
+    private static func text(buffer: ByteBuffer?) -> String? {
+        guard var buffer else { return nil }
         return buffer.readString(length: buffer.readableBytes)
     }
 }

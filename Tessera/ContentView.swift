@@ -207,12 +207,16 @@ struct ContentView: View {
             let available = max(geo.size.height - gap, 200)
             let ratio = min(max(sidebarSplitRatio, 0.15), 0.85)
             VStack(spacing: 0) {
-                organizerSidebar
+                // Each sidebar is its own `View` so it tracks only the state it
+                // reads. Inlined into `body`, every observed property they touch
+                // (e.g. the connection-status tick) became a dependency of the
+                // whole `ContentView`, rebuilding both trees on any change.
+                OrganizerSidebarColumn(app: app)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .floatingPanel()
                     .frame(height: available * ratio)
                 splitter(available: available)
-                schemaSidebar
+                SchemaSidebarColumn(app: app)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .floatingPanel()
             }
@@ -267,7 +271,14 @@ struct ContentView: View {
                     })
     }
 
-    private var organizerSidebar: some View {
+}
+
+/// The organizer tree as its own `View`, so the connection-status tick and
+/// profile edits only re-render this column — not the whole `ContentView`.
+private struct OrganizerSidebarColumn: View {
+    @Bindable var app: AppModel
+
+    var body: some View {
         OrganizerSidebar(
                 model: app.connections,
                 selection: $app.selection,
@@ -289,10 +300,14 @@ struct ContentView: View {
                 onDisconnectAll: { app.disconnectAll() },
                 hasActiveConnections: app.hasActiveConnections)
     }
+}
 
-    // Pulled out of `body`: with this many parameters/closures inline, the whole
-    // NavigationSplitView expression stopped type-checking in reasonable time.
-    private var schemaSidebar: some View {
+/// The live schema tree as its own `View`, isolated from unrelated `ContentView`
+/// state so a schema deep-hash/rebuild only runs when schema state changes.
+private struct SchemaSidebarColumn: View {
+    let app: AppModel
+
+    var body: some View {
         SchemaSidebar(
             tree: app.console.schema,
             hiddenSchemas: app.currentHiddenSchemas,

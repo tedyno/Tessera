@@ -1076,10 +1076,15 @@ struct SchemaOutlineView: NSViewRepresentable {
 
         private func speedRetarget() {
             // Substring match, but names *starting* with the term come first so
-            // the initial jump is never a random mid-name hit.
-            let all = speedCandidates().filter { speedContainsMatch($0.title, speedTerm) }
-            speedMatches = all.filter { speedPrefixMatch($0.title, speedTerm) }
-                + all.filter { !speedPrefixMatch($0.title, speedTerm) }
+            // the initial jump is never a random mid-name hit. Fold each title and
+            // the term exactly once — the old form re-folded the term for every
+            // candidate and re-folded titles across three passes.
+            let foldedTerm = speedFold(speedTerm)
+            let matched = speedCandidates()
+                .map { (node: $0, folded: speedFold($0.title)) }
+                .filter { $0.folded.contains(foldedTerm) }
+            speedMatches = matched.filter { $0.folded.hasPrefix(foldedTerm) }.map(\.node)
+                + matched.filter { !$0.folded.hasPrefix(foldedTerm) }.map(\.node)
             speedIndex = 0
             speedMatchKeys = Set(speedMatches.map(\.key))
             refreshMatchTint()
@@ -1168,16 +1173,8 @@ struct SchemaOutlineView: NSViewRepresentable {
     }
 }
 
-/// Case- and diacritic-insensitive prefix test ("za" finds "Zálohy").
-func speedPrefixMatch(_ title: String, _ term: String) -> Bool {
-    speedFold(title).hasPrefix(speedFold(term))
-}
-
-/// Case- and diacritic-insensitive substring test.
-func speedContainsMatch(_ title: String, _ term: String) -> Bool {
-    speedFold(title).contains(speedFold(term))
-}
-
-private func speedFold(_ string: String) -> String {
+/// Case- and diacritic-insensitive fold ("za" finds "Zálohy"). Callers fold the
+/// search term once and match many candidates' folded titles against it.
+func speedFold(_ string: String) -> String {
     string.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
 }

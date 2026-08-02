@@ -88,6 +88,7 @@ public actor PostgresDriver: DatabaseDriver {
                     // Stop pulling once the cap is reached — the rest is never decoded.
                     if let maxRows, resultRows.count >= maxRows { truncated = true; break }
                     var cells: [Cell] = []
+                    cells.reserveCapacity(columns.count)
                     var index = 0
                     for cell in row {
                         if columns.count <= index {
@@ -142,6 +143,7 @@ public actor PostgresDriver: DatabaseDriver {
 
                 for try await row in rows {
                     var cells: [Cell] = []
+                    cells.reserveCapacity(columns.count)
                     var index = 0
                     for cell in row {
                         if columns.count <= index {
@@ -382,6 +384,9 @@ public actor PostgresDriver: DatabaseDriver {
     /// the column's actual Postgres type (values often arrive in binary format, so
     /// we must not blindly read bytes as text). Unknown types fall back to their
     /// text-format bytes.
+    /// Shared ISO-8601 style for timestamp/date cells (see `stringify`).
+    private static let iso8601Style = Date.ISO8601FormatStyle()
+
     private static func stringify(_ cell: PostgresCell) -> String? {
         guard cell.bytes != nil else { return nil }
         do {
@@ -404,7 +409,9 @@ public actor PostgresDriver: DatabaseDriver {
                 // Postgres renders UUIDs lowercase; Swift's uuidString is uppercase.
                 return try cell.decode(UUID.self).uuidString.lowercased()
             case .timestamp, .timestamptz, .date:
-                return try cell.decode(Date.self).ISO8601Format()
+                // Reuse one format style — `Date.ISO8601Format()` builds a fresh one
+                // per call, which adds up over a timestamp-heavy result.
+                return try cell.decode(Date.self).formatted(Self.iso8601Style)
             case .text, .varchar, .bpchar, .name, .char, .json, .jsonb:
                 return try cell.decode(String.self)
             // PostgresNIO delivers results in binary format, and it has no

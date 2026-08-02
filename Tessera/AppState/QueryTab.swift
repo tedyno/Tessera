@@ -218,16 +218,29 @@ final class QueryTab: Identifiable {
     var searchQuery = ""
     var isSearchBarVisible = false
 
+    /// Memoizes the last ⌘F scan. The scan is O(rows × cols) with locale-aware
+    /// substring matching and is read on every keystroke (status bar *and* grid),
+    /// so recomputing it per render stalls large results. Keyed on the query text
+    /// and the result identity (`resultVersion`); editing is parked whenever a
+    /// filter is active, so pending `edits` can't drift the result underneath a
+    /// cached entry.
+    @ObservationIgnored private var matchingRowsCache: (query: String, version: Int, rows: [Int])?
+
     /// Data-row indices matching `searchQuery` (checked case-insensitively against
     /// fetched cells and any pending edit); nil when there's no active filter.
     func matchingRowIndices() -> [Int]? {
         guard !searchQuery.isEmpty, let result else { return nil }
-        return result.rows.indices.filter { index in
+        if let cache = matchingRowsCache, cache.query == searchQuery, cache.version == resultVersion {
+            return cache.rows
+        }
+        let indices = result.rows.indices.filter { index in
             if result.rows[index].contains(where: { $0.text?.localizedCaseInsensitiveContains(searchQuery) == true }) {
                 return true
             }
             return edits[index]?.values.contains(where: { $0?.localizedCaseInsensitiveContains(searchQuery) == true }) == true
         }
+        matchingRowsCache = (searchQuery, resultVersion, indices)
+        return indices
     }
 
     func clearSearch() {

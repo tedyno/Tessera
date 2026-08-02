@@ -176,6 +176,7 @@ final class DiagramCanvasView: NSView {
             drawBackdrop(backgroundStyle, phase: 1, outgoing: false, in: dirtyRect)
         }
         guard let model else { return }
+        geometryCache.removeAll(keepingCapacity: true)
         let selected = model.selectedTable
         // Unrelated edges recede when a table is selected — draw them first so
         // the highlighted ones stay on top.
@@ -384,8 +385,25 @@ final class DiagramCanvasView: NSView {
         var path: EdgePath
     }
 
+    /// Per-draw cache of default-style edge geometry, keyed by lane (= edge index
+    /// within the current pass). `draw` computes each edge's geometry at least
+    /// twice — once to build hop obstacles, once to stroke it — and the routing is
+    /// a pure function of the (frame-stable) inputs, so one compute per pass is
+    /// enough. Cleared at the top of every `draw`, so a drag recomputes it fresh.
+    private var geometryCache: [Int: EdgeGeometry?] = [:]
+
     private func geometry(for edge: DiagramModel.Edge, lane: Int,
                           style: DiagramEdgeStyle? = nil) -> EdgeGeometry? {
+        // Only the default-style routing is reused across a pass; an explicit style
+        // (mid-transition morph) is transient and bypasses the cache.
+        if style == nil, let cached = geometryCache[lane] { return cached }
+        let computed = computeGeometry(for: edge, lane: lane, style: style)
+        if style == nil { geometryCache[lane] = computed }
+        return computed
+    }
+
+    private func computeGeometry(for edge: DiagramModel.Edge, lane: Int,
+                                 style: DiagramEdgeStyle? = nil) -> EdgeGeometry? {
         let style = style ?? edgeStyle
         guard let model,
               let fromFrame = nodeViews[edge.fromTable]?.frame,

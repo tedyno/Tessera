@@ -48,7 +48,11 @@ final class DiagramModel {
     /// isolated block would dwarf the connected core. Toggling seeds positions
     /// only for newly revealed tables, preserving the user's arrangement.
     var showOnlyConnected: Bool {
-        didSet { performLayout(keepingExisting: true) }
+        didSet {
+            visibleEntitiesCache = nil
+            visibleEdgesCache = nil
+            performLayout(keepingExisting: true)
+        }
     }
     /// Compact boxes: only PK/FK rows. Box sizes change, so the size cache
     /// resets; positions survive (boxes shrink/grow in place).
@@ -90,23 +94,39 @@ final class DiagramModel {
         Set(edges.flatMap { [$0.fromTable, $0.toTable] })
     }
 
+    // The visible sets depend only on `scope`/`edges`/`entities` (all immutable)
+    // and `showOnlyConnected`, so compute them once and reuse — `draw` reads
+    // `visibleEdges` (which itself reads `visibleEntities`) every frame, and
+    // `contentBounds`/`performLayout` read them again. Invalidated when the
+    // connected-only toggle flips.
+    @ObservationIgnored private var visibleEntitiesCache: [SchemaTable]?
+    @ObservationIgnored private var visibleEdgesCache: [Edge]?
+
     var visibleEntities: [SchemaTable] {
+        if let visibleEntitiesCache { return visibleEntitiesCache }
+        let computed: [SchemaTable]
         if case .table(let name) = scope {
             let neighbors = Set(edges
                 .filter { $0.fromTable == name || $0.toTable == name }
                 .flatMap { [$0.fromTable, $0.toTable] })
-            return entities.filter { $0.name == name || neighbors.contains($0.name) }
+            computed = entities.filter { $0.name == name || neighbors.contains($0.name) }
+        } else if !showOnlyConnected {
+            computed = entities
+        } else {
+            let connected = connectedTables
+            // With no edges at all the filter would blank the diagram — ignore it.
+            computed = connected.isEmpty ? entities : entities.filter { connected.contains($0.name) }
         }
-        guard showOnlyConnected else { return entities }
-        let connected = connectedTables
-        // With no edges at all the filter would blank the diagram — ignore it.
-        guard !connected.isEmpty else { return entities }
-        return entities.filter { connected.contains($0.name) }
+        visibleEntitiesCache = computed
+        return computed
     }
 
     var visibleEdges: [Edge] {
+        if let visibleEdgesCache { return visibleEdgesCache }
         let names = Set(visibleEntities.map(\.name))
-        return edges.filter { names.contains($0.fromTable) && names.contains($0.toTable) }
+        let computed = edges.filter { names.contains($0.fromTable) && names.contains($0.toTable) }
+        visibleEdgesCache = computed
+        return computed
     }
 
     func size(of table: SchemaTable) -> CGSize {

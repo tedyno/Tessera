@@ -402,9 +402,14 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         private func speedRetarget() {
             // Substring match with prefix hits first, same as the schema tree.
-            let all = speedCandidates().filter { speedContainsMatch(title(for: $0), speedTerm) }
-            speedMatches = all.filter { speedPrefixMatch(title(for: $0), speedTerm) }
-                + all.filter { !speedPrefixMatch(title(for: $0), speedTerm) }
+            // Resolve+fold each title once — `title(for:)` does profile lookups, and
+            // the old form called it three times per candidate plus refolded the term.
+            let foldedTerm = speedFold(speedTerm)
+            let matched = speedCandidates()
+                .map { (node: $0, folded: speedFold(title(for: $0))) }
+                .filter { $0.folded.contains(foldedTerm) }
+            speedMatches = matched.filter { $0.folded.hasPrefix(foldedTerm) }.map(\.node)
+                + matched.filter { !$0.folded.hasPrefix(foldedTerm) }.map(\.node)
             speedIndex = 0
             speedMatchIDs = Set(speedMatches.map(\.id))
             refreshMatchTint()

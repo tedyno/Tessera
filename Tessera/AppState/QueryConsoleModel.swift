@@ -1020,7 +1020,7 @@ final class QueryConsoleModel {
     /// No-op with pending changes so a reload can't silently discard them.
     func loadMore(_ tab: QueryTab) async {
         guard tab.kind == .data, !tab.hasEdits, !tab.isRunning,
-              let session = tab.session, var existing = tab.result else { return }
+              let session = tab.session, tab.result != nil else { return }
         // Decide before claiming `isRunning`: the fallback re-runs the query, and
         // `run` refuses to start while the tab is already marked running.
         guard let ordering = stableOrdering(for: tab) else {
@@ -1036,17 +1036,19 @@ final class QueryConsoleModel {
             tab.errorMessage = session.errorMessage ?? "Not connected"
             return
         }
-        let offset = existing.rows.count
+        let offset = tab.result?.rows.count ?? 0
         let sql = dataSQL(tab, limit: QueryTab.pageSize, offset: offset, orderOverride: ordering)
         do {
             let page = try await driver.execute(sql, maxRows: QueryTab.pageSize)
             guard !page.rows.isEmpty else { tab.hasMoreRows = false; return }
-            existing.rows.append(contentsOf: page.rows)
-            existing.isTruncated = page.isTruncated
-            tab.result = existing
+            // Append in place: `tab.result` is the sole owner of its row buffer here,
+            // so this extends it rather than copying the whole accumulated result
+            // every page (which grew to O(N²) over a long infinite scroll).
+            tab.result?.rows.append(contentsOf: page.rows)
+            tab.result?.isTruncated = page.isTruncated
             tab.hasMoreRows = page.isTruncated   // a full page means more may follow
             tab.resultVersion &+= 1
-            tab.pageLimit = existing.rows.count
+            tab.pageLimit = tab.result?.rows.count ?? tab.pageLimit
             tab.sql = dataSQL(tab)
         } catch {
             tab.errorMessage = ConnectionSession.message(for: error)
