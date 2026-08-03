@@ -16,6 +16,9 @@ OUT_DMG="${1:-$PROJECT_DIR/Tessera.dmg}"
 BUILD_DIR="$PROJECT_DIR/build/dmg"
 STAGE_DIR="$PROJECT_DIR/build/dmgroot"
 
+# DEPLOYMENT_POSTPROCESSING + STRIP_INSTALLED_PRODUCT make xcodebuild strip the
+# binary (and re-sign it) as an install/archive would — a plain `build` ships the
+# full debug symbol table, roughly doubling the executable.
 echo "Building ${SCHEME} (Release, universal) ..."
 xcodebuild \
   -project "$PROJECT_DIR/Tessera.xcodeproj" \
@@ -24,6 +27,7 @@ xcodebuild \
   -destination 'generic/platform=macOS' \
   -derivedDataPath "$BUILD_DIR" \
   ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+  DEPLOYMENT_POSTPROCESSING=YES STRIP_INSTALLED_PRODUCT=YES \
   build
 
 APP="$BUILD_DIR/Build/Products/Release/$APP_NAME"
