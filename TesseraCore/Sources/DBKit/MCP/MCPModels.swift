@@ -155,21 +155,26 @@ public struct MCPQueryResult: Codable, Equatable, Sendable {
     /// Rows changed by a write (INSERT/UPDATE/DELETE); nil for row-returning queries.
     public let rowsAffected: Int?
     public let truncated: Bool
+    /// Client-side execution time in milliseconds; nil when the driver didn't report it.
+    public let elapsedMs: Int?
 
-    public init(columns: [String], rows: [[MCPValue]], truncated: Bool, rowsAffected: Int? = nil) {
+    public init(columns: [String], rows: [[MCPValue]], truncated: Bool,
+                rowsAffected: Int? = nil, elapsedMs: Int? = nil) {
         self.columns = columns
         self.rows = rows
         self.rowCount = rows.count
         self.rowsAffected = rowsAffected
         self.truncated = truncated
+        self.elapsedMs = elapsedMs
     }
 
     /// Convenience for simple callers: every cell treated as text. Distinct label so
     /// an empty literal never makes the two initialisers ambiguous.
-    public init(columns: [String], textRows: [[String?]], truncated: Bool, rowsAffected: Int? = nil) {
+    public init(columns: [String], textRows: [[String?]], truncated: Bool,
+                rowsAffected: Int? = nil, elapsedMs: Int? = nil) {
         self.init(columns: columns,
                   rows: textRows.map { $0.map { MCPValue.make($0, isNumericColumn: false) } },
-                  truncated: truncated, rowsAffected: rowsAffected)
+                  truncated: truncated, rowsAffected: rowsAffected, elapsedMs: elapsedMs)
     }
 
     /// Builds from a driver result, typing numeric columns as JSON numbers.
@@ -182,7 +187,14 @@ public struct MCPQueryResult: Codable, Equatable, Sendable {
                       }
                   },
                   truncated: result.isTruncated,
-                  rowsAffected: result.rowsAffected)
+                  rowsAffected: result.rowsAffected,
+                  elapsedMs: result.elapsed.map(Self.milliseconds))
+    }
+
+    /// A `Duration` rounded to whole milliseconds (matches the app's status bar).
+    private static func milliseconds(_ duration: Duration) -> Int {
+        let c = duration.components
+        return Int(c.seconds) * 1000 + Int(c.attoseconds / 1_000_000_000_000_000)
     }
 }
 
