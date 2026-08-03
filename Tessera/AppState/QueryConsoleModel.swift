@@ -163,7 +163,7 @@ final class QueryConsoleModel {
         if let tab = tabs.last(where: { $0.session === session }) {
             activate(tab)
         } else {
-            let tab = QueryTab(title: "Query 1")
+            let tab = QueryTab(title: nextQueryTitle())
             tab.session = session
             tabs.append(tab)
             activate(tab)
@@ -172,11 +172,26 @@ final class QueryConsoleModel {
 
     // MARK: Tabs
 
+    /// The next free "Query N" title: the smallest positive N not already used by a
+    /// console tab. Only console tabs count (a data/diagram tab must not bump the
+    /// number), and freed numbers are reused, so numbering never collides — whether
+    /// from closing tabs or duplicating one into a split — nor climbs forever.
+    func nextQueryTitle() -> String {
+        let prefix = "Query "
+        let used = Set(tabs.compactMap { tab -> Int? in
+            guard tab.kind == .console, tab.title.hasPrefix(prefix) else { return nil }
+            return Int(tab.title.dropFirst(prefix.count))
+        })
+        var number = 1
+        while used.contains(number) { number += 1 }
+        return "\(prefix)\(number)"
+    }
+
     /// Opens a console tab. Coming from a table view it starts prefilled with the
     /// query behind that view — handy for tweaking a filter or adding a join — but
     /// deliberately isn't run, so nothing hits the database until you ask.
     func addTab(boundTo session: ConnectionSession? = nil) {
-        let tab = QueryTab(title: "Query \(tabs.count + 1)")
+        let tab = QueryTab(title: nextQueryTitle())
         let source = activeTab
         // A new tab opened over a data view belongs to that view's connection and
         // starts from its generated query — regardless of which connection the
@@ -286,8 +301,24 @@ final class QueryConsoleModel {
     /// a fresh group on that side. If it was the only tab in its old pane, that pane
     /// collapses. Ignores a drop back onto the tab's own solo pane.
     func splitDrop(_ draggedID: UUID, into targetGroupID: UUID, edge: DropEdge) {
+        // Splitting a pane by its only tab would strand the source empty. Instead
+        // fill the new pane with an independent duplicate and leave the original
+        // where it is — so a lone tab can still be split into two views.
         if let from = workspace.group(containing: draggedID),
-           from.id == targetGroupID, from.tabIDs.count == 1 { return }
+           from.id == targetGroupID, from.tabIDs.count == 1 {
+            guard let original = tabs.first(where: { $0.id == draggedID }) else { return }
+            let copy = original.duplicated()
+            // A console duplicate keeps the SQL but gets its own number, so the
+            // split doesn't leave two identically titled tabs. Data/diagram tabs
+            // stay named after their table/schema — same name is expected there.
+            if copy.kind == .console { copy.title = nextQueryTitle() }
+            tabs.append(copy)
+            // `copy` is in no group yet, so `splitDropping`'s internal remove is a
+            // no-op and the original stays put; the new pane gets the duplicate.
+            workspace.splitDropping(tabID: copy.id, targetGroupID: targetGroupID, edge: edge)
+            activeTabID = copy.id
+            return
+        }
         workspace.splitDropping(tabID: draggedID, targetGroupID: targetGroupID, edge: edge)
         activeTabID = draggedID
     }

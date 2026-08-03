@@ -294,6 +294,46 @@ final class QueryTab: Identifiable {
         self.sql = sql
     }
 
+    /// An independent copy for opening the same content in a split pane. Carries
+    /// the tab's definition and its current result snapshot so the new pane shows
+    /// immediately, but starts with a clean edit/undo state and no in-flight work
+    /// — it's a separate tab, not a shared one. `QueryResult` is a value type, so
+    /// the shared snapshot diverges the moment either side reloads.
+    func duplicated() -> QueryTab {
+        let copy = QueryTab(title: title, sql: sql)
+        copy.session = session
+        copy.kind = kind
+        copy.cursorPosition = cursorPosition
+        copy.result = result
+        copy.resultVersion = resultVersion
+        copy.elapsedMS = elapsedMS
+        copy.editSource = editSource
+        copy.hasMoreRows = hasMoreRows
+
+        switch kind {
+        case .console:
+            break
+        case .data:
+            copy.dataSchema = dataSchema
+            copy.dataTable = dataTable
+            copy.filterWhere = filterWhere
+            copy.pageLimit = pageLimit
+            copy.totalRows = totalRows
+            copy.sortOrder = sortOrder
+        case .diagram:
+            if let diagram {
+                let namespace = SchemaNamespace(name: diagram.schemaName, tables: diagram.entities)
+                let fresh = DiagramModel(schemaName: diagram.schemaName, namespace: namespace,
+                                         scope: diagram.scope)
+                fresh.showOnlyConnected = diagram.showOnlyConnected
+                fresh.showKeysOnly = diagram.showKeysOnly
+                fresh.positions = diagram.positions   // preserve the user's arrangement
+                copy.diagram = fresh
+            }
+        }
+        return copy
+    }
+
     /// Writes one value into one cell by data-row index (nil = SQL NULL),
     /// mirroring how the grid records a manual edit: insert rows update their
     /// pending values, fetched rows record an edit — dropped again when the

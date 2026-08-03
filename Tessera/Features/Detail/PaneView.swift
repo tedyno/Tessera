@@ -23,6 +23,8 @@ struct PaneView: View {
 
     @State private var dropEdge: DropEdge?
     @State private var paneSize: CGSize = .zero
+    /// Guarantees the split preview clears when the drag ends (see `DropEndMonitor`).
+    @State private var dropEndMonitor = DropEndMonitor()
 
     private var activeTab: QueryTab? { model.activeTab(in: group) }
     private var isFocused: Bool { model.workspace.focusedGroupID == group.id }
@@ -52,6 +54,14 @@ struct PaneView: View {
                     size: paneSize, edge: $dropEdge,
                     perform: { edge, id in model.splitDrop(id, into: group.id, edge: edge) }))
         }
+        // SwiftUI can skip both `dropExited` and `performDrop` when a dragged tab
+        // is released back onto its own pane, stranding the preview highlight.
+        // Arm a mouse-up fallback whenever a preview is showing so it can't stick.
+        .onChange(of: dropEdge) { _, edge in
+            if edge == nil { dropEndMonitor.disarm() }
+            else { dropEndMonitor.arm { dropEdge = nil } }
+        }
+        .onDisappear { dropEndMonitor.disarm() }
     }
 
     // MARK: Content
@@ -79,7 +89,9 @@ struct PaneView: View {
                         Divider()
                         editor(tab)
                     }
-                    Divider()
+                    // The editor's height is draggable; the data view's generated
+                    // SQL is fixed, so it keeps a plain separator.
+                    if tab.kind == .data { Divider() } else { editorResizeHandle }
                     DetailResultsArea(model: model, tab: tab)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if group.showInspector, tab.result != nil {
@@ -95,6 +107,10 @@ struct PaneView: View {
                 }
                 .animation(.snappy(duration: 0.25), value: group.showInspector)
                 .animation(.snappy(duration: 0.25), value: tab.hasEdits)
+                // A fixed space for the resize handle: the editor's top edge stays
+                // put in it (toolbar height is constant), so tracking the pointer's
+                // absolute Y here doesn't feed back as the handle reflows downward.
+                .coordinateSpace(name: Self.editorSpace)
             }
         } else {
             emptyPane
@@ -247,7 +263,54 @@ struct PaneView: View {
                   cursor: Binding(get: { tab.cursorPosition }, set: { tab.cursorPosition = $0 }),
                   engine: model.engine(for: tab),
                   onFocus: { model.activate(tab) })
-            .frame(height: 150)
+            .frame(height: currentEditorHeight)
+    }
+
+    // MARK: Editor resize
+
+    /// The SQL editor's height, shared across query panes and persisted. `live`
+    /// holds the in-flight value during a drag so UserDefaults isn't hit per frame.
+    @AppStorage("tessera.editorHeight") private var editorHeight = 150.0
+    @State private var liveEditorHeight: CGFloat?
+    /// Captured at drag start: pointer-Y minus editor height, i.e. the editor's
+    /// fixed top edge. `height = pointerY - offset` then tracks the cursor exactly.
+    @State private var editorDragOffset: CGFloat?
+    private static let minEditorHeight: CGFloat = 70
+    private static let editorSpace = "paneEditorSpace"
+
+    /// Cap the editor so the results area keeps a usable strip; falls back to a
+    /// fixed ceiling until the pane's size is known.
+    private var maxEditorHeight: CGFloat {
+        paneSize.height > 0 ? max(Self.minEditorHeight, paneSize.height - 160) : 600
+    }
+
+    private var currentEditorHeight: CGFloat {
+        min(max(liveEditorHeight ?? editorHeight, Self.minEditorHeight), maxEditorHeight)
+    }
+
+    /// Draggable separator between the editor and the results — grows/shrinks the
+    /// editor and persists the height on release.
+    private var editorResizeHandle: some View {
+        ZStack {
+            Divider()
+            Color.clear.frame(height: 8).contentShape(Rectangle())
+        }
+        .onHover { inside in
+            if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.editorSpace))
+                .onChanged { value in
+                    let offset = editorDragOffset ?? (value.location.y - currentEditorHeight)
+                    if editorDragOffset == nil { editorDragOffset = offset }
+                    liveEditorHeight = min(max(value.location.y - offset,
+                                               Self.minEditorHeight), maxEditorHeight)
+                }
+                .onEnded { _ in
+                    if let height = liveEditorHeight { editorHeight = Double(height) }
+                    liveEditorHeight = nil
+                    editorDragOffset = nil
+                })
     }
 
     // MARK: Data view toolbar
@@ -418,5 +481,31 @@ private struct SplitDropDelegate: DropDelegate {
         let distances: [(DropEdge, CGFloat)] = [
             (.left, fx), (.right, 1 - fx), (.top, fy), (.bottom, 1 - fy)]
         return distances.min { $0.1 < $1.1 }?.0 ?? .right
+    }
+}
+
+/// Fallback that clears a stranded split-drop preview. SwiftUI sometimes fires
+/// neither `dropExited` nor `performDrop` when a dragged tab is released back onto
+/// its own pane, so the preview would linger forever. While a preview is on
+/// screen this watches for the mouse-up that ends the drag and clears it — a tick
+/// late, so a legitimate `performDrop` (which clears the preview itself) wins.
+@MainActor
+final class DropEndMonitor {
+    private var monitor: Any?
+
+    func arm(_ clear: @escaping @MainActor () -> Void) {
+        guard monitor == nil else { return }
+        // The monitor fires on the main thread; clearing the preview here is safe
+        // even if `performDrop` also runs — it reads the drop location, not this
+        // state, so the split still lands.
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
+            MainActor.assumeIsolated { clear() }
+            return event
+        }
+    }
+
+    func disarm() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 }
