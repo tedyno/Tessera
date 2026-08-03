@@ -1,4 +1,5 @@
 import AppKit
+import DBKit
 
 /// A floating, non-activating list of completion suggestions. It only displays —
 /// it never edits the text. The text view drives selection (arrow keys) and commits
@@ -14,7 +15,7 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
 
     private let rowHeight: CGFloat = 20
     private let maxVisibleRows = 10
-    private let width: CGFloat = 320
+    private let width: CGFloat = 420
 
     var isVisible: Bool { panel?.isVisible ?? false }
     var selectedItem: SQLCompletionItem? { items.indices.contains(selectedIndex) ? items[selectedIndex] : nil }
@@ -132,11 +133,13 @@ private final class CompletionRowView: NSTableCellView {
         title.translatesAutoresizingMaskIntoConstraints = false
         title.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         title.lineBreakMode = .byTruncatingTail
-        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // The name is what matters — let the (grey) detail truncate first.
+        title.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         detail.translatesAutoresizingMaskIntoConstraints = false
         detail.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
         detail.lineBreakMode = .byTruncatingTail
         detail.setContentHuggingPriority(.required, for: .horizontal)
+        detail.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(icon)
         addSubview(title)
         addSubview(detail)
@@ -187,6 +190,7 @@ private final class CompletionRowView: NSTableCellView {
         case .table: "tablecells"
         case .column: "rectangle.split.3x1"
         case .schema: "circle.grid.2x2"
+        case .join: "arrow.triangle.branch"
         }
     }
 
@@ -197,6 +201,7 @@ private final class CompletionRowView: NSTableCellView {
         case .table: .systemTeal
         case .column: .secondaryLabelColor
         case .schema: .systemPurple
+        case .join: .systemOrange
         }
     }
 }

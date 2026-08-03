@@ -1,21 +1,14 @@
 import AppKit
+import DBKit
 
-/// One completion candidate: what to insert, what to show, and how to badge it.
-struct SQLCompletionItem {
-    enum Kind { case keyword, function, table, column, schema }
-    /// The text written into the editor (identifiers arrive pre-quoted if needed).
-    let insert: String
-    /// The name shown in the popup (unquoted).
-    let label: String
-    /// Grey annotation: a column's type, a table's schema, a column's table.
-    let detail: String?
-    let kind: Kind
-}
+// `SQLCompletionItem` now lives in TesseraCore (DBKit) alongside the pure
+// `SQLCompletionEngine`, so the completion logic is unit-testable without AppKit.
 
 /// NSTextView with a fully custom completion popup. The popup only *shows*
 /// suggestions — the text is never modified until the user presses Tab/Return (or
-/// clicks a row). Arrow keys move the selection, Escape hides, ⌃Space asks for
-/// suggestions explicitly, and everything else types normally. Automatic
+/// clicks a row). Arrow keys move the selection, Escape hides it when open and
+/// asks for suggestions when closed (⌃Space also asks, but macOS usually grabs it
+/// for the input-source switch), and everything else types normally. Automatic
 /// capitalization is also undone at the source.
 final class CompletingTextView: NSTextView {
     var placeholder: String?
@@ -28,6 +21,10 @@ final class CompletingTextView: NSTextView {
     /// Called when the editor is clicked/focused, so its pane can take focus in a
     /// tiled layout (menus and ⌘-shortcuts otherwise target the wrong pane).
     var onFocus: (() -> Void)?
+
+    /// Called after a JOIN completion aliases a table, so existing `tableName.`
+    /// references in the same statement can be rewritten to `alias.`.
+    var onCommitRename: ((_ from: String, _ to: String, _ insertedRange: NSRange) -> Void)?
 
     private var completionRange = NSRange(location: 0, length: 0)
     private var suppressNextUpdate = false
@@ -69,14 +66,22 @@ final class CompletingTextView: NSTextView {
             case 123, 124: popup.hide(); super.keyDown(with: event); return  // ← →
             default:  super.keyDown(with: event)                // typing → updateCompletion()
             }
-        } else if (event.keyCode == 49 && event.modifierFlags.contains(.control))
-                    || (event.keyCode == 53 && event.modifierFlags.contains(.option)) {
-            // ⌃Space or ⌥Esc — ⌃Space is macOS's default input-source switcher, so
-            // the standard completion shortcut ⌥Esc works as well.
+        } else if event.keyCode == 53
+                    || (event.keyCode == 49 && event.modifierFlags.contains(.control)) {
+            // Force suggestions. Esc (with or without ⌥, Xcode-style) always works;
+            // ⌃Space also does, but macOS binds it to the input-source switcher by
+            // default, so it's often intercepted before the app sees it.
             updateCompletion(forced: true)
         } else {
             super.keyDown(with: event)
         }
+    }
+
+    // NSTextView re-registers drag types whenever it's reconfigured (editable state,
+    // moving to a window, …), which would let a tab dropped on the editor paste its id
+    // as text instead of splitting the pane. Keep them cleared at every such point.
+    override func updateDragTypeRegistration() {
+        unregisterDraggedTypes()
     }
 
     override func didChangeText() {
@@ -122,7 +127,12 @@ final class CompletingTextView: NSTextView {
             replaceCharacters(in: range, with: insert)
             didChangeText()
         }
-        setSelectedRange(NSRange(location: range.location + (insert as NSString).length, length: 0))
+        let insertedLength = (insert as NSString).length
+        let end = range.location + insertedLength
+        setSelectedRange(NSRange(location: max(range.location, end - item.caretOffset), length: 0))
+        if let rename = item.renameQualifier {
+            onCommitRename?(rename.from, rename.to, NSRange(location: range.location, length: insertedLength))
+        }
     }
 
     // MARK: Placeholder

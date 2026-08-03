@@ -57,6 +57,9 @@ struct SQLEditor: NSViewRepresentable {
                 c?.completion(text: text, caret: caret, forced: forced)
                     ?? (NSRange(location: caret, length: 0), [])
             }
+            textView.onCommitRename = { [weak c = context.coordinator] from, to, inserted in
+                c?.renameQualifier(from: from, to: to, insertedRange: inserted)
+            }
         }
         textView.string = text
         context.coordinator.previousLength = (text as NSString).length
@@ -91,8 +94,13 @@ struct SQLEditor: NSViewRepresentable {
         var lastFocusTrigger = 0
         var previousLength = 0
 
-        var schema: DatabaseTree? { didSet { rebuildCompletionData() } }
-        var engine: DatabaseKind?
+        var schema: DatabaseTree? { didSet { rebuildEngine() } }
+        var engine: DatabaseKind? { didSet { rebuildEngine() } }
+
+        /// The pure completion engine (in TesseraCore); rebuilt when the schema or
+        /// dialect changes. The coordinator is just its editor-side shell.
+        private var completionEngine = SQLCompletionEngine(schema: nil, engine: nil)
+        private func rebuildEngine() { completionEngine = SQLCompletionEngine(schema: schema, engine: engine) }
 
         init(text: Binding<String>, cursor: Binding<Int>?) {
             self.text = text
@@ -104,27 +112,61 @@ struct SQLEditor: NSViewRepresentable {
             previousLength = (textView.string as NSString).length
             text.wrappedValue = textView.string
             highlight()
+            applyAliasRewrites()
             // The completion popup is driven by CompletingTextView (Tab-only commit).
+        }
+
+        /// Reentrancy guard — an applied rename edits the text, re-entering
+        /// `textDidChange`; the rewrite pass runs only from the outermost change.
+        private var isApplyingAliasRewrite = false
+
+        /// When a table gains an alias (`from action a`), rebind its full-name
+        /// qualifiers in the statement to the alias (`action.name` → `a.name`). The
+        /// engine decides which; this only applies the edits.
+        private func applyAliasRewrites() {
+            guard let textView, !isApplyingAliasRewrite else { return }
+            let caret = textView.selectedRange().location
+            let renames = completionEngine.pendingAliasRewrites(text: textView.string, caret: caret)
+            guard !renames.isEmpty else { return }
+            isApplyingAliasRewrite = true
+            defer { isApplyingAliasRewrite = false }
+            for rename in renames {
+                applyRename(from: rename.from, to: rename.to, excluding: NSRange(location: caret, length: 0))
+            }
         }
 
         /// Supplies the replace-range and candidates for the caret (schema-aware).
         func completion(text: String, caret: Int, forced: Bool) -> (NSRange, [SQLCompletionItem]) {
-            let ns = text as NSString
-            guard caret > 0, caret <= ns.length,
-                  !SQLText.isInsideStringLiteral(ns.substring(to: caret)) else {
-                return (NSRange(location: caret, length: 0), [])
-            }
-            let range = SQLText.identifierRange(in: text, caret: caret)
-            let partial = range.length > 0 ? ns.substring(with: range) : ""
-            let before = ns.substring(to: range.location)
-            let items = completionItems(partial: partial, before: before, fullText: text, forced: forced)
-            return (range, items)
+            let result = completionEngine.complete(text: text, caret: caret, forced: forced)
+            return (result.range, result.items)
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView else { return }
             cursor?.wrappedValue = textView.selectedRange().location
             updateStatementHighlight()
+        }
+
+        /// After a JOIN completion aliases a table, rebind existing `from.` qualifiers
+        /// in the statement to `to.` (so a `select object.id` written before the join
+        /// becomes `select o.id`).
+        func renameQualifier(from: String, to: String, insertedRange: NSRange) {
+            applyRename(from: from, to: to, excluding: insertedRange)
+        }
+
+        /// Applies one engine-computed qualifier rewrite to the live text view.
+        private func applyRename(from: String, to: String, excluding: NSRange) {
+            guard let textView,
+                  let result = completionEngine.rename(text: textView.string, from: from, to: to,
+                                                       caret: textView.selectedRange().location,
+                                                       excluding: excluding)
+            else { return }
+            let full = NSRange(location: 0, length: (textView.string as NSString).length)
+            guard textView.shouldChangeText(in: full, replacementString: result.text) else { return }
+            textView.replaceCharacters(in: full, with: result.text)
+            textView.didChangeText()
+            textView.setSelectedRange(NSRange(location: result.caret, length: 0))
+            highlight()
         }
 
         // Reject automatic capitalization/autocorrect (case-only changes). Automatic
@@ -234,223 +276,5 @@ struct SQLEditor: NSViewRepresentable {
             }
         }
 
-        // MARK: Autocomplete data
-
-        /// Keywords every supported dialect understands.
-        private static let commonKeywords: [String] = [
-            "SELECT", "FROM", "WHERE", "JOIN", "LEFT JOIN", "RIGHT JOIN", "INNER JOIN",
-            "GROUP BY", "ORDER BY", "LIMIT", "OFFSET", "INSERT INTO", "VALUES", "UPDATE",
-            "SET", "DELETE FROM", "AND", "OR", "NOT", "NULL", "AS", "DISTINCT", "IN", "LIKE",
-            "BETWEEN", "IS NULL", "IS NOT NULL", "ASC", "DESC", "HAVING", "UNION", "CASE",
-            "WHEN", "THEN", "ELSE", "END", "EXISTS", "COUNT(", "SUM(", "AVG(", "MIN(",
-            "MAX(", "COALESCE(", "CAST(", "NOW()",
-        ]
-        /// SQL-shape decisions (keywords, quoting, schema layer) come from the
-        /// dialect; Postgres stands in while no connection is chosen yet.
-        private var dialect: any SQLDialect { (engine ?? .postgres).dialect }
-
-        private var keywordPool: [String] {
-            Self.commonKeywords + dialect.completionKeywords
-        }
-
-        private struct TableInfo {
-            let schema: String
-            let name: String
-            let columns: [(name: String, type: String)]
-        }
-
-        private var allTables: [TableInfo] = []
-        private var tableByLower: [String: TableInfo] = [:]
-        private var tablesBySchemaLower: [String: [TableInfo]] = [:]
-        private var schemaNames: [String] = []
-
-        private func rebuildCompletionData() {
-            allTables = []; tableByLower = [:]; tablesBySchemaLower = [:]; schemaNames = []
-            guard let schema else { return }
-            for namespace in schema.schemas {
-                schemaNames.append(namespace.name)
-                for table in namespace.tables {
-                    let info = TableInfo(schema: namespace.name, name: table.name,
-                                         columns: table.columns.map { ($0.name, $0.dataType) })
-                    allTables.append(info)
-                    tableByLower[table.name.lowercased()] = info
-                    tablesBySchemaLower[namespace.name.lowercased(), default: []].append(info)
-                }
-            }
-        }
-
-        // MARK: Statement context (tables + aliases in the query being written)
-
-        private static let aliasRegex = try! NSRegularExpression(
-            pattern: #"(?i)\b(from|join|update|into)\s+([`"]?[\w$]+[`"]?(?:\.[`"]?[\w$]+[`"]?)?)(?:\s+(?:as\s+)?([A-Za-z_][\w$]*))?"#)
-        /// Words that can follow a table reference but are never its alias.
-        private static let aliasStopWords: Set<String> = [
-            "where", "join", "left", "right", "inner", "outer", "cross", "full", "natural",
-            "on", "using", "group", "order", "limit", "offset", "set", "having", "union",
-            "values", "returning", "for", "window", "fetch", "as", "straight_join",
-        ]
-
-        /// Tables referenced by the SQL being written, plus alias → table mappings —
-        /// so `a.` offers the columns of `accounts a`, and columns of referenced
-        /// tables outrank the rest of the database.
-        private func statementContext(_ text: String) -> (tables: [TableInfo], aliases: [String: TableInfo]) {
-            var tables: [TableInfo] = []
-            var seen: Set<String> = []
-            var aliases: [String: TableInfo] = [:]
-            let ns = text as NSString
-            Self.aliasRegex.enumerateMatches(in: text, range: NSRange(location: 0, length: ns.length)) { match, _, _ in
-                guard let match else { return }
-                let rawTable = ns.substring(with: match.range(at: 2))
-                let cleaned = rawTable.replacingOccurrences(of: "`", with: "")
-                    .replacingOccurrences(of: "\"", with: "")
-                let tableName = cleaned.split(separator: ".").last.map(String.init) ?? cleaned
-                guard let info = tableByLower[tableName.lowercased()] else { return }
-                if seen.insert(info.name.lowercased()).inserted { tables.append(info) }
-                if match.range(at: 3).location != NSNotFound {
-                    let alias = ns.substring(with: match.range(at: 3)).lowercased()
-                    if !Self.aliasStopWords.contains(alias) { aliases[alias] = info }
-                }
-            }
-            return (tables, aliases)
-        }
-
-        // MARK: Candidates
-
-        private static let tableContextKeywords: Set<String> = ["FROM", "JOIN", "INTO", "UPDATE", "TABLE"]
-
-        private func completionItems(partial: String, before: String,
-                                     fullText: String, forced: Bool) -> [SQLCompletionItem] {
-            let trimmed = before.trimmingCharacters(in: .whitespacesAndNewlines)
-            let context = statementContext(fullText)
-            // (candidate, priority) — lower priority sorts first within equal rank.
-            var pool: [(item: SQLCompletionItem, priority: Int)] = []
-
-            if trimmed.hasSuffix(".") {
-                let qualifier = Self.lastIdentifier(in: String(trimmed.dropLast())).lowercased()
-                // "1." is a decimal literal being typed, not a qualified reference.
-                guard let first = qualifier.first, !first.isNumber else { return [] }
-                if let info = context.aliases[qualifier] ?? tableByLower[qualifier] {
-                    pool = info.columns.map { (columnItem($0.name, detail: $0.type), 0) }
-                } else if dialect.hasSchemaLayer, let tables = tablesBySchemaLower[qualifier] {
-                    // In MySQL a "schema" is the database itself — no schema. prefix.
-                    pool = tables.map { (tableItem($0, detail: nil), 0) }
-                } else {
-                    pool = contextColumnPool(context, fallbackToAll: true)
-                }
-            } else if Self.tableContextKeywords.contains(Self.lastToken(in: before).uppercased()) {
-                pool = allTables.map { (tableItem($0, detail: schemaDetail($0)), 0) }
-                if dialect.hasSchemaLayer {
-                    // Only a real schema layer is worth qualifying with.
-                    pool += schemaNames.map { (schemaItem($0), 1) }
-                }
-            } else {
-                // Free position: don't pop up on every space — only with a prefix
-                // typed, or when explicitly asked (⌃Space).
-                guard !partial.isEmpty || forced else { return [] }
-                pool = contextColumnPool(context, fallbackToAll: false)
-                pool += allTables.map { (tableItem($0, detail: schemaDetail($0)), 2) }
-                pool += keywordPool.map { (keywordItem($0), 3) }
-                pool += globalColumnPool(excluding: context)
-            }
-
-            let query = partial.lowercased()
-            // A fully typed name means the user is done — hide the popup so Return
-            // makes a newline again instead of committing some cousin candidate.
-            if !query.isEmpty, pool.contains(where: { $0.item.label.lowercased() == query }) {
-                return []
-            }
-            var seen: Set<String> = []
-            return pool
-                .compactMap { entry -> (SQLCompletionItem, Int, Int)? in
-                    guard let rank = Self.matchRank(entry.item.label, query: query) else { return nil }
-                    return (entry.item, rank, entry.priority)
-                }
-                .sorted { ($0.1, $0.2, $0.0.label.lowercased()) < ($1.1, $1.2, $1.0.label.lowercased()) }
-                .compactMap { entry in
-                    seen.insert(entry.0.label.lowercased() + "\u{1}" + (entry.0.detail ?? "")).inserted
-                        ? entry.0 : nil
-                }
-                .prefix(50)
-                .map { $0 }
-        }
-
-        /// Columns of the tables the statement references (priority 0), annotated
-        /// with their type; falls back to every column in the database when asked.
-        private func contextColumnPool(_ context: (tables: [TableInfo], aliases: [String: TableInfo]),
-                                       fallbackToAll: Bool) -> [(item: SQLCompletionItem, priority: Int)] {
-            let tables = context.tables.isEmpty && fallbackToAll ? allTables : context.tables
-            return tables.flatMap { info in
-                info.columns.map { (columnItem($0.name, detail: $0.type), 0) }
-            }
-        }
-
-        /// Columns of every *other* table (priority 4), annotated with their table —
-        /// still reachable, but never ahead of what the statement actually uses.
-        private func globalColumnPool(
-            excluding excluded: (tables: [TableInfo], aliases: [String: TableInfo])
-        ) -> [(item: SQLCompletionItem, priority: Int)] {
-            let excludedNames = Set(excluded.tables.map { $0.name.lowercased() })
-            return allTables
-                .filter { !excludedNames.contains($0.name.lowercased()) }
-                .flatMap { info in
-                    info.columns.map { (columnItem($0.name, detail: info.name), 4) }
-                }
-        }
-
-        // MARK: Item builders
-
-        private func keywordItem(_ keyword: String) -> SQLCompletionItem {
-            SQLCompletionItem(insert: keyword, label: keyword, detail: nil,
-                              kind: keyword.hasSuffix("(") || keyword.hasSuffix(")") ? .function : .keyword)
-        }
-
-        /// Schema annotation for a table row — only meaningful where schemas are a
-        /// real layer (MySQL-family: database; SQLite: single "main").
-        private func schemaDetail(_ info: TableInfo) -> String? {
-            dialect.hasSchemaLayer ? info.schema : nil
-        }
-
-        private func tableItem(_ info: TableInfo, detail: String?) -> SQLCompletionItem {
-            SQLCompletionItem(insert: quoteIfNeeded(info.name), label: info.name,
-                              detail: detail, kind: .table)
-        }
-
-        private func columnItem(_ name: String, detail: String?) -> SQLCompletionItem {
-            SQLCompletionItem(insert: quoteIfNeeded(name), label: name, detail: detail, kind: .column)
-        }
-
-        private func schemaItem(_ name: String) -> SQLCompletionItem {
-            SQLCompletionItem(insert: quoteIfNeeded(name), label: name, detail: nil, kind: .schema)
-        }
-
-        // MARK: Matching & quoting
-
-        /// nil = no match; 0 = prefix, 1 = a word inside starts with it, 2 = substring.
-        private static func matchRank(_ candidate: String, query: String) -> Int? {
-            guard !query.isEmpty else { return 0 }
-            let lower = candidate.lowercased()
-            if lower == query { return nil }   // already fully typed
-            if lower.hasPrefix(query) { return 0 }
-            if lower.split(whereSeparator: { $0 == "_" || $0 == " " }).dropFirst()
-                .contains(where: { $0.hasPrefix(query) }) { return 1 }
-            if lower.contains(query) { return 2 }
-            return nil
-        }
-
-        /// Identifiers the target dialect can't take bare — delegated to the
-        /// dialect (Postgres folds unquoted names to lowercase, MySQL mostly needs
-        /// quoting for reserved words and special characters).
-        private func quoteIfNeeded(_ name: String) -> String {
-            dialect.quoteIfNeeded(name)
-        }
-
-        private static func lastToken(in string: String) -> String {
-            string.split(whereSeparator: { " \n\t,()".contains($0) }).last.map(String.init) ?? ""
-        }
-
-        private static func lastIdentifier(in string: String) -> String {
-            let identifier = string.reversed().prefix { $0.isLetter || $0.isNumber || $0 == "_" }
-            return String(identifier.reversed())
-        }
     }
 }
