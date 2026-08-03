@@ -415,7 +415,7 @@ final class QueryConsoleModel {
                 tab.clearSearch()   // a stale ⌘F filter over the old result would
                                     // otherwise silently block editing on the new one
             }
-            tab.editSource = detectEditSource(sql: sql, columns: result.columns, schema: session.schema)
+            tab.editSource = RowEditSQL.detectEditSource(sql: sql, columns: result.columns, schema: session.schema)
             let ms = result.elapsed.map(Self.milliseconds)
             tab.elapsedMS = ms
             recordHistory(sql: sql, session: session, rowCount: result.rows.count, elapsedMS: ms,
@@ -506,58 +506,6 @@ final class QueryConsoleModel {
         }
     }
 
-    // MARK: Editable-source detection
-
-    private func detectEditSource(sql: String, columns: [ColumnDescriptor], schema: DatabaseTree?) -> EditSource? {
-        let upper = sql.uppercased()
-        // Only a plain full-table view is editable — and it must *start* with
-        // SELECT: an EXPLAIN of the same query also "contains" it, and a MySQL plan
-        // happens to expose an `id` column, which would make the plan grid look
-        // editable and target the real table on commit.
-        guard upper.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("SELECT"),
-              sql.range(of: #"(?i)\b(join|group\s+by|having|distinct|union)\b"#,
-                        options: .regularExpression) == nil else { return nil }
-        // The projection must be a star ("SELECT *" or "SELECT alias.*") — a custom
-        // column list or expressions (e.g. count(*), a+b) can't be written back.
-        guard let selectRange = sql.range(of: #"(?i)\bselect\b"#, options: .regularExpression),
-              let fromKeyword = sql.range(of: #"(?i)\bfrom\b"#, options: .regularExpression),
-              selectRange.upperBound <= fromKeyword.lowerBound else { return nil }
-        let projection = sql[selectRange.upperBound..<fromKeyword.lowerBound]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard projection == "*" || projection.range(of: #"^[`"\w]+\.\*$"#, options: .regularExpression) != nil
-        else { return nil }
-        guard let range = sql.range(of: #"(?i)\bfrom\s+([`"\w\.]+)"#, options: .regularExpression) else { return nil }
-        let raw = sql[range].split(whereSeparator: { " \n\t".contains($0) }).last.map(String.init) ?? ""
-        let cleaned = raw.replacingOccurrences(of: "`", with: "").replacingOccurrences(of: "\"", with: "")
-        let parts = cleaned.split(separator: ".").map(String.init)
-        guard let tableName = parts.last else { return nil }
-        let schemaName = parts.count >= 2 ? parts[parts.count - 2] : nil
-
-        // Find the table (optionally within the named schema).
-        var found: (namespace: String, table: String, columns: [SchemaColumn])?
-        for namespace in schema?.schemas ?? [] {
-            if let schemaName, namespace.name.caseInsensitiveCompare(schemaName) != .orderedSame { continue }
-            if let table = namespace.tables.first(where: { $0.name.caseInsensitiveCompare(tableName) == .orderedSame }) {
-                found = (namespace.name, table.name, table.columns)
-                break
-            }
-        }
-        guard let found else { return nil }
-        let primaryKeys = found.columns.filter(\.isPrimaryKey).map(\.name)
-        let autoIncrement = found.columns.filter(\.isAutoIncrement).map(\.name)
-        let resultColumns = Set(columns.map(\.name))
-        if !primaryKeys.isEmpty {
-            // A PK exists but isn't in the result → can't target rows reliably.
-            guard primaryKeys.allSatisfy(resultColumns.contains) else { return nil }
-            return EditSource(schema: found.namespace, table: found.table,
-                              primaryKeys: primaryKeys, autoIncrementColumns: autoIncrement)
-        }
-        // No primary key → fall back to matching all selected columns (may affect
-        // duplicate rows).
-        return EditSource(schema: found.namespace, table: found.table,
-                          primaryKeys: [], autoIncrementColumns: autoIncrement)
-    }
-
     /// Appends a blank row queued for insertion (from the grid's "Add Row").
     func addInsertRow(_ tab: QueryTab) {
         guard tab.isEditable else { return }
@@ -596,59 +544,11 @@ final class QueryConsoleModel {
             await reloadData(tab)   // rebuilds the generated query with the new ORDER BY
             return
         }
-        let newSQL = rewriteOrderBy(tab.sql, sortOrder: tab.sortOrder, session: session)
+        let newSQL = DataViewSQL.rewriteOrderBy(
+            tab.sql, sortOrder: tab.sortOrder.map { .init(column: $0.column, ascending: $0.ascending) },
+            dialect: session.engine.dialect)
         tab.sql = newSQL
         await run(tab, sqlToRun: newSQL, preserveSort: true)
-    }
-
-    /// Replaces the top-level `ORDER BY` of a full-table query (inserted before any
-    /// `LIMIT`/`OFFSET`/`;`). An empty `sortOrder` removes ordering entirely. Matching
-    /// ignores text inside string literals, so a WHERE value like `'a limit b'` is safe.
-    private func rewriteOrderBy(_ sql: String, sortOrder: [QueryTab.SortKey],
-                                session: ConnectionSession) -> String {
-        var body = sql
-        if let existing = Self.topLevelRange(
-            in: body, pattern: #"(?is)\s+ORDER\s+BY\s+.*?(?=(\s+LIMIT\b|\s+OFFSET\b|\s*;\s*$|$))"#) {
-            body.removeSubrange(existing)
-        }
-        guard !sortOrder.isEmpty else { return body }
-        let clause = " ORDER BY " + sortOrder
-            .map { "\(session.quote($0.column)) \($0.ascending ? "ASC" : "DESC")" }
-            .joined(separator: ", ")
-        if let tail = Self.topLevelRange(in: body, pattern: #"(?is)\s*(LIMIT\b|OFFSET\b|;\s*$)"#) {
-            body.insert(contentsOf: clause, at: tail.lowerBound)
-        } else {
-            body += clause
-        }
-        return body
-    }
-
-    /// A regex match on `s`, but searched against a copy with string-literal contents
-    /// blanked out so SQL keywords inside `'…'` don't match. Length is preserved, so
-    /// the returned range indexes into the original `s`.
-    private static func topLevelRange(in s: String, pattern: String) -> Range<String.Index>? {
-        let masked = maskStringLiterals(s)
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let range = NSRange(masked.startIndex..., in: masked)
-        guard let match = regex.firstMatch(in: masked, range: range), match.range.length > 0 else { return nil }
-        return Range(match.range, in: s)
-    }
-
-    /// Replaces each character inside a single-quoted literal with `x`, preserving the
-    /// quotes and the string's length (so ranges map back to the original 1:1).
-    private static func maskStringLiterals(_ s: String) -> String {
-        var out = ""
-        out.reserveCapacity(s.count)
-        var inQuote = false
-        for character in s {
-            if character == "'" {
-                inQuote.toggle()
-                out.append(character)
-            } else {
-                out.append(inQuote ? "x" : character)
-            }
-        }
-        return out
     }
 
     /// The UPDATE/DELETE/INSERT statements ⌘↩ would run for the tab's pending changes.
@@ -656,50 +556,10 @@ final class QueryConsoleModel {
     /// likewise. Without a primary key the WHERE matches all selected columns.
     func pendingStatements(_ tab: QueryTab) -> [String] {
         guard let session = tab.session, let source = tab.editSource, let result = tab.result else { return [] }
-        let table = "\(session.quote(source.schema)).\(session.quote(source.table))"
-        let keyColumns = source.primaryKeys.isEmpty ? result.columns.map(\.name) : source.primaryKeys
-        var statements: [String] = []
-
-        // DELETEs first.
-        let deleteRows = tab.pendingDeletes.sorted()
-        if !deleteRows.isEmpty {
-            for clause in whereClauses(rows: deleteRows, keyColumns: keyColumns, result: result, session: session) {
-                statements.append("DELETE FROM \(table) WHERE \(clause);")
-            }
-        }
-
-        // UPDATEs grouped by identical change-set (skip rows being deleted).
-        var groups: [String: (changes: [String: String?], rows: [Int])] = [:]
-        for (row, changes) in tab.edits where !tab.pendingDeletes.contains(row) {
-            // "s"/"n" prefix keeps a cell set to NULL distinct from any real text.
-            let key = changes.sorted { $0.key < $1.key }
-                .map { "\($0.key)\u{1}\($0.value.map { "s\($0)" } ?? "n")" }.joined(separator: "\u{2}")
-            groups[key, default: (changes, [])].rows.append(row)
-        }
-        for group in groups.values.sorted(by: { ($0.rows.min() ?? 0) < ($1.rows.min() ?? 0) }) {
-            let setClause = group.changes.sorted { $0.key < $1.key }
-                .map { "\(session.quote($0.key)) = \(literal($0.value, columnName: $0.key, result: result))" }
-                .joined(separator: ", ")
-            for clause in whereClauses(rows: group.rows.sorted(), keyColumns: keyColumns, result: result, session: session) {
-                statements.append("UPDATE \(table) SET \(setClause) WHERE \(clause);")
-            }
-        }
-
-        // INSERTs — auto-increment columns are always omitted (the DB fills them),
-        // as are columns the user never set (their defaults apply).
-        let autoInc = Set(source.autoIncrementColumns)
-        for insert in tab.pendingInserts {
-            let cols = result.columns.map(\.name).filter { !autoInc.contains($0) && insert.values[$0] != nil }
-            if cols.isEmpty {
-                statements.append(session.engine.dialect.emptyInsert(table: table))
-            } else {
-                let colList = cols.map { session.quote($0) }.joined(separator: ", ")
-                let valList = cols.map { literal(insert.values[$0]!, columnName: $0, result: result) }
-                    .joined(separator: ", ")
-                statements.append("INSERT INTO \(table) (\(colList)) VALUES (\(valList));")
-            }
-        }
-        return statements
+        return RowEditSQL.statements(source: source, result: result, edits: tab.edits,
+                                     deletes: tab.pendingDeletes,
+                                     inserts: tab.pendingInserts.map(\.values),
+                                     dialect: session.engine.dialect)
     }
 
     /// The panel's entries — the exact statements ⌘↩ will run, grouped the
@@ -707,7 +567,8 @@ final class QueryConsoleModel {
     /// one `WHERE pk IN (…)` UPDATE); discarding a group reverts all its rows.
     func pendingChanges(_ tab: QueryTab) -> [PendingChange] {
         guard let session = tab.session, let source = tab.editSource, let result = tab.result else { return [] }
-        let table = "\(session.quote(source.schema)).\(session.quote(source.table))"
+        let dialect = session.engine.dialect
+        let table = RowEditSQL.qualifiedTable(source, dialect: dialect)
         let keyColumns = source.primaryKeys.isEmpty ? result.columns.map(\.name) : source.primaryKeys
         var items: [PendingChange] = []
 
@@ -729,41 +590,22 @@ final class QueryConsoleModel {
         let deleteRows = tab.pendingDeletes.sorted()
         if !deleteRows.isEmpty {
             append(rows: deleteRows,
-                   clauses: whereClauses(rows: deleteRows, keyColumns: keyColumns,
-                                         result: result, session: session),
+                   clauses: RowEditSQL.whereClauses(rows: deleteRows, keyColumns: keyColumns,
+                                                    result: result, dialect: dialect),
                    id: { "d\($0)" }, target: { .delete(rows: $0) },
                    statement: { "DELETE FROM \(table) WHERE \($0);" })
         }
-
-        var groups: [String: (changes: [String: String?], rows: [Int])] = [:]
-        for (row, changes) in tab.edits where !tab.pendingDeletes.contains(row) {
-            let key = changes.sorted { $0.key < $1.key }
-                .map { "\($0.key)\u{1}\($0.value.map { "s\($0)" } ?? "n")" }.joined(separator: "\u{2}")
-            groups[key, default: (changes, [])].rows.append(row)
-        }
-        for group in groups.values.sorted(by: { ($0.rows.min() ?? 0) < ($1.rows.min() ?? 0) }) {
-            let setClause = group.changes.sorted { $0.key < $1.key }
-                .map { "\(session.quote($0.key)) = \(literal($0.value, columnName: $0.key, result: result))" }
-                .joined(separator: ", ")
-            let rows = group.rows.sorted()
-            append(rows: rows,
-                   clauses: whereClauses(rows: rows, keyColumns: keyColumns,
-                                         result: result, session: session),
+        for group in RowEditSQL.editGroups(tab.edits, skipping: tab.pendingDeletes) {
+            let setClause = RowEditSQL.updateSetClause(group.changes, result: result, dialect: dialect)
+            append(rows: group.rows,
+                   clauses: RowEditSQL.whereClauses(rows: group.rows, keyColumns: keyColumns,
+                                                    result: result, dialect: dialect),
                    id: { "u\($0)" }, target: { .update(rows: $0) },
                    statement: { "UPDATE \(table) SET \(setClause) WHERE \($0);" })
         }
-        let autoInc = Set(source.autoIncrementColumns)
         for insert in tab.pendingInserts {
-            let cols = result.columns.map(\.name).filter { !autoInc.contains($0) && insert.values[$0] != nil }
-            let statement: String
-            if cols.isEmpty {
-                statement = session.engine.dialect.emptyInsert(table: table)
-            } else {
-                let colList = cols.map { session.quote($0) }.joined(separator: ", ")
-                let valList = cols.map { literal(insert.values[$0]!, columnName: $0, result: result) }
-                    .joined(separator: ", ")
-                statement = "INSERT INTO \(table) (\(colList)) VALUES (\(valList));"
-            }
+            let statement = RowEditSQL.insertStatement(table: table, values: insert.values,
+                                                       source: source, result: result, dialect: dialect)
             items.append(PendingChange(id: "i\(insert.id)", target: .insert(id: insert.id), statement: statement))
         }
         return items
@@ -778,67 +620,6 @@ final class QueryConsoleModel {
         case .delete(let rows): for row in rows { tab.pendingDeletes.remove(row) }
         case .insert(let id): tab.pendingInserts.removeAll { $0.id == id }
         }
-    }
-
-    /// WHERE clauses for the given rows: one `col IN (…)` when the key is a single
-    /// column with no NULLs, otherwise one AND-clause per row.
-    private func whereClauses(rows: [Int], keyColumns: [String], result: QueryResult,
-                              session: ConnectionSession) -> [String] {
-        if keyColumns.count == 1, let name = keyColumns.first,
-           let index = result.columns.firstIndex(where: { $0.name == name }) {
-            let values = rows.compactMap { row -> String? in
-                guard row < result.rows.count, index < result.rows[row].count,
-                      let text = result.rows[row][index].text else { return nil }
-                return literal(text, columnName: name, result: result)
-            }
-            if values.count == rows.count, !values.isEmpty {
-                return ["\(session.quote(name)) IN (\(values.joined(separator: ", ")))"]
-            }
-        }
-        return rows.map { rowWhere($0, keyColumns: keyColumns, result: result, session: session) }
-    }
-
-    private func rowWhere(_ row: Int, keyColumns: [String], result: QueryResult,
-                          session: ConnectionSession) -> String {
-        keyColumns.compactMap { name -> String? in
-            guard let index = result.columns.firstIndex(where: { $0.name == name }),
-                  row < result.rows.count, index < result.rows[row].count else { return nil }
-            let text = result.rows[row][index].text
-            return text == nil ? "\(session.quote(name)) IS NULL"
-                               : "\(session.quote(name)) = \(literal(text!, columnName: name, result: result))"
-        }.joined(separator: " AND ")
-    }
-
-    /// A SQL literal for `value`: `NULL` for nil (a cell explicitly set to NULL),
-    /// unquoted for numeric columns (so `id = 3`, not `id = '3'`) when the text is
-    /// actually a number, quoted and escaped otherwise.
-    private func literal(_ value: String?, columnName: String, result: QueryResult) -> String {
-        guard let value else { return "NULL" }
-        if let column = result.columns.first(where: { $0.name == columnName }),
-           Self.isNumericType(column.typeName), Self.looksNumeric(value) {
-            return value
-        }
-        return Self.literal(value)
-    }
-
-    private static func literal(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
-    }
-
-    private static func isNumericType(_ typeName: String) -> Bool {
-        let names: Set<String> = [
-            // Postgres (PostgresDataType descriptions)
-            "SMALLINT", "INTEGER", "BIGINT", "REAL", "DOUBLE PRECISION", "NUMERIC", "DECIMAL", "OID",
-            // MySQL (MySQLProtocol.DataType descriptions)
-            "MYSQL_TYPE_TINY", "MYSQL_TYPE_SHORT", "MYSQL_TYPE_LONG", "MYSQL_TYPE_INT24",
-            "MYSQL_TYPE_LONGLONG", "MYSQL_TYPE_FLOAT", "MYSQL_TYPE_DOUBLE",
-            "MYSQL_TYPE_DECIMAL", "MYSQL_TYPE_NEWDECIMAL", "MYSQL_TYPE_YEAR",
-        ]
-        return names.contains(typeName.uppercased())
-    }
-
-    private static func looksNumeric(_ text: String) -> Bool {
-        text.range(of: #"^-?\d+(\.\d+)?([eE][+-]?\d+)?$"#, options: .regularExpression) != nil
     }
 
     // MARK: Data views (schema-tree table browsing)
@@ -927,22 +708,11 @@ final class QueryConsoleModel {
     private func dataSQL(_ tab: QueryTab, limit: Int? = nil, offset: Int? = nil,
                          orderOverride: [String]? = nil, unlimited: Bool = false) -> String {
         guard let session = tab.session, let schema = tab.dataSchema, let table = tab.dataTable else { return tab.sql }
-        var sql = "SELECT * FROM \(session.quote(schema)).\(session.quote(table))"
-        let filter = tab.filterWhere.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !filter.isEmpty { sql += " WHERE \(filter)" }
-        if !tab.sortOrder.isEmpty {
-            sql += " ORDER BY " + tab.sortOrder
-                .map { "\(session.quote($0.column)) \($0.ascending ? "ASC" : "DESC")" }
-                .joined(separator: ", ")
-        } else if let orderOverride, !orderOverride.isEmpty {
-            sql += " ORDER BY " + orderOverride.map { session.quote($0) }.joined(separator: ", ")
-        }
-        // A streamed export wants the whole table, so it omits the paging cap.
-        if !unlimited {
-            sql += " LIMIT \(limit ?? tab.pageLimit)"
-            if let offset, offset > 0 { sql += " OFFSET \(offset)" }
-        }
-        return sql
+        return DataViewSQL.select(
+            schema: schema, table: table, filter: tab.filterWhere,
+            sortOrder: tab.sortOrder.map { .init(column: $0.column, ascending: $0.ascending) },
+            limit: limit ?? tab.pageLimit, offset: offset, orderOverride: orderOverride,
+            unlimited: unlimited, dialect: session.engine.dialect)
     }
 
     /// SQL that yields the full intended result for a streamed export: a data
@@ -1100,7 +870,7 @@ final class QueryConsoleModel {
         if tab.kind == .data {
             await reloadData(tab)
         } else {
-            tab.sql = rewriteOrderBy(tab.sql, sortOrder: [], session: session)
+            tab.sql = DataViewSQL.rewriteOrderBy(tab.sql, sortOrder: [], dialect: session.engine.dialect)
             await run(tab, sqlToRun: tab.sql, preserveSort: true)
         }
     }

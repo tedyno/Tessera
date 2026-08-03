@@ -55,6 +55,26 @@ Two layers, strictly separated:
   (runtime, not persisted). Keep them separate.
 - Minimum target: macOS 26. Prefer the newest SwiftUI/Observation APIs.
 
+## Testability (write new code so it can be tested)
+
+The **app target (`Tessera/`) has no test target** — logic that lives there is
+effectively untested and can only be checked by running the GUI. `TesseraCore` has a
+full XCTest suite (`swift test`). So:
+
+- **Put non-trivial logic in `TesseraCore` as pure functions/value types**, not in
+  SwiftUI views, `@Observable` models, or AppKit coordinators. Anything that maps
+  inputs → outputs deterministically (SQL generation, parsing, filtering/sorting,
+  ranking, layout maths, text transforms) belongs in Core with tests.
+- **Keep the app target a thin shell.** Views and coordinators should wire UI to a
+  Core engine and apply its results — not embed the algorithm. Good existing examples:
+  `SQLCompletionEngine`, `RowEditSQL`/`DataViewSQL`, `GridDisplay`, `JSONTreeNode`,
+  `ERDLayout`, `PlanParser` — each is pure Core with a matching `*Tests.swift`.
+- **Every new Core type ships with tests in the same change** (`TesseraCore/Tests/`).
+  Data-mutating logic (anything that builds SQL that runs against the user's DB) must
+  be covered before shipping.
+- Extract, don't inline: if you find yourself writing a substantial pure algorithm
+  inside a view/model, lift it into Core and have the app call it.
+
 ## Build / test / run
 
 ```sh

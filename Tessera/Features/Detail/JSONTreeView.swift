@@ -1,77 +1,8 @@
 import SwiftUI
+import DBKit
 
-/// Parsed JSON as a displayable tree — built once per inspected value, capped
-/// so a megabyte of JSON can't stall the inspector.
-struct JSONTreeNode: Identifiable {
-    enum Value {
-        case string(String)
-        case number(String)
-        case bool(Bool)
-        case null
-        case object(count: Int)
-        case array(count: Int)
-    }
-
-    let id = UUID()
-    /// Key in the parent object, or "[index]" in an array; nil at the root.
-    var key: String?
-    var value: Value
-    var children: [JSONTreeNode] = []
-
-    var isContainer: Bool {
-        if case .object = value { return true }
-        if case .array = value { return true }
-        return false
-    }
-
-    /// Parses only real containers (a bare string/number isn't worth a tree),
-    /// and gives up beyond ~256 KB or a few thousand nodes — the plain text
-    /// rendering handles those better than a tree ever would.
-    static func parse(_ text: String) -> JSONTreeNode? {
-        guard text.count <= 256_000,
-              let first = text.trimmingCharacters(in: .whitespacesAndNewlines).first,
-              first == "{" || first == "[",
-              let data = text.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
-        var budget = 4000
-        return build(object, key: nil, budget: &budget)
-    }
-
-    private static func build(_ any: Any, key: String?, budget: inout Int) -> JSONTreeNode? {
-        guard budget > 0 else { return nil }
-        budget -= 1
-        switch any {
-        case let dictionary as [String: Any]:
-            var node = JSONTreeNode(key: key, value: .object(count: dictionary.count))
-            for name in dictionary.keys.sorted() {
-                if let child = build(dictionary[name]!, key: name, budget: &budget) {
-                    node.children.append(child)
-                }
-            }
-            return node
-        case let array as [Any]:
-            var node = JSONTreeNode(key: key, value: .array(count: array.count))
-            for (index, element) in array.enumerated() {
-                if let child = build(element, key: "[\(index)]", budget: &budget) {
-                    node.children.append(child)
-                }
-            }
-            return node
-        case let number as NSNumber:
-            // NSNumber wraps booleans too; CFBoolean is the reliable tell.
-            if CFGetTypeID(number) == CFBooleanGetTypeID() {
-                return JSONTreeNode(key: key, value: .bool(number.boolValue))
-            }
-            return JSONTreeNode(key: key, value: .number(number.stringValue))
-        case let string as String:
-            return JSONTreeNode(key: key, value: .string(string))
-        case is NSNull:
-            return JSONTreeNode(key: key, value: .null)
-        default:
-            return nil
-        }
-    }
-}
+// `JSONTreeNode` (the model + parser) now lives in TesseraCore (DBKit) so the
+// parsing rules are unit-testable; this file keeps the SwiftUI rendering.
 
 /// Inspector value display: a collapsible JSON tree when the value parses as
 /// one, the plain (pretty-printed) text otherwise. Owns the parse cache — the

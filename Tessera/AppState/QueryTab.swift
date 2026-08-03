@@ -1,15 +1,8 @@
 import Foundation
 import DBKit
 
-/// The single source table a result maps to, enabling in-place editing.
-struct EditSource: Equatable {
-    var schema: String
-    var table: String
-    var primaryKeys: [String]
-    /// Columns the database fills itself (serial/identity/AUTO_INCREMENT); inserts
-    /// omit them and the grid shows a "(generated)" placeholder.
-    var autoIncrementColumns: [String]
-}
+// `EditSource` now lives in TesseraCore (DBKit) next to the pure `RowEditSQL`
+// statement generation it feeds, so the edit-to-SQL logic is unit-testable.
 
 /// The cell shown in the value inspector when exactly one cell is selected.
 struct InspectedCell: Equatable {
@@ -233,12 +226,7 @@ final class QueryTab: Identifiable {
         if let cache = matchingRowsCache, cache.query == searchQuery, cache.version == resultVersion {
             return cache.rows
         }
-        let indices = result.rows.indices.filter { index in
-            if result.rows[index].contains(where: { $0.text?.localizedCaseInsensitiveContains(searchQuery) == true }) {
-                return true
-            }
-            return edits[index]?.values.contains(where: { $0?.localizedCaseInsensitiveContains(searchQuery) == true }) == true
-        }
+        let indices = GridDisplay.searchMatches(rows: result.rows, query: searchQuery, edits: edits)
         matchingRowsCache = (searchQuery, resultVersion, indices)
         return indices
     }
@@ -352,20 +340,8 @@ final class QueryTab: Identifiable {
               let col = result.columns.firstIndex(where: { $0.name == columnName }) else { return }
         let cells = result.rows[row]
         let original = col < cells.count ? cells[col].text : nil
-        if let value {
-            if original != nil, value == original {
-                edits[row]?[columnName] = nil
-                if edits[row]?.isEmpty == true { edits[row] = nil }
-            } else {
-                edits[row, default: [:]][columnName] = value
-            }
-        } else if original == nil {
-            // Already NULL — drop any pending edit instead of recording a no-op.
-            edits[row]?[columnName] = nil
-            if edits[row]?.isEmpty == true { edits[row] = nil }
-        } else {
-            edits[row, default: [:]].updateValue(nil, forKey: columnName)
-        }
+        edits[row] = RowEditSQL.applyingEdit(to: edits[row], column: columnName,
+                                             newValue: value, original: original)
     }
 }
 

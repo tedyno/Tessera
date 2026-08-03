@@ -85,7 +85,9 @@ private struct SplitView: View {
     @ViewBuilder private func child(_ index: Int) -> some View {
         if node.children.indices.contains(index) {
             PaneTreeView(model: model, node: node.children[index], env: env)
-                .id(node.children[index].id)
+                // Keyed by the subtree's groups (not the node's identity), so a
+                // `reconcile` that rebuilds nodes doesn't tear down live panes.
+                .id(node.children[index].groupIDs)
         }
     }
 

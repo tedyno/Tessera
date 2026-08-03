@@ -1,4 +1,8 @@
 import Foundation
+import DBKit
+
+// `SplitAxis`, `DropEdge`, and the pure tiling algorithm now live in TesseraCore
+// (`PaneLayout`); the reference-type `PaneNode` tree below is the rendering mirror.
 
 /// One pane's tab group: an ordered list of tab ids plus which one is active.
 /// The `QueryTab` objects themselves stay owned by `QueryConsoleModel.tabs`; a
@@ -21,20 +25,6 @@ final class TabGroup: Identifiable {
     }
 }
 
-/// Which way a split lays its children out.
-enum SplitAxis: String, Codable, Sendable {
-    case horizontal   // children side by side, left → right
-    case vertical     // children stacked, top → bottom
-}
-
-/// Which edge of a pane a dragged tab was dropped on — the new group lands there.
-enum DropEdge {
-    case left, right, top, bottom
-
-    var axis: SplitAxis { self == .left || self == .right ? .horizontal : .vertical }
-    /// Whether the new group goes before the existing one along the axis.
-    var insertsFirst: Bool { self == .left || self == .top }
-}
 
 /// A node in the recursive pane tree: either a leaf holding one `TabGroup`, or a
 /// split holding ordered children with fractional sizes that sum to 1.
@@ -73,6 +63,14 @@ final class PaneNode: Identifiable {
         return children.flatMap(\.allGroups)
     }
 
+    /// The subtree's group ids — a fraction-independent identity, so SwiftUI keeps a
+    /// pane's view (and its live NSTableView) across a `reconcile` that rebuilds nodes
+    /// but leaves the group arrangement unchanged.
+    var groupIDs: [UUID] {
+        if let group { return [group.id] }
+        return children.flatMap(\.groupIDs)
+    }
+
     /// The leaf holding `tabID`, if any.
     func leaf(containing tabID: UUID) -> PaneNode? {
         if let group, group.tabIDs.contains(tabID) { return self }
@@ -90,52 +88,35 @@ final class PaneNode: Identifiable {
         return nil
     }
 
-    // MARK: Mutation
+    // MARK: Layout bridge
 
-    /// Turns this leaf into a split of two leaves — the incoming group on `edge`,
-    /// the current group opposite it — at 50/50. Only valid on a leaf.
-    func split(with newGroup: TabGroup, on edge: DropEdge) {
-        guard let current = group else { return }
-        let mine = PaneNode(group: current)
-        let theirs = PaneNode(group: newGroup)
-        let ordered = edge.insertsFirst ? [theirs, mine] : [mine, theirs]
-        group = nil
-        axis = edge.axis
-        children = ordered
-        fractions = [0.5, 0.5]
+    /// The pure value-tree view of this subtree (structure keyed by group id).
+    func toLayout() -> PaneLayout {
+        if let group { return .leaf(group.id) }
+        return .split(axis: axis ?? .horizontal, children: children.map { $0.toLayout() }, fractions: fractions)
     }
 
-    /// Removes the child leaf holding `groupID` from this split. Returns the node
-    /// that should replace `self` when the split collapses to a single child, or
-    /// `nil` to keep `self`. Recurses into child splits.
-    @discardableResult
-    func removingGroup(_ groupID: UUID) -> PaneNode? {
-        guard axis != nil else { return self }   // leaves handled by the parent
-        // Drop a matching direct child leaf.
-        if let index = children.firstIndex(where: { $0.group?.id == groupID }) {
-            children.remove(at: index)
-            fractions.remove(at: min(index, fractions.count - 1))
-        } else {
-            // Recurse; a child split may collapse into its surviving grandchild.
-            for (index, child) in children.enumerated() where child.axis != nil {
-                if let replacement = child.removingGroup(groupID) {
-                    children[index] = replacement
-                }
+    /// Rebuilds a node tree to match `layout`, reusing `existing` nodes whose subtree
+    /// is unchanged (identity — and their live NSViews/grid state — is preserved) and
+    /// looking up group content by id in `groups`.
+    static func reconcile(_ existing: PaneNode?, to layout: PaneLayout,
+                          groups: [UUID: TabGroup]) -> PaneNode {
+        if let existing, existing.toLayout() == layout { return existing }
+        switch layout {
+        case .leaf(let groupID):
+            // Reuse the existing leaf for this group wherever it sits in the old
+            // subtree (a collapse moves it up a level) — keeps its live NSView/grid.
+            if let reused = existing?.leaf(groupID: groupID) { return reused }
+            return PaneNode(group: groups[groupID] ?? TabGroup(id: groupID))
+        case .split(let axis, let childLayouts, let fractions):
+            let existingChildren = existing?.children ?? []
+            let rebuilt = childLayouts.enumerated().map { index, childLayout -> PaneNode in
+                let match = existingChildren.first { $0.toLayout() == childLayout }
+                    ?? (index < existingChildren.count ? existingChildren[index] : nil)
+                return reconcile(match, to: childLayout, groups: groups)
             }
+            return PaneNode(axis: axis, children: rebuilt, fractions: fractions)
         }
-        normalizeFractions()
-        // Collapse: a split with one child becomes that child.
-        return children.count == 1 ? children[0] : self
-    }
-
-    private func normalizeFractions() {
-        guard !children.isEmpty else { return }
-        if fractions.count != children.count {
-            fractions = Array(repeating: 1.0 / Double(children.count), count: children.count)
-            return
-        }
-        let total = fractions.reduce(0, +)
-        if total > 0 { fractions = fractions.map { $0 / total } }
     }
 }
 
@@ -158,6 +139,11 @@ final class WorkspaceLayout {
     var groups: [TabGroup] { root.allGroups }
     var focusedGroup: TabGroup? { groups.first { $0.id == focusedGroupID } ?? groups.first }
 
+    /// Group content by id, for reconciling a computed `PaneLayout` back to nodes.
+    private var groupMap: [UUID: TabGroup] {
+        Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     func group(containing tabID: UUID) -> TabGroup? {
         root.leaf(containing: tabID)?.group
     }
@@ -167,11 +153,14 @@ final class WorkspaceLayout {
     func splitDropping(tabID: UUID, targetGroupID: UUID, edge: DropEdge) {
         // Validate the target before mutating, or a target that vanished mid-drag
         // would leave the tab pulled from its old group but dropped nowhere.
-        guard root.leaf(groupID: targetGroupID) != nil else { return }
+        guard root.toLayout().contains(targetGroupID) else { return }
         remove(tabID: tabID)   // pull it out of its old group (may collapse a pane)
-        guard let target = root.leaf(groupID: targetGroupID) else { return }
+        guard root.toLayout().contains(targetGroupID) else { return }
         let newGroup = TabGroup(tabIDs: [tabID], activeID: tabID)
-        target.split(with: newGroup, on: edge)
+        var groups = groupMap
+        groups[newGroup.id] = newGroup
+        let layout = root.toLayout().splitting(targetGroupID, with: newGroup.id, on: edge)
+        root = PaneNode.reconcile(root, to: layout, groups: groups)
         focusedGroupID = newGroup.id
     }
 
@@ -198,14 +187,14 @@ final class WorkspaceLayout {
     func closeGroup(_ groupID: UUID) -> [UUID] {
         guard let leaf = root.leaf(groupID: groupID) else { return [] }
         let ids = leaf.group?.tabIDs ?? []
-        if root.group?.id == groupID {
+        if let layout = root.toLayout().removing(groupID) {
+            root = PaneNode.reconcile(root, to: layout, groups: groupMap)
+            if focusedGroupID == groupID { focusedGroupID = groups.first?.id }
+        } else {
             // The last pane — reset to a single empty group rather than nothing.
             let fresh = TabGroup()
             root = PaneNode(group: fresh)
             focusedGroupID = fresh.id
-        } else if let replacement = root.removingGroup(groupID) {
-            root = replacement
-            if focusedGroupID == groupID { focusedGroupID = groups.first?.id }
         }
         return ids
     }

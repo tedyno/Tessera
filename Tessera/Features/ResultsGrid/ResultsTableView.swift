@@ -1703,26 +1703,19 @@ struct ResultsTableView: NSViewRepresentable {
                 // Local per-column value filters (header right-click) stack on the
                 // ⌘F filter. Like it, they park editing while active.
                 if !tab.localValueFilters.isEmpty {
-                    // Resolve each filtered column to an index once, not per row.
-                    let columnIndex = Dictionary(
-                        result.columns.enumerated().map { ($0.element.name, $0.offset) },
-                        uniquingKeysWith: { first, _ in first })
                     let base = visibleRowMap ?? Array(result.rows.indices)
-                    visibleRowMap = base.filter { row in
-                        tab.localValueFilters.allSatisfy { column, allowed in
-                            guard let index = columnIndex[column] else { return true }
-                            let value = index < result.rows[row].count ? result.rows[row][index].text : nil
-                            return allowed.contains(value)
-                        }
-                    }
+                    visibleRowMap = GridDisplay.valueFiltered(base, rows: result.rows,
+                                                              columns: result.columns,
+                                                              filters: tab.localValueFilters)
                 }
                 // Client-side sort (console results): permute the display order on
                 // top of any ⌘F filter. Like the filter, it parks editing — the
                 // row juggling only makes sense over the raw result order.
                 if let sortColumn = tab.localSortColumn, sortColumn < result.columns.count {
                     let base = visibleRowMap ?? Array(result.rows.indices)
-                    visibleRowMap = sortedRows(base, by: sortColumn,
-                                               ascending: tab.localSortAscending, result: result)
+                    visibleRowMap = GridDisplay.sorted(base, rows: result.rows, column: sortColumn,
+                                                       ascending: tab.localSortAscending,
+                                                       numeric: isNumericColumnType(result.columns[sortColumn].typeName))
                 }
             }
             if let grid = tableView as? GridTableView {
@@ -1860,6 +1853,7 @@ struct ResultsTableView: NSViewRepresentable {
         private var userAdjustedColumns = false
         private var suppressColumnResizeTracking = false
         private var lastSpreadKey = ""
+        private var pendingSpread: DispatchWorkItem?
 
         /// Content-aware column widths: each column gets what its widest
         /// sampled value (or header) needs, and any leftover viewport space is
@@ -1902,9 +1896,14 @@ struct ResultsTableView: NSViewRepresentable {
             suppressColumnResizeTracking = false
         }
 
-        /// Fired by the scroll view's frame-change notification.
+        /// Fired by the scroll view's frame-change notification. A divider or window
+        /// resize fires this every pixel; re-spreading the columns on each one reflows
+        /// the grid and flickers, so coalesce and run once the size settles.
         @objc func scrollFrameChanged(_ notification: Notification) {
-            spreadColumnsIfNeeded()
+            pendingSpread?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.spreadColumnsIfNeeded() }
+            pendingSpread = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
         }
 
         func tableViewColumnDidResize(_ notification: Notification) {
@@ -1921,41 +1920,6 @@ struct ResultsTableView: NSViewRepresentable {
             userAdjustedColumns = false
             lastSpreadKey = ""
         }
-
-        /// Orders display rows by one column: numeric columns compare as
-        /// numbers, NULLs sink to the end, ties keep the fetched order.
-        private func sortedRows(_ base: [Int], by column: Int, ascending: Bool,
-                                result: QueryResult) -> [Int] {
-            let numeric = isNumericColumnType(result.columns[column].typeName)
-            // Decorate each row with its cell text (and parsed number for numeric
-            // columns) once, then sort — the old form re-fetched the cell and
-            // re-parsed `Double` on every comparison, i.e. O(n log n) parses.
-            struct Key { let row: Int; let text: String?; let number: Double? }
-            let decorated = base.map { row -> Key in
-                let text = column < result.rows[row].count ? result.rows[row][column].text : nil
-                return Key(row: row, text: text, number: numeric ? text.flatMap(Double.init) : nil)
-            }
-            let sorted = decorated.sorted { a, b in
-                switch (a.text, b.text) {
-                case (nil, nil): return a.row < b.row
-                case (nil, _): return false
-                case (_, nil): return true
-                case (let x?, let y?):
-                    let ordered: Bool
-                    if numeric, let dx = a.number, let dy = b.number {
-                        if dx == dy { return a.row < b.row }
-                        ordered = dx < dy
-                    } else {
-                        let comparison = x.localizedStandardCompare(y)
-                        if comparison == .orderedSame { return a.row < b.row }
-                        ordered = comparison == .orderedAscending
-                    }
-                    return ascending ? ordered : !ordered
-                }
-            }
-            return sorted.map(\.row)
-        }
-
         /// Draws the sort arrow on every sorted column's header, plus a priority
         /// number (1, 2, …) when more than one column drives the sort. Server-side
         /// multi-column sort (table views) wins; otherwise the single client-side
