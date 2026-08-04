@@ -37,6 +37,14 @@ final class CompletingTextView: NSTextView {
         return popup
     }()
 
+    /// The popup is a child of the editor's *window*, not the view, so closing the
+    /// tab/pane (which removes the editor from the window) would otherwise leave it
+    /// floating. Dismiss it whenever the editor leaves its window.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { popup.hide() }
+    }
+
     // MARK: Auto-capitalization guard
 
     /// If the character being inserted differs only in case from the key the user
