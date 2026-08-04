@@ -72,12 +72,25 @@ public struct QueryHistoryStore: Sendable {
     }
 
     /// Persists the given entries (newest-first, capped to `limit`).
-    public func save(_ entries: [QueryHistoryEntry]) {
+    /// Caps to `limit` and encodes to JSON bytes. Split from `write` so a caller can
+    /// encode on its own isolation (reading the entries while it exclusively owns
+    /// them) and hand only the flat `Data` to a background task — the entry array
+    /// never crosses a thread boundary, only the bytes do.
+    public func encode(_ entries: [QueryHistoryEntry]) -> Data? {
         let capped = entries.count > limit ? Array(entries.prefix(limit)) : entries
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(capped) else { return }
+        return try? encoder.encode(capped)
+    }
+
+    /// Writes pre-encoded bytes to the history file. Safe to call off the main actor.
+    public func write(_ data: Data) {
         try? PrivateFile.write(data, to: fileURL)
+    }
+
+    public func save(_ entries: [QueryHistoryEntry]) {
+        guard let data = encode(entries) else { return }
+        write(data)
     }
 
     /// Prepends an entry (newest first), caps to `limit`, and persists.

@@ -949,8 +949,7 @@ final class QueryConsoleModel {
     /// Empties the query history (and its on-disk store).
     func clearHistory() {
         history = []
-        let store = historyStore
-        Task.detached { store.save([]) }
+        persistHistory()
     }
 
     // MARK: Saved queries
@@ -980,10 +979,20 @@ final class QueryConsoleModel {
         persistSavedQueries()
     }
 
+    /// Persists saved queries without sharing their value graph across threads: the
+    /// encode runs here on the main actor (sole owner of the COW buffers) and only
+    /// the flat `Data` is handed to a background task for the file write.
     private func persistSavedQueries() {
-        let snapshot = savedQueries
+        guard let data = savedQueryStore.encode(savedQueries) else { return }
         let store = savedQueryStore
-        Task.detached { store.save(snapshot) }
+        Task.detached { store.write(data) }
+    }
+
+    /// Persists history the same copy-isolated way as `persistSavedQueries`.
+    private func persistHistory() {
+        guard let data = historyStore.encode(history) else { return }
+        let store = historyStore
+        Task.detached { store.write(data) }
     }
 
     private func recordHistory(sql: String, session: ConnectionSession, rowCount: Int, elapsedMS: Int?,
@@ -1003,9 +1012,7 @@ final class QueryConsoleModel {
             if history.count > 500 { history = Array(history.prefix(500)) }
         }
         // Persist off the main actor so a query never blocks the UI on disk I/O.
-        let snapshot = history
-        let store = historyStore
-        Task.detached { store.save(snapshot) }
+        persistHistory()
     }
 
     // MARK: Helpers

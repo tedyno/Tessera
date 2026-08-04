@@ -47,10 +47,23 @@ public struct SavedQueryStore: Sendable {
         return (try? decoder.decode([SavedQuery].self, from: data)) ?? []
     }
 
-    public func save(_ entries: [SavedQuery]) {
+    /// Encodes to JSON bytes. Split from `write` so a caller can encode on its own
+    /// isolation (reading the entries while it exclusively owns them) and hand only
+    /// the flat `Data` to a background task — the entry array never crosses a thread
+    /// boundary, only the bytes do.
+    public func encode(_ entries: [SavedQuery]) -> Data? {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(entries) else { return }
+        return try? encoder.encode(entries)
+    }
+
+    /// Writes pre-encoded bytes to the saved-queries file. Safe to call off the main actor.
+    public func write(_ data: Data) {
         try? PrivateFile.write(data, to: fileURL)
+    }
+
+    public func save(_ entries: [SavedQuery]) {
+        guard let data = encode(entries) else { return }
+        write(data)
     }
 }

@@ -49,11 +49,26 @@ public struct SchemaCacheStore: Sendable {
         })
     }
 
-    public func save(_ cache: [UUID: CachedSchema]) {
+    /// Encodes the cache to JSON bytes. Split from `write` so a caller can encode
+    /// on its own isolation — reading the value graph while it exclusively owns it —
+    /// and hand only the resulting flat `Data` to a background task. The schema
+    /// graph (whose COW buffers are shared with live UI state) then never crosses a
+    /// thread boundary; only the bytes do.
+    public func encode(_ cache: [UUID: CachedSchema]) -> Data? {
         let raw = Dictionary(uniqueKeysWithValues: cache.map { ($0.key.uuidString, $0.value) })
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(raw) else { return }
+        return try? encoder.encode(raw)
+    }
+
+    /// Writes pre-encoded bytes to the cache file. Safe to call off the main actor.
+    public func write(_ data: Data) {
         try? PrivateFile.write(data, to: fileURL)
+    }
+
+    /// Convenience for synchronous callers and tests: encode then write in one call.
+    public func save(_ cache: [UUID: CachedSchema]) {
+        guard let data = encode(cache) else { return }
+        write(data)
     }
 }

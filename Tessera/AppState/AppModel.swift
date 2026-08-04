@@ -60,9 +60,7 @@ final class AppModel {
                 self.console.forgetSession(profileID: profileID)
                 self.schemaCache[profileID] = nil
             }
-            let snapshot = self.schemaCache
-            let store = self.schemaCacheStore
-            Task.detached { store.save(snapshot) }
+            self.persistSchemaCache()
         }
         NotificationCenter.default.addObserver(forName: .mcpSettingsChanged, object: nil,
                                                queue: .main) { [weak self] _ in
@@ -307,9 +305,19 @@ final class AppModel {
     /// Records a freshly introspected schema and writes the cache out.
     private func cacheSchema(_ tree: DatabaseTree, for profileID: UUID) {
         schemaCache[profileID] = CachedSchema(tree: tree, updatedAt: Date())
-        let snapshot = schemaCache
+        persistSchemaCache()
+    }
+
+    /// Persists the schema cache without ever sharing its value graph across
+    /// threads: the encode runs here on the main actor (which exclusively owns the
+    /// `CachedSchema` COW buffers), and only the resulting flat `Data` is handed to
+    /// a background task for the file write. Sharing the graph via a shallow
+    /// `Task.detached` snapshot instead risked a use-after-free — the crash that
+    /// surfaced as a corrupt `SchemaColumn` dealloc in `cacheSchema`.
+    private func persistSchemaCache() {
+        guard let data = schemaCacheStore.encode(schemaCache) else { return }
         let store = schemaCacheStore
-        Task.detached { store.save(snapshot) }
+        Task.detached { store.write(data) }
     }
 
     /// When a connection's cached schema was last read, for the search UI.
