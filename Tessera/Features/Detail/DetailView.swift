@@ -3,10 +3,13 @@ import AppKit
 import DBKit
 import DBPersistence
 
-/// A connection a tab can be pointed at, for the tab's connection picker.
+/// A connection a tab can be pointed at, for the tab's connection picker. `path` is
+/// its organizer breadcrumb (workspace › project › folder…), used to sort the picker
+/// by proximity to the tab's current connection and to disambiguate same-named ones.
 struct ConnectionOption: Identifiable, Hashable {
     let id: UUID
     let name: String
+    let path: [String]
 }
 
 /// Column 3 — the detail area. Renders the tiling pane tree (each pane its own tab

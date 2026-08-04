@@ -23,6 +23,7 @@ struct PaneView: View {
 
     @State private var dropEdge: DropEdge?
     @State private var paneSize: CGSize = .zero
+    @State private var showConnectionPicker = false
     /// Guarantees the split preview clears when the drag ends (see `DropEndMonitor`).
     @State private var dropEndMonitor = DropEndMonitor()
 
@@ -170,19 +171,22 @@ struct PaneView: View {
     // MARK: Toolbars (scoped to this pane's active `tab`)
 
     @ViewBuilder private func connectionPicker(_ tab: QueryTab) -> some View {
-        Menu {
-            if connectionOptions.isEmpty {
-                Text("No connections")
-            } else {
-                ForEach(connectionOptions) { option in
-                    Button(option.name) { model.activate(tab); onSelectConnection(option.id) }
-                }
-            }
+        Button {
+            guard !connectionOptions.isEmpty else { return }
+            model.activate(tab)
+            showConnectionPicker = true
         } label: {
             Label(tab.session?.name ?? "No connection", systemImage: "cylinder.split.1x2")
         }
-        .menuStyle(.borderlessButton).fixedSize().controlSize(.small).pillChrome()
+        .buttonStyle(.plain).fixedSize().controlSize(.small).pillChrome()
         .help("Connection this tab runs against")
+        .popover(isPresented: $showConnectionPicker, arrowEdge: .bottom) {
+            ConnectionPickerPopover(
+                options: connectionOptions,
+                currentID: tab.session?.id,
+                isPresented: $showConnectionPicker,
+                onSelect: { model.activate(tab); onSelectConnection($0) })
+        }
     }
 
     private func editorToolbar(_ tab: QueryTab) -> some View {

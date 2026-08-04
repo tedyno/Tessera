@@ -502,9 +502,12 @@ final class AppModel {
         Task { await openSession(session, profile: profile) }
     }
 
-    /// Connections offered in a tab's connection picker.
+    /// Connections offered in a tab's connection picker, each with its organizer
+    /// breadcrumb so the picker can rank by proximity.
     var connectionOptions: [ConnectionOption] {
-        connections.profiles.map { ConnectionOption(id: $0.id, name: $0.name) }
+        connections.profiles.map {
+            ConnectionOption(id: $0.id, name: $0.name, path: connections.path(forProfile: $0.id))
+        }
     }
 
     /// Points the active tab at a connection (creating a tab if none), connecting it.

@@ -3692,6 +3692,17 @@
         }
       }
     },
+    "Search connections…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hledat připojení…"
+          }
+        }
+      }
+    },
     "Search connections, schemas, tables, columns…": {
       "extractionState": "manual",
       "localizations": {
