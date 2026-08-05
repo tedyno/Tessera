@@ -338,6 +338,9 @@ struct PaneView: View {
             Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
             FilterField(
                 text: Binding(get: { tab.filterWhere }, set: { tab.filterWhere = $0 }),
+                table: tab.dataTable,
+                schema: model.schema(for: tab),
+                engine: model.engine(for: tab),
                 columns: tab.result?.columns.map(\.name) ?? [],
                 placeholder: String(localized: "WHERE …"),
                 onSubmit: { clause in Task { await model.applyFilter(tab, where: clause) } })

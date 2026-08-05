@@ -174,4 +174,75 @@ final class SQLCompletionTests: XCTestCase {
                                          excluding: NSRange(location: 0, length: 0))
         XCTAssertNil(result)
     }
+
+    // MARK: Standalone WHERE filter
+
+    private func filter(_ text: String, table: String? = "orders",
+                        fallbackColumns: [String] = [], caret: Int? = nil,
+                        forced: Bool = false) -> [SQLCompletionItem] {
+        makeEngine().completeFilter(text: text, caret: caret ?? (text as NSString).length,
+                                    table: table, fallbackColumns: fallbackColumns,
+                                    forced: forced).items
+    }
+
+    func testFilterOffersScopedColumnsWithBadges() {
+        let items = filter("cust")
+        let fk = items.first { $0.label == "customer_id" }
+        XCTAssertEqual(fk?.detail, "int8 · FK→customers · NOT NULL",
+                       "filter columns carry the same type/FK/NOT NULL badges as the editor")
+        // Only the filtered table's columns — not other tables'.
+        XCTAssertFalse(items.contains { $0.label == "email" },
+                       "a column from another table must not leak into the filter")
+    }
+
+    func testFilterColumnsRankAheadOfKeywords() {
+        // `st` prefixes both the `status` column and no keyword; the column wins.
+        let items = filter("st")
+        XCTAssertEqual(items.first?.label, "status")
+    }
+
+    func testFilterOffersOperators() {
+        XCTAssertTrue(filter("betw").contains { $0.label == "BETWEEN" })
+        XCTAssertTrue(filter("is n").contains { $0.label == "IS NULL" })
+    }
+
+    func testFilterOffersILIKEOnPostgresOnly() {
+        XCTAssertTrue(filter("ilik").contains { $0.label == "ILIKE" })
+        let mysql = SQLCompletionEngine(schema: nil, engine: .mysql)
+        let items = mysql.completeFilter(text: "ilik", caret: 4, table: "orders",
+                                         fallbackColumns: [], forced: false).items
+        XCTAssertFalse(items.contains { $0.label == "ILIKE" })
+    }
+
+    func testFilterQualifiedReferenceOffersColumns() {
+        // `orders.` → the table's columns, filtered by the partial after the dot.
+        let items = filter("orders.stat")
+        XCTAssertTrue(items.contains { $0.label == "status" })
+        XCTAssertFalse(items.contains { $0.label == "BETWEEN" },
+                       "no keywords after a qualifying dot")
+    }
+
+    func testFilterFallsBackToPlainColumnsWithoutSchema() {
+        // Unknown table but the grid still knows its result columns.
+        let items = filter("ye", table: "unknown", fallbackColumns: ["year", "yield"])
+        XCTAssertTrue(items.contains { $0.label == "year" && $0.kind == .column })
+        XCTAssertNil(items.first { $0.label == "year" }?.detail, "no badges without schema")
+    }
+
+    func testFilterEmptyStaysQuietUnlessForced() {
+        XCTAssertTrue(filter("", caret: 0).isEmpty)
+        // ⌃Space with an empty field offers everything.
+        XCTAssertFalse(makeEngine().completeFilter(text: " ", caret: 1, table: "orders",
+                                                   fallbackColumns: [], forced: true).items.isEmpty)
+    }
+
+    func testFilterSuppressedInsideStringLiteral() {
+        // Caret inside a quoted literal — no completion.
+        XCTAssertTrue(filter("status = 'ship").isEmpty)
+    }
+
+    func testFilterHidesWhenNameFullyTyped() {
+        // Exact column name typed → popup closes so Return submits the filter.
+        XCTAssertTrue(filter("status").isEmpty)
+    }
 }

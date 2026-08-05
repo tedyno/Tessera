@@ -2,11 +2,20 @@ import SwiftUI
 import AppKit
 import DBKit
 
-/// Single-line WHERE-filter field for data views. Uses the same custom completion as
-/// the SQL editor (Tab/Return commit while the popup is open) and submits on Return
-/// once it's closed.
+/// Single-line WHERE-filter field for data views. Shares the SQL editor's
+/// schema-aware completion engine (`SQLCompletionEngine`): it offers the filtered
+/// table's columns with type / PK / FK / NOT NULL badges, plus the operators and
+/// scalar functions a predicate uses. When the schema hasn't loaded it falls back
+/// to the grid's result column names. Tab/Return commit while the popup is open;
+/// Return submits the filter once it's closed.
 struct FilterField: NSViewRepresentable {
     @Binding var text: String
+    /// The table the filter runs against, so completion is scoped to its columns.
+    var table: String?
+    /// Live schema and dialect for the connection; drive the rich completion.
+    var schema: DatabaseTree?
+    var engine: DatabaseKind?
+    /// Fallback column names (from the current result) used before the schema loads.
     var columns: [String]
     var placeholder: String
     /// Called with the field's current text on Return.
@@ -54,7 +63,10 @@ struct FilterField: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView else { return }
+        context.coordinator.table = table
         context.coordinator.columns = columns
+        context.coordinator.schema = schema
+        context.coordinator.engine = engine
         context.coordinator.onSubmit = onSubmit
         (textView as? CompletingTextView)?.placeholder = placeholder
         if textView.string != text {
@@ -64,23 +76,34 @@ struct FilterField: NSViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text, columns: columns, onSubmit: onSubmit) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, table: table, schema: schema, engine: engine,
+                    columns: columns, onSubmit: onSubmit)
+    }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         private let text: Binding<String>
+        var table: String?
         var columns: [String]
         var onSubmit: (String) -> Void
         weak var textView: NSTextView?
         var previousLength = 0
 
-        private static let keywords = [
-            "AND", "OR", "NOT", "LIKE", "ILIKE", "IN", "IS NULL", "IS NOT NULL", "BETWEEN",
-        ]
+        /// The shared pure engine (TesseraCore); rebuilt when schema/dialect change.
+        var schema: DatabaseTree? { didSet { rebuildEngine() } }
+        var engine: DatabaseKind? { didSet { rebuildEngine() } }
+        private var completionEngine: SQLCompletionEngine
+        private func rebuildEngine() { completionEngine = SQLCompletionEngine(schema: schema, engine: engine) }
 
-        init(text: Binding<String>, columns: [String], onSubmit: @escaping (String) -> Void) {
+        init(text: Binding<String>, table: String?, schema: DatabaseTree?, engine: DatabaseKind?,
+             columns: [String], onSubmit: @escaping (String) -> Void) {
             self.text = text
+            self.table = table
+            self.schema = schema
+            self.engine = engine
             self.columns = columns
             self.onSubmit = onSubmit
+            self.completionEngine = SQLCompletionEngine(schema: schema, engine: engine)
         }
 
         func textDidChange(_ notification: Notification) {
@@ -90,25 +113,11 @@ struct FilterField: NSViewRepresentable {
             textView.needsDisplay = true   // repaint placeholder
         }
 
-        /// Candidates for the caret: the table's columns plus WHERE operators, unless
-        /// the caret is inside a string literal.
+        /// Schema-aware candidates for the caret, scoped to the filtered table.
         func completion(text: String, caret: Int, forced: Bool) -> (NSRange, [SQLCompletionItem]) {
-            let ns = text as NSString
-            guard caret > 0, caret <= ns.length,
-                  !SQLText.isInsideStringLiteral(ns.substring(to: caret)) else {
-                return (NSRange(location: caret, length: 0), [])
-            }
-            let range = SQLText.identifierRange(in: text, caret: caret)
-            guard range.length > 0 || forced else { return (range, []) }
-            let partial = range.length > 0 ? ns.substring(with: range) : ""
-            let names = partial.isEmpty
-                ? columns + Self.keywords   // ⌃Space with no prefix: offer everything
-                : SQLText.completions(for: partial, in: columns + Self.keywords)
-            let columnSet = Set(columns)
-            return (range, names.map {
-                SQLCompletionItem(insert: $0, label: $0, detail: nil,
-                                  kind: columnSet.contains($0) ? .column : .keyword)
-            })
+            let result = completionEngine.completeFilter(text: text, caret: caret, table: table,
+                                                         fallbackColumns: columns, forced: forced)
+            return (result.range, result.items)
         }
 
         // Reject automatic case-only substitutions that bypass the field editor.

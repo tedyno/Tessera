@@ -117,6 +117,58 @@ public struct SQLCompletionEngine {
         return (override ?? range, items)
     }
 
+    /// Completion for the data grid's standalone WHERE filter, evaluated against one
+    /// known `table`. Offers that table's columns (with the same type / PK / FK /
+    /// NOT NULL badges the editor shows), the operators and scalar functions a bare
+    /// predicate uses, and — when the schema hasn't loaded yet — `fallbackColumns`
+    /// as plain names. Reuses the editor's ranking so the filter feels identical.
+    /// Clause-structure keywords (SELECT / FROM / JOIN / …) and other tables are
+    /// deliberately excluded: a WHERE fragment can't use them.
+    public func completeFilter(text: String, caret: Int, table: String?,
+                               fallbackColumns: [String] = [], forced: Bool)
+        -> (range: NSRange, items: [SQLCompletionItem]) {
+        let ns = text as NSString
+        guard caret > 0, caret <= ns.length,
+              !SQLText.isInsideStringLiteral(ns.substring(to: caret)) else {
+            return (NSRange(location: caret, length: 0), [])
+        }
+        let range = SQLText.identifierRange(in: text, caret: caret)
+        let partial = range.length > 0 ? ns.substring(with: range) : ""
+        let before = ns.substring(to: range.location)
+        let trimmed = before.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = partial.lowercased()
+        let tableInfo = table.flatMap { tableByLower[$0.lowercased()] }
+        var pool: [(item: SQLCompletionItem, priority: Int)] = []
+
+        if trimmed.hasSuffix(".") {
+            // `col.` — a qualified reference. Offer the named table's columns (or the
+            // filtered table's, when the qualifier is its own name); a decimal like
+            // `1.` is not a qualifier.
+            let qualifier = Self.lastIdentifier(in: String(trimmed.dropLast())).lowercased()
+            guard let first = qualifier.first, !first.isNumber else { return (range, []) }
+            let target = tableByLower[qualifier] ?? tableInfo
+            pool = (target?.columns ?? []).map { (columnItem($0), 0) }
+        } else {
+            // Free position: stay quiet until a prefix is typed (or ⌃Space forces it).
+            guard !partial.isEmpty || forced else { return (range, []) }
+            if let tableInfo {
+                pool = tableInfo.columns.map { (columnItem($0), 0) }
+            } else {
+                pool = fallbackColumns.map {
+                    (SQLCompletionItem(insert: quoteIfNeeded($0), label: $0, detail: nil, kind: .column), 0)
+                }
+            }
+            pool += filterKeywordPool(query: partial)
+        }
+
+        // A fully typed name means the user is done — hide the popup so Return submits
+        // the filter instead of committing a cousin candidate.
+        if !query.isEmpty, pool.contains(where: { $0.item.label.lowercased() == query }) {
+            return (range, [])
+        }
+        return (range, rankAndDedupe(pool, query: query))
+    }
+
     /// Rewrites `from.` qualifiers to `to.` within the statement at `caret`,
     /// skipping any inside `excluding` (the just-inserted text). Returns the new
     /// text and adjusted caret, or nil when nothing changes.
@@ -169,6 +221,24 @@ public struct SQLCompletionEngine {
     ]
 
     private var keywordPool: [String] { Self.commonKeywords + dialect.completionKeywords }
+
+    /// Operators and scalar functions a WHERE predicate uses — the editor's keyword
+    /// list minus clause-structure words (SELECT / FROM / GROUP BY / …) that make no
+    /// sense inside a filter fragment.
+    private static let filterKeywords: [String] = [
+        "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN", "IS NULL", "IS NOT NULL",
+        "NULL", "TRUE", "FALSE", "EXISTS", "CASE", "WHEN", "THEN", "ELSE", "END",
+        "LOWER(", "UPPER(", "LENGTH(", "COALESCE(", "CAST(", "ABS(", "ROUND(",
+        "NOW()", "CURRENT_DATE",
+    ]
+
+    /// Filter keywords/functions as completion items (priority 1, behind columns).
+    /// Adds `ILIKE` on dialects that have it (Postgres).
+    private func filterKeywordPool(query: String) -> [(item: SQLCompletionItem, priority: Int)] {
+        var keywords = Self.filterKeywords
+        if dialect.completionKeywords.contains("ILIKE") { keywords.insert("ILIKE", at: 5) }
+        return keywords.map { (keywordItem($0, query: query), 1) }
+    }
 
     // MARK: Statement context
 
@@ -326,8 +396,17 @@ public struct SQLCompletionEngine {
            pool.contains(where: { $0.item.label.lowercased() == query && $0.item.kind != .join }) {
             return (nil, [])
         }
+        return (nil, rankAndDedupe(pool, query: query))
+    }
+
+    /// Ranks `pool` against `query` (prefix < word-start < substring < fuzzy), breaks
+    /// ties by the caller's priority then label, drops duplicate label+detail rows,
+    /// and caps the list. Shared by the editor and the standalone filter so both
+    /// surface and order candidates identically.
+    private func rankAndDedupe(_ pool: [(item: SQLCompletionItem, priority: Int)],
+                               query: String) -> [SQLCompletionItem] {
         var seen: Set<String> = []
-        let items = pool
+        return pool
             .compactMap { entry -> (SQLCompletionItem, Int, Int)? in
                 guard let rank = Self.matchRank(entry.item.label, query: query) else { return nil }
                 return (entry.item, rank, entry.priority)
@@ -339,7 +418,6 @@ public struct SQLCompletionEngine {
             }
             .prefix(50)
             .map { $0 }
-        return (nil, items)
     }
 
     /// Columns of the tables the statement references (priority 0), annotated with
