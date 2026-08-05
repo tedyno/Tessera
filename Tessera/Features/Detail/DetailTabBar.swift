@@ -13,46 +13,67 @@ struct DetailTabBar: View {
     private var tabs: [QueryTab] { model.tabs(in: group) }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 3) {
-                if let onCloseGroup {
-                    Button(action: onCloseGroup) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                            .padding(5)
-                            .contentShape(Rectangle())
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 3) {
+                    if let onCloseGroup {
+                        Button(action: onCloseGroup) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.tertiary)
+                                .padding(5)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .padding(.trailing, 2)
+                        .help("Close this pane and its tabs")
+                    }
+                    ForEach(tabs) { tab in
+                        tabChip(tab)
+                            .id(tab.id)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                    Button {
+                        model.addTab(in: group)
+                    } label: {
+                        Image(systemName: "plus").padding(.horizontal, 8)
                     }
                     .buttonStyle(.borderless)
-                    .padding(.trailing, 2)
-                    .help("Close this pane and its tabs")
+                    // Drop past the last chip moves the tab to the end of this pane —
+                    // from this pane (reorder) or another (move it in).
+                    Color.clear
+                        .frame(minWidth: 30, maxWidth: .infinity, minHeight: 1)
+                        .contentShape(Rectangle())
+                        .dropDestination(for: String.self) { items, _ in
+                            guard let first = items.first, let dragged = UUID(uuidString: first) else { return false }
+                            model.moveTab(dragged, toGroup: group, before: nil)
+                            return true
+                        }
                 }
-                ForEach(tabs) { tab in
-                    tabChip(tab)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                }
-                Button {
-                    model.addTab(in: group)
-                } label: {
-                    Image(systemName: "plus").padding(.horizontal, 8)
-                }
-                .buttonStyle(.borderless)
-                // Drop past the last chip moves the tab to the end of this pane —
-                // from this pane (reorder) or another (move it in).
-                Color.clear
-                    .frame(minWidth: 30, maxWidth: .infinity, minHeight: 1)
-                    .contentShape(Rectangle())
-                    .dropDestination(for: String.self) { items, _ in
-                        guard let first = items.first, let dragged = UUID(uuidString: first) else { return false }
-                        model.moveTab(dragged, toGroup: group, before: nil)
-                        return true
-                    }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .animation(.snappy(duration: 0.2), value: group.tabIDs)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .animation(.snappy(duration: 0.2), value: group.tabIDs)
+            .frame(height: 34)
+            // Keep the active tab in view — a newly opened tab past the viewport,
+            // or a partially clipped one the user just clicked, scrolls into sight.
+            // Deferred a runloop: activating a tab changes its font weight (and can
+            // reveal its connection label), so the chip's frame isn't final until
+            // the re-layout settles; scrolling to the stale frame would do nothing.
+            .onChange(of: group.activeID) { _, newID in
+                scrollToActive(newID, using: proxy)
+            }
+            .onAppear { scrollToActive(group.activeID, using: proxy) }
         }
-        .frame(height: 34)
+    }
+
+    private func scrollToActive(_ id: UUID?, using proxy: ScrollViewProxy) {
+        guard let id else { return }
+        Task { @MainActor in
+            withAnimation(.snappy(duration: 0.2)) {
+                proxy.scrollTo(id, anchor: .center)
+            }
+        }
     }
 
     private func tabChip(_ tab: QueryTab) -> some View {
