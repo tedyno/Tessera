@@ -1050,7 +1050,13 @@ final class AppModel {
     func findInResults() {
         guard let tab = console.activeTab else { return }
         if tab.currentPlan != nil { tab.showRawPlan = true }
+        let wasVisible = tab.isSearchBarVisible
         tab.isSearchBarVisible = true
+        // The sidebar's NSOutlineView keeps first responder until something takes it,
+        // and its keyDown swallows plain keystrokes into the connection speed-search.
+        // Resign it as the bar opens so the find field (focused on appear) is the only
+        // responder left; without this, typing after ⌘F searches the connections list.
+        if !wasVisible { NSApp.keyWindow?.makeFirstResponder(nil) }
     }
 
     /// Discards all pending edits/inserts/deletes on the active tab.

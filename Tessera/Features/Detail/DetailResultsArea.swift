@@ -171,7 +171,9 @@ struct DetailResultsArea: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(.separator))
         .shadow(radius: 3, y: 1)
         .padding(8)
-        .onAppear { searchFieldFocused = true }
+        // Deferred: the bar animates in, so its field isn't in the window yet on the
+        // first pass — requesting focus a tick later survives the insert transition.
+        .onAppear { DispatchQueue.main.async { searchFieldFocused = true } }
     }
 
     private func successText(_ tab: QueryTab, _ result: QueryResult) -> String {
