@@ -213,6 +213,7 @@ struct PaneView: View {
                     Label("Add Row", systemImage: "plus.rectangle")
                 }
                 .buttonStyle(.glassPill)
+                .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
             savedQueriesMenu(tab)
             Button { model.activate(tab); showingHistory = true } label: {
@@ -221,6 +222,7 @@ struct PaneView: View {
             .buttonStyle(.glassPill)
             .help("Query history")
         }
+        .animation(.snappy(duration: 0.2), value: tab.isEditable)
     }
 
     private func savedQueriesMenu(_ tab: QueryTab) -> some View {
@@ -333,6 +335,7 @@ struct PaneView: View {
                     Label("Add Row", systemImage: "plus.rectangle")
                 }
                 .buttonStyle(.glassPill)
+                .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
 
             Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
@@ -353,7 +356,10 @@ struct PaneView: View {
             explainMenu(tab)
             autoRefreshMenu(tab)
 
-            if tab.isRunning { ProgressView().controlSize(.mini) }
+            if tab.isRunning {
+                ProgressView().controlSize(.mini)
+                    .transition(.opacity.combined(with: .scale(scale: 0.7)))
+            }
             savedQueriesMenu(tab)
             Button { model.activate(tab); showingHistory = true } label: {
                 Label("History", systemImage: "clock.arrow.circlepath").labelStyle(.iconOnly)
@@ -361,6 +367,8 @@ struct PaneView: View {
             .buttonStyle(.glassPill)
             .help("Query history")
         }
+        .animation(.snappy(duration: 0.2), value: tab.isEditable)
+        .animation(.snappy(duration: 0.2), value: tab.isRunning)
     }
 
     private func explainMenu(_ tab: QueryTab) -> some View {

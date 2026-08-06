@@ -43,6 +43,10 @@ struct TabToolbar<Controls: View>: View {
                 controls()
             }
             .padding(6)
+            // The identity label sizes to its text, so switching tabs changes its
+            // width and shoves the controls sideways. Animate the reflow so the row
+            // slides into place instead of jumping.
+            .animation(.snappy(duration: 0.22), value: name)
         }
         .frame(height: TabChrome.toolbarHeight)
     }

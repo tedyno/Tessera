@@ -32,6 +32,7 @@ struct DetailStatusBar: View {
                         .fill((ConnectionPalette.color(session.colorName) ?? .secondary)
                             .opacity(idle ? 0.35 : 1))
                         .frame(width: 7, height: 7)
+                        .animation(.easeInOut(duration: 0.25), value: idle)
                     Text(session.qualifiedName)
                         .foregroundStyle(idle ? .tertiary : .secondary)
                         .lineLimit(1)
@@ -44,13 +45,19 @@ struct DetailStatusBar: View {
             case .failed: Text("Connection error")
             case .ready:
                 if let tab = model.activeTab, tab.kind == .data, let result = tab.result {
-                    if let total = tab.totalRows {
-                        Text("\(result.rows.count) of \(total) rows")
-                    } else {
-                        Text("\(result.rows.count) rows")
+                    Group {
+                        if let total = tab.totalRows {
+                            Text("\(result.rows.count) of \(total) rows")
+                        } else {
+                            Text("\(result.rows.count) rows")
+                        }
                     }
+                    .contentTransition(.numericText())
+                    .animation(.snappy(duration: 0.25), value: result.rows.count)
                     if let ms = tab.elapsedMS, tab.isRunning == false {
                         Text("\(ms) ms").foregroundStyle(.secondary)
+                            .contentTransition(.numericText())
+                            .animation(.snappy(duration: 0.25), value: ms)
                     }
                     if tab.hasMoreRows {
                         Button("Load more") { Task { await model.loadMore(tab) } }
@@ -60,25 +67,39 @@ struct DetailStatusBar: View {
                     // A statement with no result set (UPDATE/INSERT/DELETE/DDL).
                     if let affected = result.rowsAffected {
                         Text("^[\(affected) row](inflect: true) affected").foregroundStyle(.green)
+                            .contentTransition(.numericText())
+                            .animation(.snappy(duration: 0.25), value: affected)
                     } else {
                         Text("Executed").foregroundStyle(.green)
                     }
-                    if let ms = model.activeTab?.elapsedMS { Text("\(ms) ms").foregroundStyle(.secondary) }
+                    if let ms = model.activeTab?.elapsedMS {
+                        Text("\(ms) ms").foregroundStyle(.secondary)
+                            .contentTransition(.numericText())
+                            .animation(.snappy(duration: 0.25), value: ms)
+                    }
                 } else if let result = model.activeTab?.result {
                     Text("\(result.rows.count) rows")
+                        .contentTransition(.numericText())
+                        .animation(.snappy(duration: 0.25), value: result.rows.count)
                     Text("\(result.columns.count) columns")
+                        .contentTransition(.numericText())
+                        .animation(.snappy(duration: 0.25), value: result.columns.count)
                     if let ms = model.activeTab?.elapsedMS, model.activeTab?.isRunning == false {
                         Text("\(ms) ms").foregroundStyle(.secondary)
+                            .contentTransition(.numericText())
+                            .animation(.snappy(duration: 0.25), value: ms)
                     }
                     if result.isTruncated {
                         Label("truncated at the row limit", systemImage: "scissors")
                             .foregroundStyle(.orange)
                             .help("Raise “Max rows per query” in Settings to fetch more.")
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
                     if model.activeTab?.resultIsReadOnly == true {
                         Label("read-only", systemImage: "pencil.slash")
                             .foregroundStyle(.secondary)
                             .help("This result can’t be edited — only a query that reads from a single table is editable.")
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
                 } else {
                     Text("Ready")
@@ -151,6 +172,12 @@ struct DetailStatusBar: View {
         }
         .font(.caption)
         .foregroundStyle(.secondary)
+        // Reflow the summary when the connection state flips (Idle → Connecting →
+        // rows) and when the editability/limit badges come and go, so text and
+        // badges slide in rather than snapping.
+        .animation(.snappy(duration: 0.25), value: model.status)
+        .animation(.snappy(duration: 0.2), value: model.activeTab?.resultIsReadOnly)
+        .animation(.snappy(duration: 0.2), value: model.activeTab?.result?.isTruncated)
         // Clear of the window's rounded bottom corners — 12 pt let the first
         // item hug the curve.
         .padding(.horizontal, 18)

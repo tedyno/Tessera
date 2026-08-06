@@ -70,8 +70,10 @@ struct DetailTabBar: View {
     private func scrollToActive(_ id: UUID?, using proxy: ScrollViewProxy) {
         guard let id else { return }
         Task { @MainActor in
-            withAnimation(.snappy(duration: 0.2)) {
-                proxy.scrollTo(id, anchor: .center)
+            // No anchor: scroll the minimum to reveal the chip — a no-op when it's
+            // already fully in view, so a plain click never yanks the whole strip.
+            withAnimation(.easeInOut(duration: 0.25)) {
+                proxy.scrollTo(id)
             }
         }
     }
@@ -80,13 +82,12 @@ struct DetailTabBar: View {
         let isActive = tab.id == group.activeID
         let showConnection = model.sessions.count > 1
         return HStack(spacing: 6) {
-            if tab.isRunning {
-                ProgressView().controlSize(.mini)
-            } else {
-                Image(systemName: tab.kind.icon)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-            }
+            // Always the kind icon — a running spinner here is a different width, so
+            // a refresh would resize the chip and jitter the strip. Progress shows in
+            // the results area and the toolbar instead.
+            Image(systemName: tab.kind.icon)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
             // Always present, so a tab never loses its connection status just
             // because it isn't reconnected yet.
             StatusDot(tab.session?.status)

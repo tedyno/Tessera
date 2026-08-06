@@ -20,6 +20,9 @@ struct StatusDot: View {
         Circle()
             .fill(status?.indicatorColor ?? .secondary)
             .frame(width: size, height: size)
+            // Fade between health colours so connect/disconnect reads as a change of
+            // state, not a flicker.
+            .animation(.easeInOut(duration: 0.25), value: status)
     }
 }
 
