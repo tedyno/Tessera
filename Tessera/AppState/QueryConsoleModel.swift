@@ -387,16 +387,21 @@ final class QueryConsoleModel {
             // which only bounds free-form query results.
             let cap = tab.kind == .data ? tab.pageLimit : ExportSettings.maxRows
             var result = try await driver.execute(sql, maxRows: cap > 0 ? cap : nil)
-            // Both drivers derive column info from the fetched rows, so a query that
-            // legitimately matches zero rows comes back with no columns at all — no
-            // grid, no headers, and (for an editable table) `detectEditSource` below
-            // would wrongly see it as uneditable too. A data-view tab already knows
-            // its table's columns from the introspected schema; fall back to those.
-            if result.columns.isEmpty, result.rows.isEmpty, tab.kind == .data,
-               let schemaName = tab.dataSchema, let tableName = tab.dataTable,
-               let table = session.schema?.schemas.first(where: { $0.name == schemaName })?
-                   .tables.first(where: { $0.name == tableName }) {
-                result.columns = table.columns.map { ColumnDescriptor(name: $0.name, typeName: $0.dataType) }
+            // MySQL reads the column list off the first row, so a SELECT matching zero
+            // rows comes back with no columns at all — no headers, and `detectEditSource`
+            // below would wrongly see it as uneditable. Recover the shape from the
+            // introspected schema: a data view knows its table directly; a query tab's
+            // `SELECT *` is resolved from its FROM/JOIN tables. (Postgres and SQLite
+            // already report columns for empty results, so this only fills the gap.)
+            if result.columns.isEmpty, result.rows.isEmpty, result.returnsRows {
+                if tab.kind == .data,
+                   let schemaName = tab.dataSchema, let tableName = tab.dataTable,
+                   let table = session.schema?.schemas.first(where: { $0.name == schemaName })?
+                       .tables.first(where: { $0.name == tableName }) {
+                    result.columns = table.columns.map { ColumnDescriptor(name: $0.name, typeName: $0.dataType) }
+                } else if let columns = RowEditSQL.projectedColumns(sql: sql, schema: session.schema) {
+                    result.columns = columns
+                }
             }
             tab.result = result
             // Truncation means the fetch stopped at the limit and more rows exist —

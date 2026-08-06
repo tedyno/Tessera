@@ -71,4 +71,16 @@ final class SQLTextTests: XCTestCase {
         XCTAssertEqual(SQLText.completions(for: "", in: pool), [])         // no partial → nothing
         XCTAssertEqual(SQLText.completions(for: "name", in: pool), [])     // exact match excluded
     }
+
+    func testReturnsRows() {
+        for sql in ["SELECT 1", "  with x as (select 1) select * from x", "VALUES (1)",
+                    "SHOW TABLES", "EXPLAIN SELECT 1", "DESCRIBE t", "/* c */ select 1",
+                    "DELETE FROM t WHERE id = 1 RETURNING *"] {
+            XCTAssertTrue(SQLText.returnsRows(sql), "expected row-returning: \(sql)")
+        }
+        for sql in ["INSERT INTO t VALUES (1)", "UPDATE t SET a = 1", "DELETE FROM t",
+                    "CREATE TABLE t (id int)", "DROP TABLE t", "TRUNCATE t"] {
+            XCTAssertFalse(SQLText.returnsRows(sql), "expected command: \(sql)")
+        }
+    }
 }

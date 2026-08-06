@@ -38,18 +38,27 @@ public struct QueryResult: Sendable {
     /// True when the driver stopped at the row limit and more rows exist on the
     /// server — the grid shows only what was fetched.
     public var isTruncated: Bool
+    /// True when the statement is row-returning (a SELECT and friends), even if it
+    /// matched zero rows. Distinguishes an empty SELECT — which should show the grid
+    /// headers and a "No results" state — from a command (INSERT/UPDATE/DDL) that
+    /// legitimately produces no result set. Some drivers (MySQL) can't report the
+    /// columns of a zero-row SELECT, so this flag carries the intent even when
+    /// `columns` is empty.
+    public var returnsRows: Bool
 
     public init(
         columns: [ColumnDescriptor] = [],
         rows: [[Cell]] = [],
         rowsAffected: Int? = nil,
         elapsed: Duration? = nil,
-        isTruncated: Bool = false
+        isTruncated: Bool = false,
+        returnsRows: Bool = false
     ) {
         self.columns = columns
         self.rows = rows
         self.rowsAffected = rowsAffected
         self.elapsed = elapsed
         self.isTruncated = isTruncated
+        self.returnsRows = returnsRows
     }
 }

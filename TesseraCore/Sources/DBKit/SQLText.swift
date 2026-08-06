@@ -75,6 +75,22 @@ public enum SQLText {
         }
     }
 
+    /// Whether `sql` produces a result set (a SELECT and its relatives), so a
+    /// zero-row run should still show grid headers / a "No results" state rather than
+    /// a command's "Executed" banner. A `RETURNING` clause makes an otherwise-DML
+    /// statement row-returning. Used by drivers that can't see the column list of a
+    /// zero-row result (MySQL) to record the intent anyway.
+    public static func returnsRows(_ sql: String) -> Bool {
+        if sql.range(of: #"(?i)\breturning\b"#, options: .regularExpression) != nil { return true }
+        switch leadingKeyword(sql) {
+        case "SELECT", "WITH", "VALUES", "TABLE", "SHOW", "DESCRIBE", "DESC",
+             "EXPLAIN", "PRAGMA", "CALL":
+            return true
+        default:
+            return false
+        }
+    }
+
     /// The first SQL keyword, skipping leading whitespace and `--` / `/* */` comments.
     public static func leadingKeyword(_ sql: String) -> String {
         var s = Substring(sql)

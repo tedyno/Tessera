@@ -2076,17 +2076,6 @@
         }
       }
     },
-    "Copy SQL": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kopírovat SQL"
-          }
-        }
-      }
-    },
     "Copy all pending statements": {
       "extractionState": "manual",
       "localizations": {
@@ -5095,6 +5084,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kopírovat PNG do schránky"
+          }
+        }
+      }
+    },
+    "The query matched 0 rows.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dotaz nevrátil žádné řádky."
           }
         }
       }

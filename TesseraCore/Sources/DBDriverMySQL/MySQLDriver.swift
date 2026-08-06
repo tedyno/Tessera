@@ -103,8 +103,12 @@ public actor MySQLDriver: DatabaseDriver {
                 }
                 resultRows.append(cells)
             }
+            // mysql-nio reads column definitions off the first row, so a zero-row
+            // SELECT arrives with no columns; record that it is row-returning anyway
+            // (from the SQL) so the UI shows a "No results" state, not a command banner.
             return QueryResult(columns: columns, rows: resultRows,
-                               elapsed: clock.now - start, isTruncated: truncated)
+                               elapsed: clock.now - start, isTruncated: truncated,
+                               returnsRows: !columns.isEmpty || SQLText.returnsRows(sql))
         } catch is CancellationError {
             throw DatabaseError.cancelled
         } catch {

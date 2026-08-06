@@ -236,7 +236,8 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
 
         if sawColumns {
             return QueryResult(columns: columns, rows: rows,
-                               elapsed: clock.now - start, isTruncated: truncated)
+                               elapsed: clock.now - start, isTruncated: truncated,
+                               returnsRows: true)
         }
         return QueryResult(columns: [], rows: [],
                            rowsAffected: Int(sqlite3_total_changes64(db) - changesBefore),

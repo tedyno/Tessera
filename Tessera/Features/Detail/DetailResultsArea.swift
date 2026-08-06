@@ -22,7 +22,8 @@ struct DetailResultsArea: View {
                     feedbackBanner(message, isError: true)
                         .transition(.move(edge: .top).combined(with: .opacity))
                     Divider()
-                } else if let result = tab.result, result.columns.isEmpty {
+                } else if let result = tab.result, result.columns.isEmpty, !result.returnsRows {
+                    // A command with no result set (UPDATE/INSERT/DELETE/DDL).
                     feedbackBanner(successText(tab, result), isError: false)
                         .transition(.move(edge: .top).combined(with: .opacity))
                     Divider()
@@ -38,6 +39,11 @@ struct DetailResultsArea: View {
                     } else {
                         resultsGrid(tab, result: result)
                     }
+                } else if let result = tab.result, result.returnsRows, tab.errorMessage == nil {
+                    // A row-returning query that matched nothing, whose columns the
+                    // driver couldn't report (MySQL zero-row SELECT with a projection
+                    // we can't resolve): make "0 rows" unmistakable.
+                    emptyResults
                 } else {
                     Spacer(minLength: 0)
                 }
@@ -107,8 +113,29 @@ struct DetailResultsArea: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        // Headers stay visible; the standard empty state over the empty body makes a
+        // 0-row result obvious instead of reading as "not run yet". A freshly added
+        // insert row lives in `pendingInserts`, not `result.rows`, so don't cover it.
+        .overlay {
+            if result.rows.isEmpty, tab.pendingInserts.isEmpty, !tab.isRunning {
+                emptyResults
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
         .animation(.snappy(duration: 0.2), value: tab.isSearchBarVisible)
         .animation(.snappy(duration: 0.15), value: tab.isRunning)
+        .animation(.snappy(duration: 0.2), value: result.rows.isEmpty)
+        .animation(.snappy(duration: 0.2), value: tab.pendingInserts.isEmpty)
+    }
+
+    /// The empty state for a row-returning query that matched nothing — the same
+    /// `ContentUnavailableView` look as the "not run yet" state, just a different
+    /// description, so the two read as one family. Used both full-area (columns
+    /// unknown) and floated over a grid that has headers but no rows.
+    private var emptyResults: some View {
+        ContentUnavailableView("No results", systemImage: "tablecells",
+                               description: Text("The query matched 0 rows."))
     }
 
     /// ⌘F find bar: filters the grid to rows containing the text, client-side, without

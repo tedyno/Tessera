@@ -67,6 +67,309 @@ public enum RowEditSQL {
                           primaryKeys: primaryKeys, autoIncrementColumns: autoIncrement)
     }
 
+    // MARK: Projected columns (zero-row header recovery)
+
+    /// Best-effort recovery of the columns a query returns, from the SQL text plus the
+    /// schema — so a zero-row result whose driver couldn't report its shape (MySQL)
+    /// still shows headers. `*` and `table.*` expand from the schema (the ordered
+    /// concatenation of the FROM/JOIN tables' columns); an explicit list yields each
+    /// item's output name — its alias, else the plain column name, else the expression
+    /// text verbatim — with the type filled from the schema for a plain column and
+    /// left blank otherwise. Returns nil only when a bare `*` can't be expanded (an
+    /// unresolvable FROM) or there's no projection to read, so the caller falls back
+    /// to a plain "No results" state rather than dropping columns.
+    public static func projectedColumns(sql: String, schema: DatabaseTree?) -> [ColumnDescriptor]? {
+        guard SQLText.leadingKeyword(sql) == "SELECT" else { return nil }
+        let chars = Array(sql)
+        let masked = maskStructure(sql)          // length-aligned with `chars`
+        guard chars.count == masked.count, let selectEnd = firstWordEnd("select", in: masked) else { return nil }
+
+        // Skip a leading DISTINCT / ALL quantifier so it isn't read as a column.
+        var projStart = selectEnd
+        if let w = nextWord(masked, from: projStart), w.word == "distinct" || w.word == "all" {
+            projStart = w.end
+        }
+        let fromStart = topLevelKeyword(["from"], in: masked, from: projStart)
+        let projEnd = fromStart ?? masked.count
+        let items = topLevelSplitCommas(masked, from: projStart, to: projEnd)
+            .map { String(chars[$0]).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !items.isEmpty else { return nil }
+
+        let from = fromTables(masked: masked, chars: chars, fromStart: fromStart, schema: schema)
+        var out: [ColumnDescriptor] = []
+        for item in items {
+            if item == "*" {
+                guard from.resolvable, !from.columns.isEmpty else { return nil }
+                out.append(contentsOf: from.columns)
+            } else if item.range(of: #"^[`"\w$.]+\.\*$"#, options: .regularExpression) != nil {
+                // `qualifier.*` — the qualifier may be a table name, a FROM alias, or a
+                // schema-qualified name (`public.users.*`); take the last segment.
+                let qualifier = (unquote(String(item.dropLast(2))).split(separator: ".").last.map(String.init) ?? "")
+                    .lowercased()
+                if let cols = from.byQualifier[qualifier] {
+                    out.append(contentsOf: cols)
+                } else if let cols = resolveColumns(table: qualifier, schema: nil, in: schema) {
+                    out.append(contentsOf: cols)
+                } else { return nil }
+            } else {
+                out.append(projectionItem(item, typeByName: from.typeByName))
+            }
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    /// Name + best-effort type for one non-`*` projection item: its alias when it has
+    /// one (`expr AS x`, or a trailing bare-identifier alias), otherwise the plain
+    /// column name, otherwise the expression text verbatim. Type comes from the schema
+    /// only for a plain column reference; expressions get a blank type.
+    private static func projectionItem(_ item: String, typeByName: [String: String]) -> ColumnDescriptor {
+        let masked = maskStructure(item)
+        let chars = Array(item)
+        let tokens = topLevelTokens(masked: masked, chars: chars)
+        // `expr AS alias`
+        if let asIndex = tokens.firstIndex(where: { $0.lowercased() == "as" }), asIndex + 1 < tokens.count {
+            return ColumnDescriptor(name: unquote(tokens[asIndex + 1]),
+                                    typeName: type(of: Array(tokens[0..<asIndex]), typeByName))
+        }
+        // Implicit alias: `expr alias`, where the token before the trailing identifier
+        // isn't an operator (so `a + b` keeps `b`) and isn't a mid-expression keyword
+        // like `and`/`is` (so `a is null` isn't split) — but `end` legitimately
+        // terminates a CASE, so `case … end label` still yields `label`.
+        if tokens.count >= 2, let last = tokens.last, isBareIdentifier(last), !isKeyword(last) {
+            let prev = tokens[tokens.count - 2]
+            if !isOperator(prev), !isKeyword(prev) || prev.lowercased() == "end" {
+                return ColumnDescriptor(name: unquote(last),
+                                        typeName: type(of: Array(tokens[0..<tokens.count - 1]), typeByName))
+            }
+        }
+        // No alias: a plain column keeps its (unqualified) name; anything else is named
+        // by its own text, whitespace-collapsed to read tidily.
+        if tokens.count == 1, isColumnRef(tokens[0]) {
+            let name = unquote(tokens[0]).split(separator: ".").last.map(String.init) ?? unquote(tokens[0])
+            return ColumnDescriptor(name: name, typeName: typeByName[name.lowercased()] ?? "")
+        }
+        return ColumnDescriptor(name: item.split(whereSeparator: \.isWhitespace).joined(separator: " "),
+                                typeName: "")
+    }
+
+    /// The type of a plain single-column expression from the schema map, else blank.
+    private static func type(of exprTokens: [String], _ typeByName: [String: String]) -> String {
+        guard exprTokens.count == 1, isColumnRef(exprTokens[0]) else { return "" }
+        let name = unquote(exprTokens[0]).split(separator: ".").last.map(String.init) ?? ""
+        return typeByName[name.lowercased()] ?? ""
+    }
+
+    /// Ordered columns and a name→type map for the FROM/JOIN tables, and whether they
+    /// all resolved (so a `*` may be expanded). A subquery/table-function in FROM, or
+    /// any unknown table, makes it unresolvable.
+    private static func fromTables(masked: [Character], chars: [Character], fromStart: Int?,
+                                   schema: DatabaseTree?)
+        -> (columns: [ColumnDescriptor], typeByName: [String: String],
+            byQualifier: [String: [ColumnDescriptor]], resolvable: Bool) {
+        let empty: (columns: [ColumnDescriptor], typeByName: [String: String],
+                    byQualifier: [String: [ColumnDescriptor]], resolvable: Bool) = ([], [:], [:], false)
+        guard let fromStart else { return empty }
+        let start = fromStart + 4   // past "from" (always 4 chars — `topLevelKeyword` matched it exactly)
+        let end = topLevelKeyword(["where", "group", "order", "limit", "having", "window",
+                                   "for", "union", "intersect", "except"], in: masked, from: start) ?? masked.count
+
+        // Pick the table token at each table position (start of FROM, after a comma, or
+        // after a JOIN word) plus the alias that follows it; skip ON/USING conditions
+        // and any parenthesised text. A `(` where a table is expected is a subquery we
+        // can't resolve → the whole projection falls back to a plain "No results".
+        enum State { case expectTable, afterTable, expectAlias, done }
+        let modifiers: Set<String> = ["natural", "inner", "cross", "left", "right", "full", "outer"]
+        var refs: [(table: String, alias: String?)] = []
+        var state: State = .expectTable
+        var depth = 0
+        var i = start
+        while i < end {
+            let c = masked[i]
+            if c == "(" {
+                if state == .expectTable, depth == 0 { return empty }   // subquery in table position
+                depth += 1; i += 1; continue
+            }
+            if c == ")" { if depth > 0 { depth -= 1 }; i += 1; continue }
+            if depth == 0, c == "," { state = .expectTable; i += 1; continue }
+            if depth == 0, isWordChar(c), i == start || !isWordChar(masked[i - 1]) {
+                var j = i
+                while j < end, isWordChar(masked[j]) || masked[j] == "." { j += 1 }
+                let word = String(chars[i..<j])
+                let lower = String(masked[i..<j]).lowercased()
+                switch state {
+                case .expectTable:
+                    refs.append((word, nil)); state = .afterTable
+                case .afterTable:
+                    if lower == "join" || lower == "straight_join" { state = .expectTable }
+                    else if lower == "as" { state = .expectAlias }
+                    else if lower == "on" || lower == "using" { state = .done }
+                    else if modifiers.contains(lower) { break }   // part of a JOIN clause
+                    else { refs[refs.count - 1].alias = word; state = .done }
+                case .expectAlias:
+                    refs[refs.count - 1].alias = word; state = .done
+                case .done:
+                    if lower == "join" || lower == "straight_join" { state = .expectTable }
+                }
+                i = j; continue
+            }
+            i += 1
+        }
+
+        var columns: [ColumnDescriptor] = []
+        var typeByName: [String: String] = [:]
+        var byQualifier: [String: [ColumnDescriptor]] = [:]
+        for ref in refs {
+            let parts = unquote(ref.table).split(separator: ".").map(String.init)
+            guard let tableName = parts.last,
+                  let cols = resolveColumns(table: tableName, schema: parts.count >= 2 ? parts[parts.count - 2] : nil,
+                                            in: schema)
+            else { return empty }
+            columns.append(contentsOf: cols)
+            for col in cols where typeByName[col.name.lowercased()] == nil {
+                typeByName[col.name.lowercased()] = col.typeName
+            }
+            byQualifier[tableName.lowercased()] = cols            // `table.*`
+            if let alias = ref.alias { byQualifier[unquote(alias).lowercased()] = cols }   // `alias.*`
+        }
+        return (columns, typeByName, byQualifier, !columns.isEmpty)
+    }
+
+    /// A table's columns as descriptors, matched case-insensitively (and by schema
+    /// when qualified). nil when the table isn't in the introspected schema.
+    private static func resolveColumns(table: String, schema schemaName: String?,
+                                       in schema: DatabaseTree?) -> [ColumnDescriptor]? {
+        for namespace in schema?.schemas ?? [] {
+            if let schemaName, namespace.name.caseInsensitiveCompare(schemaName) != .orderedSame { continue }
+            if let found = namespace.tables.first(where: { $0.name.caseInsensitiveCompare(table) == .orderedSame }) {
+                return found.columns.map { ColumnDescriptor(name: $0.name, typeName: $0.dataType) }
+            }
+        }
+        return nil
+    }
+
+    // MARK: SQL scanning helpers (parenthesis / quote aware)
+
+    /// `maskLiteralsAndComments` plus blanking of double-quoted / back-ticked
+    /// identifier bodies, so structural scans (commas, parens, keywords) never trip
+    /// over punctuation inside a string, comment, or quoted name. Length-preserving,
+    /// so indices map back onto the original text.
+    private static func maskStructure(_ sql: String) -> [Character] {
+        var out = Array(SQLText.maskLiteralsAndComments(sql))
+        var i = 0
+        while i < out.count {
+            let quote = out[i]
+            guard quote == "\"" || quote == "`" else { i += 1; continue }
+            i += 1
+            while i < out.count {
+                if out[i] == quote { i += 1; break }
+                out[i] = " "; i += 1
+            }
+        }
+        return out
+    }
+
+    private static func isWordChar(_ c: Character) -> Bool {
+        c.isLetter || c.isNumber || c == "_" || c == "$"
+    }
+
+    /// End index of the first word in `masked` when it equals `word` (leading comments
+    /// are already blanks); nil otherwise.
+    private static func firstWordEnd(_ word: String, in masked: [Character]) -> Int? {
+        var i = 0
+        while i < masked.count, masked[i].isWhitespace { i += 1 }
+        var j = i
+        while j < masked.count, isWordChar(masked[j]) { j += 1 }
+        return String(masked[i..<j]).lowercased() == word ? j : nil
+    }
+
+    /// The next word (lowercased) and its end index, skipping leading whitespace.
+    private static func nextWord(_ masked: [Character], from start: Int) -> (word: String, end: Int)? {
+        var i = start
+        while i < masked.count, masked[i].isWhitespace { i += 1 }
+        var j = i
+        while j < masked.count, isWordChar(masked[j]) { j += 1 }
+        guard j > i else { return nil }
+        return (String(masked[i..<j]).lowercased(), j)
+    }
+
+    /// Start index of the first top-level (paren-depth 0) keyword in `words`.
+    private static func topLevelKeyword(_ words: Set<String>, in masked: [Character], from start: Int) -> Int? {
+        var i = start, depth = 0
+        while i < masked.count {
+            let c = masked[i]
+            if c == "(" { depth += 1; i += 1; continue }
+            if c == ")" { if depth > 0 { depth -= 1 }; i += 1; continue }
+            if depth == 0, isWordChar(c), i == start || !isWordChar(masked[i - 1]) {
+                var j = i
+                while j < masked.count, isWordChar(masked[j]) { j += 1 }
+                if words.contains(String(masked[i..<j]).lowercased()) { return i }
+                i = j; continue
+            }
+            i += 1
+        }
+        return nil
+    }
+
+    /// Character ranges of the comma-separated segments in `[from, to)` at paren-depth 0.
+    private static func topLevelSplitCommas(_ masked: [Character], from: Int, to: Int) -> [Range<Int>] {
+        var ranges: [Range<Int>] = []
+        var depth = 0, segStart = from, i = from
+        while i < to {
+            let c = masked[i]
+            if c == "(" { depth += 1 }
+            else if c == ")" { if depth > 0 { depth -= 1 } }
+            else if c == ",", depth == 0 { ranges.append(segStart..<i); segStart = i + 1 }
+            i += 1
+        }
+        ranges.append(segStart..<to)
+        return ranges
+    }
+
+    /// Whitespace-separated tokens of an item at paren-depth 0 (a parenthesised group
+    /// stays one token). Returned as their original text.
+    private static func topLevelTokens(masked: [Character], chars: [Character]) -> [String] {
+        var tokens: [String] = []
+        var depth = 0, start = -1, i = 0
+        func flush(_ end: Int) { if start >= 0 { tokens.append(String(chars[start..<end])); start = -1 } }
+        while i < masked.count {
+            let c = masked[i]
+            if c == "(" { if start < 0 { start = i }; depth += 1 }
+            else if c == ")" { if start < 0 { start = i }; if depth > 0 { depth -= 1 } }
+            else if depth == 0, c.isWhitespace { flush(i) }
+            else if start < 0 { start = i }
+            i += 1
+        }
+        flush(masked.count)
+        return tokens
+    }
+
+    private static func unquote(_ s: String) -> String {
+        s.replacingOccurrences(of: "`", with: "").replacingOccurrences(of: "\"", with: "")
+    }
+
+    /// A plain column reference: `name` or `qualifier.name`, no call parentheses.
+    private static func isColumnRef(_ token: String) -> Bool {
+        !token.contains("(") &&
+            token.range(of: #"^[`"]?[\w$]+[`"]?(\.[`"]?[\w$]+[`"]?)*$"#, options: .regularExpression) != nil
+    }
+
+    private static func isBareIdentifier(_ token: String) -> Bool {
+        token.range(of: #"^[`"]?[A-Za-z_][\w$]*[`"]?$"#, options: .regularExpression) != nil
+    }
+
+    private static func isOperator(_ token: String) -> Bool {
+        !token.isEmpty && token.allSatisfy { "+-*/%=<>!|&^~".contains($0) }
+    }
+
+    private static let expressionKeywords: Set<String> = [
+        "as", "and", "or", "not", "is", "in", "like", "between", "case", "when", "then",
+        "else", "end", "null", "true", "false", "asc", "desc", "distinct", "over", "using", "on",
+    ]
+    private static func isKeyword(_ token: String) -> Bool {
+        expressionKeywords.contains(unquote(token).lowercased())
+    }
+
     // MARK: Cell edit tracking
 
     /// Updates the pending edits for one cell of a fetched row, mirroring how the grid

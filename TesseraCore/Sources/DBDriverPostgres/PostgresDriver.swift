@@ -80,7 +80,12 @@ public actor PostgresDriver: DatabaseDriver {
                 }
 
                 let rows = try await connection.query(PostgresQuery(unsafeSQL: sql), logger: logger)
-                var columns: [ColumnDescriptor] = []
+                // The RowDescription arrives before any DataRow, so the shape is known
+                // even for a zero-row match — a query returning nothing still shows its
+                // headers and a "No results" state instead of a bare banner.
+                var columns = rows.columns.map {
+                    ColumnDescriptor(name: $0.name, typeName: Self.typeName($0.dataType))
+                }
                 var resultRows: [[Cell]] = []
                 var truncated = false
 
@@ -101,7 +106,8 @@ public actor PostgresDriver: DatabaseDriver {
                     resultRows.append(cells)
                 }
                 return QueryResult(columns: columns, rows: resultRows,
-                                   elapsed: clock.now - start, isTruncated: truncated)
+                                   elapsed: clock.now - start, isTruncated: truncated,
+                                   returnsRows: !columns.isEmpty)
             }
         } catch is CancellationError {
             throw DatabaseError.cancelled
