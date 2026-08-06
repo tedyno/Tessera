@@ -640,6 +640,13 @@ final class QueryConsoleModel {
             $0.session === session && $0.kind == .data && $0.dataSchema == schema && $0.dataTable == table
         }) {
             activate(existing)
+            // A restored (or idle-disconnected) tab is focused but has no live
+            // connection and no data — clicking it in the schema should behave like
+            // opening it fresh: reconnect and load. A tab already showing data on a
+            // live connection just refocuses, keeping its scroll and any edits.
+            if !session.isReady || existing.result == nil {
+                await reloadData(existing, refreshCount: true)
+            }
             return
         }
         let tab = QueryTab(title: table)
