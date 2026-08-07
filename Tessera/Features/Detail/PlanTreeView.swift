@@ -12,6 +12,7 @@ struct PlanResultView<Fallback: View>: View {
 
     @State private var parsedVersion: Int?
     @State private var plan: QueryPlan?
+    @State private var diagnosis: PlanDiagnosis?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,10 +20,11 @@ struct PlanResultView<Fallback: View>: View {
                 planHeader(plan)
                 Divider()
                 if tab.showRawPlan {
-                    // A JSON plan is one multiline cell — the grid would show
-                    // just its first line. Render the raw payload as text;
-                    // SQLite's row-shaped plan keeps the grid.
-                    if tab.currentPlan?.format == .json, let raw = rawPayload {
+                    // A JSON or MySQL-tree plan is one multiline cell — the grid
+                    // would show just its first line. Render the raw payload as
+                    // text; SQLite's row-shaped plan keeps the grid.
+                    if tab.currentPlan?.format == .json || tab.currentPlan?.format == .mysqlTree,
+                       let raw = rawPayload {
                         ScrollView([.vertical, .horizontal]) {
                             Text(verbatim: raw)
                                 .font(.callout.monospaced())
@@ -35,7 +37,10 @@ struct PlanResultView<Fallback: View>: View {
                     }
                 } else {
                     ScrollView(.vertical) {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            if let diagnosis, !diagnosis.isEmpty {
+                                DiagnosisCard(diagnosis: diagnosis)
+                            }
                             PlanNodeRow(node: plan.root, isAnalyzed: plan.isAnalyzed)
                         }
                         .padding(10)
@@ -58,6 +63,7 @@ struct PlanResultView<Fallback: View>: View {
                     PlanParser.parse(result: $0, format: request.format, engine: engine)
                 }
             }
+            diagnosis = plan.map(PlanDiagnostics.diagnose)
         }
     }
 
@@ -162,6 +168,12 @@ private struct PlanNodeRow: View {
                         .lineLimit(1)
                         .help(detail)
                 }
+                // Plain-language gloss so the tree reads without knowing plan jargon.
+                if let phrase = planOpPhrase(PlanOpKind.of(node)) {
+                    Text(phrase)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             Spacer(minLength: 16)
             metrics
@@ -244,4 +256,126 @@ private struct PlanNodeRow: View {
             String(localized: "Sort spilled to disk")
         }
     }
+}
+
+/// The plain-language "what the query did" summary above the tree: total time,
+/// where the time went, and why it's slow — readable without knowing EXPLAIN.
+private struct DiagnosisCard: View {
+    let diagnosis: PlanDiagnosis
+
+    var body: some View {
+        let bottleneck = diagnosis.insights.first { if case .bottleneck = $0.kind { true } else { false } }
+        // Drop a full-scan cause that repeats the bottleneck's own node — the
+        // "where the time went" line already named it as reading the whole table.
+        let causes = diagnosis.insights.filter { insight in
+            if case .bottleneck = insight.kind { return false }
+            if case .fullScan = insight.kind, insight.id == bottleneck?.id { return false }
+            return true
+        }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("What the query did", systemImage: "lightbulb")
+                    .font(.callout.bold())
+                Spacer()
+                if let total = diagnosis.totalTimeMS {
+                    Text("Took \(planDuration(total))")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+            if let bottleneck {
+                section(Text("Where the time went"), [bottleneck])
+            }
+            if !causes.isEmpty {
+                section(Text("Why it's slow"), causes)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.accentColor.opacity(0.3)))
+    }
+
+    private func section(_ title: Text, _ insights: [PlanInsight]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            title.font(.caption.smallCaps()).foregroundStyle(.secondary)
+            ForEach(insights) { insight in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "circle.fill").font(.system(size: 4)).foregroundStyle(.tertiary)
+                    line(for: insight).font(.callout).foregroundStyle(.primary)
+                }
+            }
+        }
+    }
+
+    private func line(for insight: PlanInsight) -> Text {
+        switch insight.kind {
+        case .bottleneck(let share):
+            let pct = share.formatted(.percent.precision(.fractionLength(0)))
+            var base: Text
+            if let rel = insight.relation, let op = planOpPhrase(insight.op) {
+                base = Text("\(pct) of the time went here — it \(op) (\(rel)).")
+            } else if let op = planOpPhrase(insight.op) {
+                base = Text("\(pct) of the time went here — it \(op).")
+            } else if let rel = insight.relation {
+                base = Text("\(pct) of the time went here, on \(rel).")
+            } else {
+                base = Text("\(pct) of the time went here.")
+            }
+            // Repetition, not per-call cost, is often what makes a loop's inner
+            // side expensive — spell it out when it ran many times.
+            if let loops = insight.loops, loops >= 10 {
+                base = base + Text(" ") + Text("It ran \(planRows(loops)) times.")
+            }
+            return base
+        case .wastefulFilter(let read, let kept):
+            if kept == 0 {
+                return Text("Read \(planRows(read)) rows but none matched — no index covers the filter, so the whole table was scanned for nothing.")
+            }
+            return Text("Read \(planRows(read)) rows but kept only \(planRows(kept)) — no index covers the filter, so almost everything read was thrown away.")
+        case .fullScan(let rows):
+            if let rel = insight.relation {
+                return Text("Reads the whole \(rel) table (\(planRows(rows)) rows) — there's no usable index.")
+            }
+            return Text("Reads a whole table (\(planRows(rows)) rows) — there's no usable index.")
+        case .misestimate(let factor):
+            let f = factor.formatted(.number.precision(.fractionLength(0)))
+            return Text("The row estimate was off by ×\(f) — the table's statistics may be stale.")
+        case .sortSpill:
+            return Text("A sort didn't fit in memory and spilled to disk.")
+        }
+    }
+}
+
+/// A plan operation in one plain phrase (nil = keep the raw label). Shared by the
+/// summary card and the per-node gloss so the wording stays identical.
+private func planOpPhrase(_ op: PlanOpKind) -> String? {
+    switch op {
+    case .fullScan: String(localized: "reads the whole table")
+    case .indexAccess: String(localized: "looks rows up through an index")
+    case .join: String(localized: "combines two tables")
+    case .hashBuild: String(localized: "builds a lookup table for the join")
+    case .gather: String(localized: "collects rows from parallel workers")
+    case .materialize: String(localized: "stores rows aside to reuse them")
+    case .window: String(localized: "computes window functions")
+    case .distinct: String(localized: "removes duplicate rows")
+    case .setOp: String(localized: "combines results of several queries")
+    case .subquery: String(localized: "reads a subquery's result")
+    case .compute: String(localized: "computes values without reading a table")
+    case .sort: String(localized: "sorts the rows")
+    case .aggregate: String(localized: "aggregates the rows")
+    case .filter: String(localized: "keeps only the matching rows")
+    case .limit: String(localized: "limits the number of rows")
+    case .other: nil
+    }
+}
+
+private func planRows(_ value: Double) -> String {
+    value.formatted(.number.precision(.fractionLength(0)).grouping(.automatic))
+}
+
+private func planDuration(_ ms: Double) -> String {
+    if ms >= 1000 {
+        return "\((ms / 1000).formatted(.number.precision(.fractionLength(ms >= 10_000 ? 0 : 1)))) s"
+    }
+    return "\(ms.formatted(.number.precision(.fractionLength(ms < 10 ? 2 : 0)))) ms"
 }

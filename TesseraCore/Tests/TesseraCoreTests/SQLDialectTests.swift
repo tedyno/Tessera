@@ -75,11 +75,15 @@ final class SQLDialectTests: XCTestCase {
                        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ")
         XCTAssertEqual(pg.structuredExplain(analyze: true)?.executes, true)
 
-        // MySQL's EXPLAIN ANALYZE is TREE-only — no structured form.
+        // MySQL's EXPLAIN ANALYZE is TREE-only; it runs the statement and the
+        // parser reads its indented text.
         let mysql = DatabaseKind.mysql.dialect
         XCTAssertEqual(mysql.structuredExplain(analyze: false)?.prefix, "EXPLAIN FORMAT=JSON ")
         XCTAssertEqual(mysql.structuredExplain(analyze: false)?.executes, false)
-        XCTAssertNil(mysql.structuredExplain(analyze: true))
+        XCTAssertEqual(mysql.structuredExplain(analyze: false)?.format, .json)
+        XCTAssertEqual(mysql.structuredExplain(analyze: true)?.prefix, "EXPLAIN ANALYZE ")
+        XCTAssertEqual(mysql.structuredExplain(analyze: true)?.executes, true)
+        XCTAssertEqual(mysql.structuredExplain(analyze: true)?.format, .mysqlTree)
 
         let maria = DatabaseKind.mariadb.dialect
         XCTAssertEqual(maria.structuredExplain(analyze: false)?.prefix, "EXPLAIN FORMAT=JSON ")

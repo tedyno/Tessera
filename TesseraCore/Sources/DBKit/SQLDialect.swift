@@ -47,6 +47,8 @@ public enum ExplainPlanFormat: Sendable, Equatable {
     case json
     /// SQLite's EXPLAIN QUERY PLAN rows: (id, parent, notused, detail).
     case sqliteQueryPlan
+    /// MySQL's EXPLAIN ANALYZE indented TREE text — its only ANALYZE shape.
+    case mysqlTree
 }
 
 public extension DatabaseKind {
@@ -149,9 +151,10 @@ public struct MySQLDialect: SQLDialect {
     }
 
     public func structuredExplain(analyze: Bool) -> (prefix: String, executes: Bool, format: ExplainPlanFormat)? {
-        // MySQL's EXPLAIN ANALYZE emits TREE format only (no JSON variant), so
-        // the analyzing form stays on the raw grid.
-        analyze ? nil : ("EXPLAIN FORMAT=JSON ", false, .json)
+        // EXPLAIN ANALYZE emits indented TREE text (no JSON variant); it runs the
+        // statement. Plain EXPLAIN has a JSON form the tree view parses directly.
+        analyze ? ("EXPLAIN ANALYZE ", true, .mysqlTree)
+                : ("EXPLAIN FORMAT=JSON ", false, .json)
     }
 
     public var listDatabasesSQL: String? {

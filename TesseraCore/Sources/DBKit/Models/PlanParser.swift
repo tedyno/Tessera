@@ -26,6 +26,9 @@ public enum PlanParser {
             }
         case .sqliteQueryPlan:
             return sqlitePlan(result)
+        case .mysqlTree:
+            guard let text = jsonPayload(from: result) else { return nil }
+            return mysqlTreePlan(text: text)
         }
     }
 
@@ -251,6 +254,138 @@ public enum PlanParser {
         return node.children.contains(where: containsTable)
     }
 
+    // MARK: - MySQL (EXPLAIN ANALYZE, TREE text)
+
+    private static func regex(_ pattern: String) -> NSRegularExpression {
+        // Patterns are literals compiled once; a failure here is a programming bug.
+        try! NSRegularExpression(pattern: pattern)
+    }
+    /// The two trailing metric groups. Numbers may be scientific, with a signed
+    /// exponent and in any field including loops ("1.67e+6", "loops=6.96e+6",
+    /// "time=134e-6").
+    private static let costRegex = regex(#"\(cost=([0-9.eE+-]+) rows=([0-9.eE+-]+)\)"#)
+    private static let actualRegex =
+        regex(#"\(actual time=([0-9.eE+-]+)\.\.([0-9.eE+-]+) rows=([0-9.eE+-]+) loops=([0-9.eE+-]+)\)"#)
+    /// "<verb> on <table> [using <index>] <rest>" — the shape of scan/lookup rows.
+    private static let onRegex = regex(#"^(.*?) on ([`"'\w$.]+)(?: using ([`"'\w$.]+))?(.*)$"#)
+
+    private static func firstMatch(_ re: NSRegularExpression, _ text: String)
+        -> (caps: [String?], range: Range<String.Index>)? {
+        let ns = text as NSString
+        guard let m = re.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)),
+              let range = Range(m.range, in: text) else { return nil }
+        let caps = (0..<m.numberOfRanges).map { i -> String? in
+            let r = m.range(at: i)
+            return r.location == NSNotFound ? nil : ns.substring(with: r)
+        }
+        return (caps, range)
+    }
+
+    /// Parses MySQL's indented `->` tree (the only shape EXPLAIN ANALYZE emits).
+    /// Leading spaces before `-> ` give a node's depth; a trailing
+    /// `(cost=… rows=…)` / `(actual time=a..b rows=r loops=l)` carries its metrics.
+    /// Returns nil on anything unexpected so the raw grid still shows.
+    private static func mysqlTreePlan(text: String) -> QueryPlan? {
+        struct Raw { let depth: Int; var text: String }
+        var raws: [Raw] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let str = String(line)
+            guard let arrow = str.range(of: "-> ") else {
+                // A wrapped continuation of the previous node (long conditions).
+                let trimmed = str.trimmingCharacters(in: .whitespaces)
+                if !raws.isEmpty, !trimmed.isEmpty { raws[raws.count - 1].text += " " + trimmed }
+                continue
+            }
+            let indent = str.distance(from: str.startIndex, to: arrow.lowerBound)
+            raws.append(Raw(depth: indent, text: String(str[arrow.upperBound...])))
+        }
+        guard !raws.isEmpty else { return nil }
+
+        // Indentation nests: each node parents the following, more-indented lines.
+        var index = 0
+        func build(deeperThan depth: Int) -> [PlanNode] {
+            var siblings: [PlanNode] = []
+            while index < raws.count, raws[index].depth > depth {
+                let raw = raws[index]
+                index += 1
+                var node = mysqlTreeNode(raw.text)
+                node.children = build(deeperThan: raw.depth)
+                siblings.append(node)
+            }
+            return siblings
+        }
+        let minDepth = raws.map(\.depth).min() ?? 0
+        let tops = build(deeperThan: minDepth - 1)
+        guard let first = tops.first else { return nil }
+        let root = tops.count == 1 ? first : PlanNode(label: "Query Plan", children: tops)
+        return finish(root: root, planningTimeMS: nil, executionTimeMS: nil)
+    }
+
+    private static func mysqlTreeNode(_ text: String) -> PlanNode {
+        let costMatch = firstMatch(costRegex, text)
+        let actualMatch = firstMatch(actualRegex, text)
+
+        let estimatedCost = costMatch?.caps[1].flatMap(Double.init)
+        let estimatedRows = costMatch?.caps[2].flatMap(Double.init)
+
+        var actualTime: Double?
+        var actualRows: Double?
+        var loops: Double?
+        if let a = actualMatch {
+            loops = a.caps[4].flatMap(Double.init)
+            // "actual time=a..b" is per-loop; ×loops gives inclusive wall time, and
+            // its rows are per-loop too — mirrors the Postgres nested-loop handling.
+            actualTime = multiplied(a.caps[2].flatMap(Double.init), by: loops)
+            actualRows = multiplied(a.caps[3].flatMap(Double.init), by: loops)
+        }
+
+        // The label is everything before the first metric group; its own
+        // parentheses ("(reverse)", a join cond) stay because the groups match exactly.
+        var cut = text.endIndex
+        if let r = costMatch?.range.lowerBound { cut = min(cut, r) }
+        if let r = actualMatch?.range.lowerBound { cut = min(cut, r) }
+        let rawLabel = String(text[..<cut]).trimmingCharacters(in: .whitespaces)
+
+        let (name, relation, detail) = splitMysqlTreeLabel(rawLabel)
+        var warnings: [PlanWarning] = []
+        // A scan of "<temporary>" is MySQL reading its own GROUP BY/DISTINCT spool,
+        // not a missing index — don't flag it as a full table scan.
+        if name.hasPrefix("Table scan"), (actualRows ?? estimatedRows ?? 0) >= 10_000,
+           !rawLabel.contains("temporary") {
+            warnings.append(.sequentialScan)
+        }
+        return PlanNode(
+            label: name.isEmpty ? rawLabel : name,
+            relation: relation,
+            detail: detail,
+            estimatedRows: estimatedRows,
+            actualRows: actualRows,
+            estimatedCost: estimatedCost,
+            actualTotalTimeMS: actualTime,
+            loops: loops,
+            warnings: warnings)
+    }
+
+    /// Splits "Index lookup on visit using branch_id (cond)" into a short label, a
+    /// relation ("visit · branch_id"), and a detail; falls back to a "Prefix: detail"
+    /// colon split (Filter/Sort/…), else keeps the whole line as the label.
+    private static func splitMysqlTreeLabel(_ label: String) -> (String, String?, String?) {
+        if let m = firstMatch(onRegex, label),
+           let verb = m.caps[1]?.trimmingCharacters(in: .whitespaces),
+           !verb.isEmpty, !verb.contains(": "),
+           let table = m.caps[2] {
+            let relation = m.caps[3].map { "\(table) · \($0)" } ?? table
+            let rest = (m.caps[4] ?? "").trimmingCharacters(in: .whitespaces)
+            return (verb, relation, rest.isEmpty ? nil : rest)
+        }
+        if let colon = label.range(of: ": ") {
+            return (String(label[..<colon.lowerBound]),
+                    nil,
+                    String(label[colon.upperBound...]).trimmingCharacters(in: .whitespaces))
+        }
+        return (label, nil, nil)
+    }
+
     // MARK: - SQLite (EXPLAIN QUERY PLAN)
 
     private static func sqlitePlan(_ result: QueryResult) -> QueryPlan? {
@@ -318,8 +453,15 @@ public enum PlanParser {
                     .compactMap(\.actualTotalTimeMS).reduce(0, +)
                 node.selfTimeMS = max(0, inclusive - childTime)
             }
-            if let estimated = node.estimatedRows, let actual = node.actualRows {
-                let factor = max(estimated, actual) / max(min(estimated, actual), 1)
+            // Compare like with like: actualRows is summed across loops while the
+            // estimate is per-loop, so a nested-loop inner side (est 1, run a
+            // million times) isn't a miss. And only data-access nodes carry a
+            // meaningful estimate — a Sort/Limit/Aggregate's "actual rows" is its
+            // post-processing output, not a planner selectivity miss.
+            if let estimated = node.estimatedRows, let actual = node.actualRows,
+               estimateIsMeaningful(for: node) {
+                let perLoop = actual / max(node.loops ?? 1, 1)
+                let factor = max(estimated, perLoop) / max(min(estimated, perLoop), 1)
                 if factor >= 10 {
                     node.warnings.append(.rowsMisestimate(factor: factor))
                 }
@@ -342,6 +484,16 @@ public enum PlanParser {
                          planningTimeMS: planningTimeMS,
                          executionTimeMS: executionTimeMS,
                          isAnalyzed: isAnalyzed)
+    }
+
+    /// A row estimate is only worth checking on data-access nodes. Post-processing
+    /// nodes (Sort/Limit/Aggregate/…) report output shaped by LIMIT/grouping, not
+    /// how well the planner guessed selectivity.
+    private static func estimateIsMeaningful(for node: PlanNode) -> Bool {
+        switch PlanOpKind.of(node) {
+        case .fullScan, .indexAccess, .join, .filter, .subquery, .other: true
+        case .sort, .limit, .aggregate, .materialize, .distinct, .hashBuild, .gather, .setOp, .window, .compute: false
+        }
     }
 
     private static func totalSelfTime(_ node: PlanNode) -> Double {

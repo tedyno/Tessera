@@ -858,6 +858,83 @@
         }
       }
     },
+    "Clear the query history for “%@”?": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vymazat historii dotazů pro „%@“?"
+          }
+        }
+      }
+    },
+    "Scope": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozsah"
+          }
+        }
+      }
+    },
+    "This Connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toto připojení"
+          }
+        }
+      }
+    },
+    "All Connections": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Všechna připojení"
+          }
+        }
+      }
+    },
+    "Show All Connections": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zobrazit všechna připojení"
+          }
+        }
+      }
+    },
+    "No history for this connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Žádná historie pro toto připojení"
+          }
+        }
+      }
+    },
+    "Queries run on this connection will appear here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dotazy spuštěné na tomto připojení se objeví zde."
+          }
+        }
+      }
+    },
     "Client config": {
       "extractionState": "manual",
       "localizations": {
@@ -5095,6 +5172,336 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dotaz nevrátil žádné řádky."
+          }
+        }
+      }
+    },
+    "reads the whole table": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "čte celou tabulku"
+          }
+        }
+      }
+    },
+    "looks rows up through an index": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hledá řádky přes index"
+          }
+        }
+      }
+    },
+    "combines two tables": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spojuje dvě tabulky"
+          }
+        }
+      }
+    },
+    "sorts the rows": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "řadí řádky"
+          }
+        }
+      }
+    },
+    "aggregates the rows": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agreguje řádky"
+          }
+        }
+      }
+    },
+    "keeps only the matching rows": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nechá jen vyhovující řádky"
+          }
+        }
+      }
+    },
+    "limits the number of rows": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "omezuje počet řádků"
+          }
+        }
+      }
+    },
+    "Where the time went": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kam šel čas"
+          }
+        }
+      }
+    },
+    "Why it's slow": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proč je pomalý"
+          }
+        }
+      }
+    },
+    "Took %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trvalo %@"
+          }
+        }
+      }
+    },
+    "What the query did": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Co dotaz udělal"
+          }
+        }
+      }
+    },
+    "%@ of the time went here — it %@ (%@).": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ času padlo sem — %@ (%@)."
+          }
+        }
+      }
+    },
+    "%@ of the time went here — it %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ času padlo sem — %@."
+          }
+        }
+      }
+    },
+    "%@ of the time went here, on %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ času padlo sem, nad %@."
+          }
+        }
+      }
+    },
+    "%@ of the time went here.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ času padlo sem."
+          }
+        }
+      }
+    },
+    "Read %@ rows but kept only %@ — no index covers the filter, so almost everything read was thrown away.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Přečetl %@ řádků, ale ponechal jen %@ — filtr nepokrývá žádný index, takže se skoro vše přečtené zahodilo."
+          }
+        }
+      }
+    },
+    "Reads the whole %@ table (%@ rows) — there's no usable index.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čte celou tabulku %@ (%@ řádků) — není použitelný index."
+          }
+        }
+      }
+    },
+    "Reads a whole table (%@ rows) — there's no usable index.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čte celou tabulku (%@ řádků) — není použitelný index."
+          }
+        }
+      }
+    },
+    "The row estimate was off by ×%@ — the table's statistics may be stale.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Databáze čekala výrazně jiný počet řádků, než skutečně přišel (×%@) — proto mohla zvolit pomalejší postup."
+          }
+        }
+      }
+    },
+    "A sort didn't fit in memory and spilled to disk.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Řazení se nevešlo do paměti a použilo disk."
+          }
+        }
+      }
+    },
+    "builds a lookup table for the join": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "staví vyhledávací tabulku pro spojení"
+          }
+        }
+      }
+    },
+    "collects rows from parallel workers": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sbírá řádky z paralelních vláken"
+          }
+        }
+      }
+    },
+    "stores rows aside to reuse them": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ukládá si řádky stranou pro opakované použití"
+          }
+        }
+      }
+    },
+    "computes window functions": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "počítá okenní funkce"
+          }
+        }
+      }
+    },
+    "removes duplicate rows": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "odstraňuje duplicitní řádky"
+          }
+        }
+      }
+    },
+    "combines results of several queries": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spojuje výsledky více dotazů"
+          }
+        }
+      }
+    },
+    "reads a subquery's result": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "čte výsledek poddotazu"
+          }
+        }
+      }
+    },
+    "computes values without reading a table": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "počítá hodnoty bez čtení tabulky"
+          }
+        }
+      }
+    },
+    "It ran %@ times.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spuštěno %@×."
+          }
+        }
+      }
+    },
+    "Read %@ rows but none matched — no index covers the filter, so the whole table was scanned for nothing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Přečetl %@ řádků, ale žádný nevyhověl — filtr nepokrývá žádný index, takže se celá tabulka prošla zbytečně."
           }
         }
       }

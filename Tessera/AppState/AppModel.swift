@@ -938,8 +938,8 @@ final class AppModel {
         }
         let trimmed = sql.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        // Prefer the JSON/tree form the plan view can render; engines without
-        // one (MySQL's analyze) keep the raw-grid behavior.
+        // Prefer the structured (JSON / MySQL-tree) form the plan view can parse;
+        // an engine without one for this mode keeps the raw-grid behavior.
         let prefix: String
         let executes: Bool
         if let structured = session.engine.dialect.structuredExplain(analyze: analyze) {

@@ -198,6 +198,83 @@ final class PlanParserTests: XCTestCase {
         XCTAssertNil(plan)
     }
 
+    // MARK: MySQL EXPLAIN ANALYZE (TREE text)
+
+    private func treeResult(_ text: String) -> QueryResult {
+        QueryResult(columns: [ColumnDescriptor(name: "EXPLAIN", typeName: "text")],
+                    rows: [[Cell(text)]])
+    }
+
+    func testMySQLTreeAnalyzeParsesMetricsSplitsLabelsAndDerivesTime() {
+        // A real EXPLAIN ANALYZE: an index lookup fans out to 963k rows that the
+        // filter then throws all but 413 of — the classic missing-index shape.
+        let tree =
+            "-> Filter: ((cast(visit.inserted_at as date) = '2026-08-07') and (visit.log_type = 'member_checkin') and ((visit.auto_status is null) or (visit.auto_status <> 'member-not-found')))  (cost=119076 rows=743877) (actual time=0.68..2302 rows=413 loops=1)\n" +
+            "    -> Index lookup on visit using branch_id (branch_id = 164) (reverse)  (cost=119076 rows=1.67e+6) (actual time=0.676..2165 rows=963054 loops=1)"
+
+        let unwrapped = try! XCTUnwrap(
+            PlanParser.parse(result: treeResult(tree), format: .mysqlTree, engine: .mysql))
+        XCTAssertTrue(unwrapped.isAnalyzed)
+
+        let root = unwrapped.root
+        XCTAssertEqual(root.label, "Filter")
+        XCTAssertNil(root.relation)
+        XCTAssertTrue(root.detail?.hasPrefix("((cast(visit.inserted_at as date)") == true)
+        XCTAssertEqual(root.estimatedCost, 119076)
+        XCTAssertEqual(root.estimatedRows, 743877)
+        XCTAssertEqual(root.actualRows, 413)
+        XCTAssertEqual(root.actualTotalTimeMS, 2302)
+
+        let child = try! XCTUnwrap(root.children.first)
+        XCTAssertEqual(root.children.count, 1)
+        XCTAssertEqual(child.label, "Index lookup")
+        XCTAssertEqual(child.relation, "visit · branch_id")
+        XCTAssertEqual(child.detail, "(branch_id = 164) (reverse)")
+        XCTAssertEqual(child.estimatedRows, 1_670_000)   // 1.67e+6
+        XCTAssertEqual(child.actualRows, 963054)
+        XCTAssertEqual(child.actualTotalTimeMS, 2165)
+
+        // Self time = inclusive − child inclusive; the lookup is the hot node.
+        XCTAssertEqual(root.selfTimeMS!, 137, accuracy: 0.001)
+        XCTAssertGreaterThan(child.shareOfTotal ?? 0, 0.9)
+        // 743877 estimated vs 413 actual → ≥10× misestimate on the filter.
+        XCTAssertTrue(root.warnings.contains { if case .rowsMisestimate = $0 { true } else { false } })
+        // Depth-first ids across the two nodes.
+        XCTAssertEqual([root.id, child.id], [0, 1])
+    }
+
+    func testMySQLTreeBuildsDepthAndFlagsFullScan() {
+        let tree =
+            "-> Nested loop inner join  (cost=100 rows=10) (actual time=0.1..5.0 rows=8 loops=1)\n" +
+            "    -> Table scan on big  (cost=50 rows=20000) (actual time=0.05..3.0 rows=20000 loops=1)\n" +
+            "    -> Index lookup on small using pk (id = big.id)  (cost=5 rows=1) (actual time=0.001..0.002 rows=1 loops=20000)"
+
+        let root = try! XCTUnwrap(
+            PlanParser.parse(result: treeResult(tree), format: .mysqlTree, engine: .mysql)).root
+        XCTAssertEqual(root.label, "Nested loop inner join")   // no "on"/":" → whole line
+        XCTAssertEqual(root.children.count, 2)
+
+        let scan = root.children[0]
+        XCTAssertEqual(scan.label, "Table scan")
+        XCTAssertEqual(scan.relation, "big")
+        XCTAssertTrue(scan.warnings.contains(.sequentialScan))  // 20000 ≥ 10k rows
+
+        let lookup = root.children[1]
+        XCTAssertEqual(lookup.label, "Index lookup")
+        XCTAssertEqual(lookup.relation, "small · pk")
+        XCTAssertEqual(lookup.detail, "(id = big.id)")
+        // Per-loop rows/time × loops: 1 × 20000 rows, 0.002 × 20000 ms.
+        XCTAssertEqual(lookup.actualRows, 20000)
+        XCTAssertEqual(lookup.actualTotalTimeMS!, 40, accuracy: 0.001)
+    }
+
+    func testMySQLTreeGarbageReturnsNil() {
+        XCTAssertNil(PlanParser.parse(result: treeResult("Query plan text with no arrows"),
+                                      format: .mysqlTree, engine: .mysql))
+        XCTAssertNil(PlanParser.parse(result: QueryResult(),
+                                      format: .mysqlTree, engine: .mysql))
+    }
+
     // MARK: SQLite
 
     func testSQLiteQueryPlanRowsAssembleIntoTree() {
