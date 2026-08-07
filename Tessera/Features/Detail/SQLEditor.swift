@@ -72,6 +72,12 @@ struct SQLEditor: NSViewRepresentable {
         textView.onFocus = onFocus
         context.coordinator.schema = schema
         context.coordinator.engine = engine
+        // A pane reuses one editor (and its coordinator) across tab switches, but the
+        // coordinator captured these bindings when it was born against a different tab.
+        // Refresh them each update so edits write back to the tab now shown — otherwise
+        // typing lands in the old tab and the next update wipes the visible editor.
+        context.coordinator.text = $text
+        context.coordinator.cursor = cursor
         if textView.string != text {
             textView.string = text
             context.coordinator.previousLength = (text as NSString).length
@@ -88,8 +94,8 @@ struct SQLEditor: NSViewRepresentable {
     static let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
     final class Coordinator: NSObject, NSTextViewDelegate {
-        private let text: Binding<String>
-        private let cursor: Binding<Int>?
+        fileprivate var text: Binding<String>
+        fileprivate var cursor: Binding<Int>?
         weak var textView: NSTextView?
         var lastFocusTrigger = 0
         var previousLength = 0
