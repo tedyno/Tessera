@@ -91,6 +91,8 @@ struct DetailView: View {
         .sheet(isPresented: $showingHistory) {
             HistoryView(
                 history: model.history,
+                activeProfileID: model.activeSession?.id,
+                activeConnectionName: model.activeSession?.name,
                 onPick: { entry in
                     onPickHistory(entry)
                     showingHistory = false
@@ -99,7 +101,7 @@ struct DetailView: View {
                     onRunHistory(entry)
                     showingHistory = false
                 },
-                onClear: { model.clearHistory() })
+                onClear: { model.clearHistory(profileID: $0) })
                 .tesseraModalBackground()
         }
     }

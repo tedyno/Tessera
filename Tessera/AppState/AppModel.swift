@@ -60,6 +60,10 @@ final class AppModel {
                 self.console.forgetSession(profileID: profileID)
                 self.schemaCache[profileID] = nil
             }
+            // Filter and persist history and the schema cache once for the whole
+            // batch, not once per profile — deleting many connections shouldn't
+            // re-encode either store N times.
+            self.console.clearHistory(profileIDs: profileIDs)
             self.persistSchemaCache()
         }
         NotificationCenter.default.addObserver(forName: .mcpSettingsChanged, object: nil,

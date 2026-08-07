@@ -61,7 +61,10 @@ final class QueryConsoleModel {
         let url = (try? QueryHistoryStore.defaultURL())
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("tessera-history.json")
         self.historyStore = QueryHistoryStore(fileURL: url)
-        self.history = historyStore.load()
+        // Cap on load so the in-memory history matches what any later save persists —
+        // a legacy file over the per-connection cap trims once, consistently, instead
+        // of showing more in memory than survives the next write.
+        self.history = historyStore.capped(historyStore.load())
 
         let savedURL = (try? SavedQueryStore.defaultURL())
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("tessera-saved-queries.json")
@@ -958,9 +961,21 @@ final class QueryConsoleModel {
         await tab.session?.driver?.cancelRunningQuery()
     }
 
-    /// Empties the query history (and its on-disk store).
-    func clearHistory() {
-        history = []
+    /// Empties the query history (and its on-disk store) — one connection's when a
+    /// profile is given, otherwise all of it.
+    func clearHistory(profileID: UUID? = nil) {
+        history = profileID.map { QueryHistoryStore.removing(history, profileID: $0) } ?? []
+        persistHistory()
+    }
+
+    /// Drops the history of several deleted connections in one pass, persisting only
+    /// once — used when a batch of profiles is removed together.
+    func clearHistory(profileIDs: [UUID]) {
+        let ids = Set(profileIDs)
+        guard !ids.isEmpty else { return }
+        let before = history.count
+        history.removeAll { $0.profileID.map(ids.contains) ?? false }
+        guard history.count != before else { return }
         persistHistory()
     }
 
@@ -1011,17 +1026,21 @@ final class QueryConsoleModel {
                                schema: String? = nil, table: String? = nil) {
         // Collapse a re-run of the identical query on the same connection (e.g.
         // refreshing a table view) into the existing entry instead of duplicating it.
-        if let first = history.first, first.sql == sql, first.profileID == session.id, first.table == table {
-            history[0].timestamp = Date()
-            history[0].rowCount = rowCount
-            history[0].elapsedMS = elapsedMS
+        // The match is per connection, so alternating between two databases still
+        // collapses rather than piling up duplicates.
+        if let i = QueryHistoryStore.newestIndex(in: history, profileID: session.id,
+                                                 sql: sql, table: table) {
+            history[i].timestamp = Date()
+            history[i].rowCount = rowCount
+            history[i].elapsedMS = elapsedMS
+            if i != 0 { history.insert(history.remove(at: i), at: 0) }   // back to newest
         } else {
             let entry = QueryHistoryEntry(
                 sql: sql, connectionName: session.name, profileID: session.id,
                 schema: schema, table: table, timestamp: Date(),
                 rowCount: rowCount, elapsedMS: elapsedMS)
             history.insert(entry, at: 0)
-            if history.count > 500 { history = Array(history.prefix(500)) }
+            history = historyStore.capped(history)
         }
         // Persist off the main actor so a query never blocks the UI on disk I/O.
         persistHistory()
