@@ -5,7 +5,7 @@
 # The app is unsigned/un-notarized on purpose (open-source self-build), so on a
 # fresh Mac Gatekeeper will ask the user to right-click → Open the first time.
 #
-# Usage: scripts/make-dmg.sh [output.dmg]
+# Usage: Scripts/make-dmg.sh [output.dmg]
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

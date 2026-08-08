@@ -23,6 +23,11 @@ xcuserdata/
 Packages/
 *.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/configuration/
 
+# Build products and downloads that must never be committed
+*.dmg
+*.zip
+*.pkg
+
 # Misc
 *.log
 Config/Local.xcconfig
