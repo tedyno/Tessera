@@ -1,0 +1,69 @@
+name: Bug report
+description: Something in Tessera behaves incorrectly
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        1. Connected to a MySQL 8 database
+        2. Opened a table with a JSON column
+        3. The grid showed … but I expected …
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Tessera version
+      description: Tessera ▸ About Tessera
+      placeholder: "0.20.0"
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac
+      placeholder: "macOS 26.1, MacBook Pro M3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options:
+        - PostgreSQL
+        - MySQL
+        - MariaDB
+        - SQLite
+        - Not database-specific
+    validations:
+      required: true
+
+  - type: input
+    id: server-version
+    attributes:
+      label: Server version
+      description: The version the database server reports, if the bug involves one.
+      placeholder: "PostgreSQL 17.2"
+
+  - type: checkboxes
+    id: connection
+    attributes:
+      label: Connection details
+      options:
+        - label: The connection goes through an SSH tunnel
+        - label: The connection is marked read-only
+        - label: It happened while the MCP server was enabled
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: >
+        Crash logs, screenshots, or the SQL involved. Please redact hostnames,
+        credentials and any data you would not put in a public issue.

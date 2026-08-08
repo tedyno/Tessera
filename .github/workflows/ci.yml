@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes the previous run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: TesseraCore
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Show toolchain
+        run: swift --version && xcodebuild -version
+
+      # The drivers pull in NIO, which is slow to build from scratch.
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: TesseraCore/.build
+          key: spm-${{ runner.os }}-${{ hashFiles('TesseraCore/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      # Integration tests against a live Postgres/MySQL/SSH server skip themselves
+      # unless the matching TESSERA_* env vars are set, so this needs no services.
+      - name: Test
+        run: swift test
+        working-directory: TesseraCore
+
+  app:
+    name: Tessera.app
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      # No certificate here: Config/Signing.xcconfig falls back to ad-hoc signing
+      # when the untracked Local.xcconfig is absent, which is exactly the CI case.
+      - name: Build
+        run: |
+          xcodebuild -project Tessera.xcodeproj -scheme Tessera \
+            -destination 'platform=macOS' -quiet build

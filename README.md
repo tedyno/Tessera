@@ -1,5 +1,9 @@
 # Tessera
 
+[![CI](https://github.com/tedyno/Tessera/actions/workflows/ci.yml/badge.svg)](https://github.com/tedyno/Tessera/actions/workflows/ci.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+![Platform: macOS 26+](https://img.shields.io/badge/platform-macOS%2026%2B-lightgrey)
+
 A fast, native database client for macOS. No Electron, no webview, no JavaScript —
 pure Swift and SwiftUI. Built for PostgreSQL, MySQL, MariaDB and SQLite, with secure
 credential storage and SSH tunnelling.
@@ -183,6 +187,10 @@ Issues and pull requests are welcome. Two things to know before you open one:
 - All repository content is in **English** — code, comments, commit messages, docs. The app
   UI is localized separately through `Tessera/Localizable.xcstrings`.
 - Every user-facing string must be localizable; never hand a bare `String` to the UI.
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the rest: how the two layers are separated, why
+non-trivial logic belongs in `TesseraCore` with tests, and how to add a translation. Security
+issues go through [`SECURITY.md`](SECURITY.md), privately rather than in a public issue.
 
 ## License
 
