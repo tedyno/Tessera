@@ -15,6 +15,7 @@
 		AA000000000000000000001C /* DBTunnel in Frameworks */ = {isa = PBXBuildFile; productRef = AA000000000000000000001B /* DBTunnel */; };
 		AA00000000000000000000F2 /* DBDriverSQLite in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000F1 /* DBDriverSQLite */; };
 		AA000000000000000000001E /* DBMCPServer in Frameworks */ = {isa = PBXBuildFile; productRef = AA000000000000000000001D /* DBMCPServer */; };
+		AA0000000000000000000103 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000102 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +40,7 @@
 				AA00000000000000000000F2 /* DBDriverSQLite in Frameworks */,
 				AA000000000000000000001C /* DBTunnel in Frameworks */,
 				AA000000000000000000001E /* DBMCPServer in Frameworks */,
+				AA0000000000000000000103 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -98,6 +100,7 @@
 				AA00000000000000000000F1 /* DBDriverSQLite */,
 				AA000000000000000000001B /* DBTunnel */,
 				AA000000000000000000001D /* DBMCPServer */,
+				AA0000000000000000000102 /* Sparkle */,
 			);
 			productName = Tessera;
 			productReference = AA0000000000000000000006 /* Tessera.app */;
@@ -131,6 +134,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				AA0000000000000000000010 /* XCLocalSwiftPackageReference "TesseraCore" */,
+				AA0000000000000000000101 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = AA0000000000000000000004 /* Products */;
@@ -288,6 +292,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		AA0000000000000000000101 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.6.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -322,6 +334,11 @@
 		AA000000000000000000001D /* DBMCPServer */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DBMCPServer;
+		};
+		AA0000000000000000000102 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA0000000000000000000101 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

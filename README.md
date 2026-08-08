@@ -60,14 +60,21 @@ macOS 26 or later, on Apple silicon or Intel. Building requires Xcode 26 or late
 
 ## Download
 
-Grab the latest **[`Tessera.dmg` from Releases](https://github.com/tedyno/Tessera/releases/latest)**,
+Through [Homebrew](https://brew.sh):
+
+```sh
+brew tap tedyno/tessera
+brew install --cask tessera
+```
+
+Or grab the latest **[`Tessera.dmg` from Releases](https://github.com/tedyno/Tessera/releases/latest)**,
 open it, and drag Tessera to your Applications folder. The DMG is a universal build (Apple
 silicon and Intel).
 
-Once installed, Tessera **keeps itself up to date** — it checks for new versions and offers
+From 0.20.0 on, Tessera **keeps itself up to date** — it checks for new versions and offers
 to install them, and you can trigger a check anytime from **Tessera ▸ Check for Updates…**.
-Updates are cryptographically signed (Sparkle / EdDSA), so they're safe even though the app
-isn't notarized.
+Every update is verified against a signature (Sparkle / EdDSA) before it is installed, so it
+is safe even though the app isn't notarized.
 
 ## Installing
 

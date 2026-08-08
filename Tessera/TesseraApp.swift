@@ -1,4 +1,5 @@
 import SwiftUI
+import Sparkle
 
 @main
 struct TesseraApp: App {
@@ -9,6 +10,9 @@ struct TesseraApp: App {
     @AppStorage(AppTheme.key) private var themeRaw = AppTheme.system.rawValue
     /// Drives the Dock icon, which follows the chosen backdrop + light/dark.
     @AppStorage(BackdropStyle.key) private var backdropRaw = BackdropStyle.monokai.rawValue
+    /// Drives Sparkle auto-updates (checks the appcast, downloads, installs).
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     private func applyAppearance() {
         AppTheme.applyToApp()
@@ -31,6 +35,9 @@ struct TesseraApp: App {
         .defaultSize(width: 1240, height: 760)
         .commands {
             TesseraCommands(app: app)
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { updaterController.updater.checkForUpdates() }
+            }
         }
 
         Settings {
