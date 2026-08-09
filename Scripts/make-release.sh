@@ -104,7 +104,8 @@ SIGN_UPDATE="$(find "$BUILD/SourcePackages/artifacts" -name sign_update -type f 
 # Prints a ready-made pair of attributes: sparkle:edSignature="…" length="…"
 SIGNATURE="$("$SIGN_UPDATE" "$DMG")"
 
-SLUG="$(git remote get-url origin | sed -E 's#^.*[:/]([^/]+/[^/]+?)(\.git)?$#\1#')"
+# Works for both remote forms: https://github.com/owner/repo.git and git@github.com:owner/repo.git
+SLUG="$(git remote get-url origin | sed -E 's#^.*github\.com[:/]+##; s#\.git$##')"
 DMG_URL="https://github.com/$SLUG/releases/download/v$VERSION/$(basename "$DMG")"
 PUBDATE="$(LC_TIME=C date -u +'%a, %d %b %Y %H:%M:%S +0000')"
 
