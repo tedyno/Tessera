@@ -68,8 +68,14 @@ Through [Homebrew](https://brew.sh):
 
 ```sh
 brew tap tedyno/tessera
+brew trust tedyno/tessera
 brew install --cask tessera
 ```
+
+The middle step is not a formality Homebrew invented for Tessera: since version 6 it refuses
+to load a cask from a third-party tap until you say you trust it. Tessera cannot live in the
+official `homebrew/cask` tap, which from 2026-09-01 accepts only notarized apps — see
+[Installing](#installing) below.
 
 Or grab the latest **[`Tessera.dmg` from Releases](https://github.com/tedyno/Tessera/releases/latest)**,
 open it, and drag Tessera to your Applications folder. The DMG is a universal build (Apple
