@@ -311,11 +311,14 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
         }
 
         var tables: [SchemaTable] = []
+        // Shared across tables: implicit-FK targets resolve the parent's PK once.
+        var pkCache: [String: String?] = [:]
         for row in master.rows {
             guard let name = row[0].text else { continue }
             let isView = row[1].text == "view"
             let createSQL = (row.count > 2 ? row[2].text : nil) ?? ""
-            var schemaTable = try table(named: name, isView: isView, createSQL: createSQL, on: db)
+            var schemaTable = try table(named: name, isView: isView, createSQL: createSQL,
+                                        on: db, pkCache: &pkCache)
             if !isView { schemaTable.approximateRowCount = rowCounts[name] }
             tables.append(schemaTable)
         }
@@ -324,7 +327,8 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
     }
 
     private static func table(named name: String, isView: Bool, createSQL: String,
-                              on db: OpaquePointer) throws -> SchemaTable {
+                              on db: OpaquePointer,
+                              pkCache: inout [String: String?]) throws -> SchemaTable {
         let quoted = "\"" + name.replacingOccurrences(of: "\"", with: "\"\"") + "\""
 
         // Single-column foreign keys → their target (composite keys are skipped,
@@ -341,7 +345,7 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
                   let from = row[3].text, let table = row[2].text else { continue }
             // "REFERENCES parent" without a column list leaves `to` NULL — the
             // constraint implicitly targets the parent's primary key.
-            guard let to = row[4].text ?? (try? primaryKeyColumn(of: table, on: db)) ?? nil
+            guard let to = row[4].text ?? primaryKeyColumn(of: table, on: db, cache: &pkCache)
             else { continue }
             referencesByColumn[from] = ForeignKeyTarget(schema: "main", table: table, column: to)
         }
@@ -394,12 +398,18 @@ public final class SQLiteDriver: DatabaseDriver, @unchecked Sendable {
     }
 
     /// The single primary-key column of a table, or nil when the key is
-    /// composite or absent — used to resolve implicit FK targets.
-    private static func primaryKeyColumn(of table: String, on db: OpaquePointer) throws -> String? {
+    /// composite or absent — used to resolve implicit FK targets. Memoized per
+    /// introspection: many tables referencing one parent would otherwise re-run
+    /// `PRAGMA table_info` on that parent once per referencing table.
+    private static func primaryKeyColumn(of table: String, on db: OpaquePointer,
+                                         cache: inout [String: String?]) -> String? {
+        if let cached = cache[table] { return cached }
         let quoted = "\"" + table.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-        let info = try run("PRAGMA table_info(\(quoted))", on: db, maxRows: nil)
-        let pkColumns = info.rows.filter { ($0.count > 5 ? $0[5].text : "0") != "0" }
-        return pkColumns.count == 1 ? pkColumns[0][1].text : nil
+        let info = try? run("PRAGMA table_info(\(quoted))", on: db, maxRows: nil)
+        let pkColumns = (info?.rows ?? []).filter { ($0.count > 5 ? $0[5].text : "0") != "0" }
+        let value = pkColumns.count == 1 ? pkColumns[0][1].text : nil
+        cache[table] = value
+        return value
     }
 
     // MARK: Queue bridging

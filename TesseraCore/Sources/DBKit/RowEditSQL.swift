@@ -474,8 +474,11 @@ public enum RowEditSQL {
     /// column with no NULLs, otherwise one AND-clause per row.
     public static func whereClauses(rows: [Int], keyColumns: [String], result: QueryResult,
                                     dialect: any SQLDialect) -> [String] {
-        if keyColumns.count == 1, let name = keyColumns.first,
-           let index = result.columns.firstIndex(where: { $0.name == name }) {
+        // Name → column index once, not per row: a keyless table uses every column
+        // as key, which made this O(rows · columns²).
+        let indexByName = Dictionary(result.columns.enumerated().map { ($1.name, $0) },
+                                     uniquingKeysWith: { first, _ in first })
+        if keyColumns.count == 1, let name = keyColumns.first, let index = indexByName[name] {
             let values = rows.compactMap { row -> String? in
                 guard row < result.rows.count, index < result.rows[row].count,
                       let text = result.rows[row][index].text else { return nil }
@@ -485,13 +488,16 @@ public enum RowEditSQL {
                 return ["\(dialect.quote(name)) IN (\(values.joined(separator: ", ")))"]
             }
         }
-        return rows.map { rowWhere($0, keyColumns: keyColumns, result: result, dialect: dialect) }
+        return rows.map {
+            rowWhere($0, keyColumns: keyColumns, indexByName: indexByName,
+                     result: result, dialect: dialect)
+        }
     }
 
-    private static func rowWhere(_ row: Int, keyColumns: [String], result: QueryResult,
-                                 dialect: any SQLDialect) -> String {
+    private static func rowWhere(_ row: Int, keyColumns: [String], indexByName: [String: Int],
+                                 result: QueryResult, dialect: any SQLDialect) -> String {
         keyColumns.compactMap { name -> String? in
-            guard let index = result.columns.firstIndex(where: { $0.name == name }),
+            guard let index = indexByName[name],
                   row < result.rows.count, index < result.rows[row].count else { return nil }
             let text = result.rows[row][index].text
             return text == nil ? "\(dialect.quote(name)) IS NULL"
@@ -506,7 +512,7 @@ public enum RowEditSQL {
     public static func literal(_ value: String?, columnName: String, result: QueryResult) -> String {
         guard let value else { return "NULL" }
         if let column = result.columns.first(where: { $0.name == columnName }),
-           isNumericType(column.typeName), looksNumeric(value) {
+           SQLTypes.isNumeric(column.typeName), looksNumeric(value) {
             return value
         }
         return literal(value)
@@ -514,18 +520,6 @@ public enum RowEditSQL {
 
     private static func literal(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
-    }
-
-    private static func isNumericType(_ typeName: String) -> Bool {
-        let names: Set<String> = [
-            // Postgres (PostgresDataType descriptions)
-            "SMALLINT", "INTEGER", "BIGINT", "REAL", "DOUBLE PRECISION", "NUMERIC", "DECIMAL", "OID",
-            // MySQL (MySQLProtocol.DataType descriptions)
-            "MYSQL_TYPE_TINY", "MYSQL_TYPE_SHORT", "MYSQL_TYPE_LONG", "MYSQL_TYPE_INT24",
-            "MYSQL_TYPE_LONGLONG", "MYSQL_TYPE_FLOAT", "MYSQL_TYPE_DOUBLE",
-            "MYSQL_TYPE_DECIMAL", "MYSQL_TYPE_NEWDECIMAL", "MYSQL_TYPE_YEAR",
-        ]
-        return names.contains(typeName.uppercased())
     }
 
     private static func looksNumeric(_ text: String) -> Bool {
@@ -565,6 +559,15 @@ public enum DataViewSQL {
             sql += " LIMIT \(limit ?? 0)"
             if let offset, offset > 0 { sql += " OFFSET \(offset)" }
         }
+        return sql
+    }
+
+    /// The `SELECT count(*)` matching `select(...)`'s filter, for "N of TOTAL".
+    public static func count(schema: String, table: String, filter: String,
+                             dialect: any SQLDialect) -> String {
+        var sql = "SELECT count(*) FROM \(dialect.quote(schema)).\(dialect.quote(table))"
+        let filter = filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !filter.isEmpty { sql += " WHERE \(filter)" }
         return sql
     }
 

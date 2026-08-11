@@ -22,6 +22,23 @@ final class RowEditSQLTests: XCTestCase {
 
     // MARK: Statement generation
 
+    func testUpdateQuotingAcrossDialects() {
+        // The same edit must come out with each engine's own identifier quoting —
+        // these statements run against the user's database on commit.
+        let edits: [Int: [String: String?]] = [0: ["name": "O'Brien"]]
+        let cases: [(DatabaseKind, String)] = [
+            (.postgres, #"UPDATE "public"."users" SET "name" = 'O''Brien' WHERE "id" IN (1);"#),
+            (.mysql, "UPDATE `public`.`users` SET `name` = 'O''Brien' WHERE `id` IN (1);"),
+            (.sqlite, #"UPDATE "public"."users" SET "name" = 'O''Brien' WHERE "id" IN (1);"#),
+        ]
+        for (kind, expected) in cases {
+            let stmts = RowEditSQL.statements(source: users, result: usersResult(),
+                                              edits: edits, deletes: [], inserts: [],
+                                              dialect: kind.dialect)
+            XCTAssertEqual(stmts, [expected], "\(kind) dialect")
+        }
+    }
+
     func testUpdateUsesInClauseAndEscapes() {
         let stmts = RowEditSQL.statements(source: users, result: usersResult(),
                                           edits: [0: ["name": "O'Brien"]], deletes: [], inserts: [],

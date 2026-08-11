@@ -22,6 +22,24 @@ public actor MySQLDriver: DatabaseDriver {
     private var busy = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
+    /// Mutable state shared between `stream`'s event-loop callback and the
+    /// calling task, guarded by its lock.
+    private final class StreamState: @unchecked Sendable {
+        let lock = NSLock()
+        var began = false
+        var batch: [[Cell]] = []
+        var sinkError: Error?
+    }
+
+    /// A single value written on the event loop and read by the calling task.
+    private final class LockedBox<Value>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: Value
+        init(_ value: Value) { self.value = value }
+        func get() -> Value { lock.withLock { value } }
+        func set(_ new: Value) { lock.withLock { value = new } }
+    }
+
     public init() {}
 
     private func lock() async {
@@ -63,18 +81,20 @@ public actor MySQLDriver: DatabaseDriver {
     }
 
     public func execute(_ sql: String, maxRows: Int?) async throws -> QueryResult {
-        guard let connection else { throw DatabaseError.notConnected }
         await lock()
         defer { unlock() }
+        // Re-checked after acquiring the lock: a close() may have torn the
+        // connection down while this call was queued.
+        guard let connection else { throw DatabaseError.notConnected }
         let clock = ContinuousClock()
         let start = clock.now
         do {
             // A plain INSERT/UPDATE/DELETE returns no rows — report the affected
             // count from the OK packet instead.
             if SQLText.isDML(sql) {
-                nonisolated(unsafe) var affected: UInt64 = 0
-                _ = try await connection.query(sql, onMetadata: { affected = $0.affectedRows }).get()
-                return QueryResult(columns: [], rows: [], rowsAffected: Int(affected),
+                let affected = LockedBox<UInt64>(0)
+                _ = try await connection.query(sql, onMetadata: { affected.set($0.affectedRows) }).get()
+                return QueryResult(columns: [], rows: [], rowsAffected: Int(affected.get()),
                                    elapsed: clock.now - start)
             }
 
@@ -84,7 +104,7 @@ public actor MySQLDriver: DatabaseDriver {
             var columns: [ColumnDescriptor] = []
             if let first = rows.first {
                 columns = first.columnDefinitions.map {
-                    ColumnDescriptor(name: $0.name, typeName: String(describing: $0.columnType))
+                    ColumnDescriptor(name: $0.name, typeName: Self.typeName(for: $0.columnType))
                 }
             }
             var resultRows: [[Cell]] = []
@@ -116,11 +136,47 @@ public actor MySQLDriver: DatabaseDriver {
         }
     }
 
+    /// Friendly type name for a wire-protocol column type. `String(describing:)`
+    /// yields `MYSQL_TYPE_LONG`-style names that neither read well in the grid
+    /// header nor match `SQLTypes.isNumeric`'s information-schema spellings, so
+    /// numbers lost their alignment, sorting and unquoted export. Map to the
+    /// names `SHOW COLUMNS` would use.
+    static func typeName(for type: MySQLProtocol.DataType) -> String {
+        switch type {
+        case .decimal, .newdecimal: "decimal"
+        case .tiny: "tinyint"
+        case .short: "smallint"
+        case .long: "int"
+        case .int24: "mediumint"
+        case .longlong: "bigint"
+        case .float: "float"
+        case .double: "double"
+        case .year: "year"
+        case .bit: "bit"
+        case .timestamp, .timestamp2: "timestamp"
+        case .date, .newdate: "date"
+        case .time, .time2: "time"
+        case .datetime, .datetime2: "datetime"
+        case .varchar, .varString: "varchar"
+        case .string: "char"
+        case .enum: "enum"
+        case .set: "set"
+        case .tinyBlob: "tinyblob"
+        case .mediumBlob: "mediumblob"
+        case .longBlob: "longblob"
+        case .blob: "blob"
+        case .json: "json"
+        case .geometry: "geometry"
+        case .null: "null"
+        default: String(describing: type).lowercased()
+        }
+    }
+
     public func stream(_ sql: String, batchSize: Int, into sink: RowSink) async throws {
-        guard let connection else { throw DatabaseError.notConnected }
         let batchSize = max(1, batchSize)
         await lock()
         defer { unlock() }
+        guard let connection else { throw DatabaseError.notConnected }
 
         // DML has no result set; emit an empty header so the sink still yields a
         // valid (empty) file.
@@ -138,43 +194,47 @@ public actor MySQLDriver: DatabaseDriver {
         }
 
         // Stream via the text-protocol `onRow` callback — the whole result never
-        // buffers. `onRow` runs serially on the connection's event loop; the
-        // captured state is only read back after `.get()` completes, so the future
-        // provides the happens-before. Sink calls are synchronous; a thrown sink
-        // error is stashed and rethrown (a callback can't throw or stop the query).
-        nonisolated(unsafe) var began = false
-        nonisolated(unsafe) var batch: [[Cell]] = []
-        nonisolated(unsafe) var sinkError: Error?
+        // buffers. `onRow` runs serially on the connection's event loop and the
+        // driver reads the state back after `.get()`; the lock makes that
+        // cross-thread handoff enforced rather than argued in prose. It is
+        // uncontended on the happy path. Sink calls are synchronous; a thrown
+        // sink error is stashed and rethrown (a callback can't stop the query).
+        let state = StreamState()
         do {
             try await connection.simpleQuery(sql) { row in
-                guard sinkError == nil else { return }
-                do {
-                    if !began {
-                        let columns = row.columnDefinitions.map {
-                            ColumnDescriptor(name: $0.name, typeName: String(describing: $0.columnType))
+                state.lock.withLock {
+                    guard state.sinkError == nil else { return }
+                    do {
+                        if !state.began {
+                            let columns = row.columnDefinitions.map {
+                                ColumnDescriptor(name: $0.name, typeName: Self.typeName(for: $0.columnType))
+                            }
+                            try sink.begin(columns: columns)
+                            state.began = true
                         }
-                        try sink.begin(columns: columns)
-                        began = true
+                        var cells: [Cell] = []
+                        cells.reserveCapacity(row.values.count)
+                        for value in row.values {
+                            cells.append(Cell(Self.text(buffer: value)))
+                        }
+                        state.batch.append(cells)
+                        if state.batch.count >= batchSize {
+                            try sink.write(state.batch)
+                            state.batch.removeAll(keepingCapacity: true)
+                        }
+                    } catch {
+                        state.sinkError = error
                     }
-                    var cells: [Cell] = []
-                    cells.reserveCapacity(row.values.count)
-                    for value in row.values {
-                        cells.append(Cell(Self.text(buffer: value)))
-                    }
-                    batch.append(cells)
-                    if batch.count >= batchSize {
-                        try sink.write(batch)
-                        batch.removeAll(keepingCapacity: true)
-                    }
-                } catch {
-                    sinkError = error
                 }
             }.get()
         } catch is CancellationError {
             throw DatabaseError.cancelled
         } catch {
-            if let sinkError { throw sinkError }
+            if let sinkError = state.lock.withLock({ state.sinkError }) { throw sinkError }
             throw DatabaseError.queryFailed(String(describing: error))
+        }
+        let (began, batch, sinkError) = state.lock.withLock {
+            (state.began, state.batch, state.sinkError)
         }
         if let sinkError { throw sinkError }
         if !began { try sink.begin(columns: []) }
@@ -185,10 +245,10 @@ public actor MySQLDriver: DatabaseDriver {
     /// The single connection is already serialized by `lock()`, so a plain
     /// START TRANSACTION … COMMIT is atomic here.
     public func executeTransaction(_ statements: [String]) async throws {
-        guard let connection else { throw DatabaseError.notConnected }
         guard !statements.isEmpty else { return }
         await lock()
         defer { unlock() }
+        guard let connection else { throw DatabaseError.notConnected }
         do {
             _ = try await connection.simpleQuery("START TRANSACTION").get()
             do {
@@ -333,6 +393,10 @@ public actor MySQLDriver: DatabaseDriver {
     }
 
     public func close() async {
+        // Under the same lock as queries: closing mid-flight would tear the
+        // connection down underneath an in-flight simpleQuery.
+        await lock()
+        defer { unlock() }
         if let connection {
             try? await connection.close().get()
         }
