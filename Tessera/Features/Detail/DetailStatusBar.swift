@@ -44,7 +44,8 @@ struct DetailStatusBar: View {
             case .connecting: Text("Connecting…")
             case .failed: Text("Connection error")
             case .ready:
-                if let tab = model.activeTab, tab.kind == .data, let result = tab.result {
+                if let tab = model.activeTab, tab.kind == .data || tab.kind == .redisKeys,
+                   let result = tab.result {
                     Group {
                         if let total = tab.totalRows {
                             Text("\(result.rows.count) of \(total) rows")

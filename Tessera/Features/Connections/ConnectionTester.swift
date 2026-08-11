@@ -4,6 +4,7 @@ import DBTunnel
 import DBDriverPostgres
 import DBDriverMySQL
 import DBDriverSQLite
+import DBDriverRedis
 
 /// Runs a connection test in the two stages it actually happens in — SSH tunnel
 /// first, then the database through it — so a failure points at the stage that
@@ -115,6 +116,7 @@ final class ConnectionTester {
                 case .postgres: PostgresDriver()
                 case .mysql, .mariadb: MySQLDriver()
                 case .sqlite: SQLiteDriver()
+            case .redis: RedisDriver()
                 }
                 try await driver.connect(profile: profile, secrets: secrets, endpoint: target)
                 let version = (try? await driver.serverVersion()) ?? ""

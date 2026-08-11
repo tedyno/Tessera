@@ -85,6 +85,23 @@ public enum RedisCommandLine {
         return tokens
     }
 
+    /// The command line the cursor sits on — the console's run unit for Redis,
+    /// which has no semicolon-separated statements. `cursor` is a UTF-16 offset
+    /// (what the editor reports), clamped into bounds.
+    public static func lineUnderCursor(in text: String, cursor: Int) -> String {
+        let ns = text as NSString
+        let clamped = min(max(cursor, 0), ns.length)
+        let range = ns.lineRange(for: NSRange(location: clamped, length: 0))
+        return ns.substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A script's run units: one command per non-empty line.
+    public static func scriptLines(_ text: String) -> [String] {
+        text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     /// Quotes a key for use in a typed command line when it needs it.
     public static func quoteKey(_ key: String) -> String {
         guard key.contains(where: { $0.isWhitespace || $0 == "\"" || $0 == "'" }) || key.isEmpty

@@ -4,6 +4,7 @@ import DBPersistence
 import DBDriverPostgres
 import DBDriverMySQL
 import DBDriverSQLite
+import DBDriverRedis
 import DBTunnel
 
 /// One live database connection: its driver (and SSH tunnel), status, server
@@ -144,6 +145,7 @@ final class ConnectionSession: Identifiable {
             case .postgres: PostgresDriver()
             case .mysql, .mariadb: MySQLDriver()   // same wire protocol
             case .sqlite: SQLiteDriver()
+            case .redis: RedisDriver()
             }
             self.driver = driver
 

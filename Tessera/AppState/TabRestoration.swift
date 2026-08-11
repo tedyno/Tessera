@@ -4,7 +4,7 @@ import Foundation
 /// no live connections, just the shape. Queries don't re-run on restore; a
 /// restored tab loads its data on the first explicit Run/Refresh.
 struct SavedTab: Codable {
-    enum Kind: String, Codable { case console, data, diagram }
+    enum Kind: String, Codable { case console, data, diagram, redisKeys }
 
     struct SavedSortKey: Codable { var column: String; var ascending: Bool }
 

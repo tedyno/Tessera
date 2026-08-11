@@ -364,9 +364,15 @@ final class QueryConsoleModel {
     }
 
     /// Which SQL to run given the caret position (statement under cursor, with
-    /// subselect disambiguation).
+    /// subselect disambiguation). Redis commands are line-based: the run unit is
+    /// the line under the cursor (first non-empty line for an empty one).
     func resolveRunTarget(_ tab: QueryTab) -> SQLRunTarget {
-        SQLStatements.resolve(sql: tab.sql, cursor: tab.cursorPosition)
+        if tab.session?.engine.isKeyValue == true {
+            let line = RedisCommandLine.lineUnderCursor(in: tab.sql, cursor: tab.cursorPosition)
+            return .statement(line.isEmpty
+                ? (RedisCommandLine.scriptLines(tab.sql).first ?? "") : line)
+        }
+        return SQLStatements.resolve(sql: tab.sql, cursor: tab.cursorPosition)
     }
 
     func run(_ tab: QueryTab, sqlToRun: String? = nil, preserveSort: Bool = false,
@@ -455,7 +461,9 @@ final class QueryConsoleModel {
     /// result; on failure reports which statement failed.
     func runScript(_ tab: QueryTab) async {
         guard let session = tab.session, !tab.isRunning else { return }
-        let statements = SQLScript.statements(in: tab.sql)
+        let statements = session.engine.isKeyValue
+            ? RedisCommandLine.scriptLines(tab.sql)
+            : SQLScript.statements(in: tab.sql)
         guard !statements.isEmpty else { return }
         let clock = ContinuousClock()
         let started = clock.now
@@ -835,6 +843,124 @@ final class QueryConsoleModel {
         }
     }
 
+    // MARK: Redis key browser
+
+    static let redisScanPageSize = 500
+
+    /// Opens (or refocuses) the key browser for a Redis session and loads the
+    /// first page.
+    func openRedisKeys(on session: ConnectionSession? = nil) async {
+        guard let session = session ?? activeSession, session.engine.isKeyValue else { return }
+        if let existing = tabs.first(where: { $0.session === session && $0.kind == .redisKeys }) {
+            activate(existing)
+            if existing.result == nil { await reloadRedisKeys(existing) }
+            return
+        }
+        let tab = QueryTab(title: String(localized: "Keys"))
+        tab.session = session
+        tab.kind = .redisKeys
+        tabs.append(tab)
+        activate(tab)
+        await reloadRedisKeys(tab)
+    }
+
+    /// Restarts the scan with the tab's current pattern.
+    func reloadRedisKeys(_ tab: QueryTab) async {
+        guard tab.kind == .redisKeys, let session = tab.session, !tab.isRunning else { return }
+        tab.isRunning = true
+        tab.errorMessage = nil
+        defer { tab.isRunning = false }
+        guard await ensureReady(session), let driver = session.driver as? KeyValueDriver else {
+            tab.errorMessage = session.errorMessage ?? String(localized: "Not connected")
+            return
+        }
+        do {
+            let page = try await driver.scanKeys(matching: tab.redisPattern, cursor: "0",
+                                                 count: Self.redisScanPageSize)
+            tab.redisCursor = page.cursor
+            tab.result = RedisGridDisplay.keyListResult(page.keys, truncated: page.cursor != "0")
+            tab.hasMoreRows = page.cursor != "0"
+            tab.resultVersion &+= 1
+            tab.totalRows = await databaseSize(session)
+        } catch {
+            tab.errorMessage = ConnectionSession.message(for: error)
+        }
+    }
+
+    /// Fetches and appends the next SCAN page.
+    func loadMoreRedisKeys(_ tab: QueryTab) async {
+        guard tab.kind == .redisKeys, tab.redisCursor != "0", !tab.isRunning,
+              let session = tab.session,
+              let driver = session.driver as? KeyValueDriver else { return }
+        tab.isRunning = true
+        defer { tab.isRunning = false }
+        do {
+            let page = try await driver.scanKeys(matching: tab.redisPattern,
+                                                 cursor: tab.redisCursor,
+                                                 count: Self.redisScanPageSize)
+            tab.redisCursor = page.cursor
+            let appended = RedisGridDisplay.keyListResult(page.keys, truncated: false)
+            tab.result?.rows += appended.rows
+            tab.result?.isTruncated = page.cursor != "0"
+            tab.hasMoreRows = page.cursor != "0"
+            tab.resultVersion &+= 1
+        } catch {
+            tab.errorMessage = ConnectionSession.message(for: error)
+        }
+    }
+
+    /// Opens a key in a console tab preloaded with the type-appropriate read
+    /// command (GET/HGETALL/LRANGE/…) and runs it.
+    func openRedisKey(_ key: String, type: String, on session: ConnectionSession? = nil) async {
+        guard let session = session ?? activeSession else { return }
+        let command = RedisCommandLine.readCommand(key: key, type: type)
+        if let existing = tabs.first(where: {
+            $0.session === session && $0.kind == .console && $0.title == key
+        }) {
+            activate(existing)
+            existing.sql = command
+        } else {
+            let tab = QueryTab(title: key)
+            tab.session = session
+            tab.kind = .console
+            tab.sql = command
+            tabs.append(tab)
+            activate(tab)
+        }
+        if let tab = activeTab { await run(tab, sqlToRun: command) }
+    }
+
+    /// Deletes keys on the server after an explicit confirmation, then reloads
+    /// the browser page. Redis DEL is immediate — there is no pending-edit stage
+    /// to revert, so the dialog is the only safety net.
+    func deleteRedisKeys(_ keys: [String], in tab: QueryTab) async {
+        guard tab.kind == .redisKeys, !keys.isEmpty,
+              let driver = tab.session?.driver as? KeyValueDriver else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = keys.count == 1
+            ? String(localized: "Delete the key “\(keys[0])”?")
+            : String(localized: "Delete \(keys.count) keys?")
+        alert.informativeText = String(localized: "DEL runs on the server immediately — there is no undo.")
+        alert.addButton(withTitle: String(localized: "Delete"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        do {
+            _ = try await driver.deleteKeys(keys)
+            await reloadRedisKeys(tab)
+        } catch {
+            tab.errorMessage = ConnectionSession.message(for: error)
+        }
+    }
+
+    /// DBSIZE of the session's current database, for the "N of TOTAL" status.
+    private func databaseSize(_ session: ConnectionSession) async -> Int? {
+        guard let driver = session.driver else { return nil }
+        guard let result = try? await driver.execute("DBSIZE", maxRows: 1),
+              let text = result.rows.first?.first?.text else { return nil }
+        return Int(text)
+    }
+
     /// Fetches `SELECT count(*)` for the current filter so the UI can show "N of TOTAL".
     private func refreshCount(_ tab: QueryTab) async {
         guard let session = tab.session, let driver = session.driver,
@@ -854,6 +980,7 @@ final class QueryConsoleModel {
     /// growing a large view doesn't refetch everything already on screen.
     /// No-op with pending changes so a reload can't silently discard them.
     func loadMore(_ tab: QueryTab) async {
+        if tab.kind == .redisKeys { return await loadMoreRedisKeys(tab) }
         guard tab.kind == .data, !tab.hasEdits, !tab.isRunning,
               let session = tab.session, tab.result != nil else { return }
         // Decide before claiming `isRunning`: the fallback re-runs the query, and

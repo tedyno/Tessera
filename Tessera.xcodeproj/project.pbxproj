@@ -14,6 +14,7 @@
 		AA000000000000000000001A /* DBDriverMySQL in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000019 /* DBDriverMySQL */; };
 		AA000000000000000000001C /* DBTunnel in Frameworks */ = {isa = PBXBuildFile; productRef = AA000000000000000000001B /* DBTunnel */; };
 		AA00000000000000000000F2 /* DBDriverSQLite in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000F1 /* DBDriverSQLite */; };
+		AA00000000000000000000F4 /* DBDriverRedis in Frameworks */ = {isa = PBXBuildFile; productRef = AA00000000000000000000F3 /* DBDriverRedis */; };
 		AA000000000000000000001E /* DBMCPServer in Frameworks */ = {isa = PBXBuildFile; productRef = AA000000000000000000001D /* DBMCPServer */; };
 		AA0000000000000000000103 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000102 /* Sparkle */; };
 /* End PBXBuildFile section */
@@ -38,6 +39,7 @@
 				AA0000000000000000000018 /* DBSecurity in Frameworks */,
 				AA000000000000000000001A /* DBDriverMySQL in Frameworks */,
 				AA00000000000000000000F2 /* DBDriverSQLite in Frameworks */,
+				AA00000000000000000000F4 /* DBDriverRedis in Frameworks */,
 				AA000000000000000000001C /* DBTunnel in Frameworks */,
 				AA000000000000000000001E /* DBMCPServer in Frameworks */,
 				AA0000000000000000000103 /* Sparkle in Frameworks */,
@@ -98,6 +100,7 @@
 				AA0000000000000000000017 /* DBSecurity */,
 				AA0000000000000000000019 /* DBDriverMySQL */,
 				AA00000000000000000000F1 /* DBDriverSQLite */,
+				AA00000000000000000000F3 /* DBDriverRedis */,
 				AA000000000000000000001B /* DBTunnel */,
 				AA000000000000000000001D /* DBMCPServer */,
 				AA0000000000000000000102 /* Sparkle */,
@@ -326,6 +329,10 @@
 		AA00000000000000000000F1 /* DBDriverSQLite */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = DBDriverSQLite;
+		};
+		AA00000000000000000000F3 /* DBDriverRedis */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DBDriverRedis;
 		};
 		AA000000000000000000001B /* DBTunnel */ = {
 			isa = XCSwiftPackageProductDependency;

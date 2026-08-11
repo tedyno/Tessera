@@ -400,6 +400,7 @@ final class AppModel {
                 case .console: .console
                 case .data: .data
                 case .diagram: .diagram
+                case .redisKeys: .redisKeys
                 }
                 var diagramTable: String?
                 if case .table(let table)? = tab.diagram?.scope { diagramTable = table }
@@ -409,7 +410,9 @@ final class AppModel {
                                 sql: tab.sql,
                                 dataSchema: tab.dataSchema,
                                 dataTable: tab.dataTable,
-                                filterWhere: tab.filterWhere,
+                                // The key browser's pattern rides the filter slot.
+                                filterWhere: tab.kind == .redisKeys ? tab.redisPattern
+                                                                    : tab.filterWhere,
                                 sortOrder: tab.sortOrder.map {
                                     SavedTab.SavedSortKey(column: $0.column, ascending: $0.ascending)
                                 },
@@ -494,6 +497,13 @@ final class AppModel {
                 tab.session = session
                 console.tabs.append(tab)
                 restored.append(tab)
+            case .redisKeys:
+                let tab = QueryTab(title: saved.title)
+                tab.session = session
+                tab.kind = .redisKeys
+                tab.redisPattern = saved.filterWhere   // the pattern rides the filter slot
+                console.tabs.append(tab)
+                restored.append(tab)
             }
         }
         // Rebuild the pane layout before activating, so the active tab's pane can
@@ -523,8 +533,21 @@ final class AppModel {
         // Just make it current: no empty query tab you'd have to close before
         // double-clicking the table you actually wanted.
         console.selectSession(session)
-        guard !session.isReady, !session.isConnecting else { return }
-        Task { await openSession(session, profile: profile) }
+        guard !session.isReady, !session.isConnecting else {
+            // Already live: a Redis connection still surfaces its key browser.
+            if profile.kind.isKeyValue, session.isReady {
+                Task { await console.openRedisKeys(on: session) }
+            }
+            return
+        }
+        Task {
+            await openSession(session, profile: profile)
+            // Redis has no schema tree to land in — the key browser is the
+            // equivalent of "show me the data", so open it right away.
+            if profile.kind.isKeyValue, session.isReady {
+                await console.openRedisKeys(on: session)
+            }
+        }
     }
 
     /// Connections offered in a tab's connection picker, each with its organizer
@@ -932,6 +955,8 @@ final class AppModel {
         switch tab.kind {
         case .console, .data:
             runActiveQuery()
+        case .redisKeys:
+            tab.task = Task { await console.reloadRedisKeys(tab) }
         case .diagram:
             tab.task = Task { await console.refreshDiagram(tab) }
         }
@@ -1213,7 +1238,7 @@ final class AppModel {
     /// (so an SSH-tunnelled connection dumps through the local tunnel endpoint).
     func exportContext(for target: ExportTarget) -> ExportContext? {
         guard let profile = connections.profile(id: target.profileID),
-              !profile.kind.isFileBased else { return nil }   // a SQLite DB is its own backup
+              !profile.kind.isFileBased, !profile.kind.isKeyValue else { return nil }   // no SQL dump
         let session = console.session(for: target.profileID)
         return ExportContext(
             kind: profile.kind,

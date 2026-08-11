@@ -5805,6 +5805,108 @@
           }
         }
       }
+    },
+    "Database index": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Index databáze"
+          }
+        }
+      }
+    },
+    "User (optional)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uživatel (volitelný)"
+          }
+        }
+      }
+    },
+    "Keys": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klíče"
+          }
+        }
+      }
+    },
+    "Delete the key “%@”?": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smazat klíč „%@“?"
+          }
+        }
+      }
+    },
+    "DEL runs on the server immediately — there is no undo.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEL proběhne na serveru okamžitě — nejde vzít zpět."
+          }
+        }
+      }
+    },
+    "Delete %lld keys?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Delete %lld key?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Delete %lld keys?"
+                }
+              }
+            }
+          }
+        },
+        "cs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Smazat %lld klíč?"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Smazat %lld klíče?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Smazat %lld klíčů?"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "version": "1.0"

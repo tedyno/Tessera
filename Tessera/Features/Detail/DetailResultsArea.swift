@@ -77,6 +77,25 @@ struct DetailResultsArea: View {
                                                     where: clause)
                 }
             },
+            // Key browser: double-click opens the key in a console tab with its
+            // type-appropriate read command.
+            onOpenRow: tab.kind == .redisKeys ? { row in
+                guard let rows = tab.result?.rows, row < rows.count,
+                      let key = rows[row].first?.text else { return false }
+                let type = rows[row].count > 1 ? (rows[row][1].text ?? "string") : "string"
+                Task { await model.openRedisKey(key, type: type, on: tab.session) }
+                return true
+            } : nil,
+            // ⌫ in the key browser DELETEs on the server (behind a confirmation).
+            onDeleteExternalRows: tab.kind == .redisKeys ? { rows in
+                let keys = rows.compactMap { row -> String? in
+                    guard let cells = tab.result?.rows, row < cells.count else { return nil }
+                    return cells[row].first?.text
+                }
+                guard !keys.isEmpty else { return false }
+                Task { await model.deleteRedisKeys(keys, in: tab) }
+                return true
+            } : nil,
             onDiscardPending: { model.discardPending(tab) },
             onFocus: { model.activate(tab) },
             rowHeight: gridComfortable ? 24 : 18)

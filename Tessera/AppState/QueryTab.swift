@@ -42,6 +42,8 @@ final class QueryTab: Identifiable {
     /// diagram of one schema (canvas, no SQL at all).
     enum Kind: Equatable {
         case console, data, diagram
+        /// Redis key browser: SCAN pattern + paged key list (no SQL editor).
+        case redisKeys
 
         /// The SF Symbol for this kind — one source of truth so the tab chip and
         /// the toolbar header always show the same icon.
@@ -50,9 +52,17 @@ final class QueryTab: Identifiable {
             case .console: "terminal"
             case .data: "tablecells"
             case .diagram: "point.3.connected.trianglepath.dotted"
+            case .redisKeys: "key"
             }
         }
     }
+
+    // MARK: Redis key browser
+
+    /// SCAN MATCH pattern the browser filters by (empty = `*`).
+    var redisPattern = ""
+    /// SCAN cursor for the next page; "0" = the scan is complete.
+    var redisCursor = "0"
 
     /// Increment for infinite scroll / "Load more" — how many extra rows each
     /// auto-fetch pulls.
@@ -301,6 +311,10 @@ final class QueryTab: Identifiable {
         switch kind {
         case .console:
             break
+        case .redisKeys:
+            copy.redisPattern = redisPattern
+            copy.redisCursor = redisCursor
+            copy.totalRows = totalRows
         case .data:
             copy.dataSchema = dataSchema
             copy.dataTable = dataTable

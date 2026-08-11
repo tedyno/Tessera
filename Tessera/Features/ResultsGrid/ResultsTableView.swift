@@ -216,6 +216,9 @@ final class GridTableView: NSTableView {
     /// Clicking the grid gives its pane focus (tiled layout).
     var onFocus: (() -> Void)?
     var onBeginEdit: ((Int, Int) -> Void)?
+    /// Double-click on a row where the tab opens rows as a whole (the Redis key
+    /// browser); true = consumed, false = fall through to cell editing.
+    var onRowOpen: ((Int) -> Bool)?
     var onDeleteRows: (() -> Void)?
     var onAddRow: (() -> Void)?
     var onDuplicateRow: ((Int) -> Void)?
@@ -529,6 +532,9 @@ final class GridTableView: NSTableView {
         window?.makeFirstResponder(self)
         lastDragCell = CellPos(row: row, col: col)
         if event.clickCount >= 2 {
+            // A row-open handler (the Redis key browser) takes the double-click
+            // before cell editing; other grids fall through to edit.
+            if onRowOpen?(row) == true { return }
             onBeginEdit?(row, col)
             return
         }
@@ -562,6 +568,13 @@ struct ResultsTableView: NSViewRepresentable {
     /// Opens the table on the other end of a foreign key — the referenced table
     /// (⌘↓) or a referencing one (⌘↑) — filtered by the given WHERE clause.
     var onFollowForeignKey: (ForeignKeyTarget, String) -> Void = { _, _ in }
+    /// Row-open handler for whole-row tabs (Redis key browser): receives the
+    /// data-row index; true = consumed. Nil for ordinary grids.
+    var onOpenRow: ((Int) -> Bool)?
+    /// Row-deletion handler for whole-row tabs (Redis key browser): receives
+    /// data-row indices; the handler confirms and deletes server-side. Nil for
+    /// ordinary grids, which stage SQL deletes instead.
+    var onDeleteExternalRows: (([Int]) -> Bool)?
     /// Discards this tab's uncommitted edits — bound to Escape when they exist.
     var onDiscardPending: () -> Void = {}
     /// Clicking the grid gives its pane focus (tiled layout).
@@ -596,6 +609,7 @@ struct ResultsTableView: NSViewRepresentable {
             c.selectCell(row: row, col: col, extend: extend, toggle: toggle)
         }
         tableView.onBeginEdit = { [c = context.coordinator] row, col in c.beginEdit(row: row, col: col) }
+        tableView.onRowOpen = { [c = context.coordinator] row in c.openRow(displayRow: row) }
         tableView.onDeleteRows = { [c = context.coordinator] in c.deleteSelectedRows() }
         tableView.onAddRow = { [c = context.coordinator] in c.addRow() }
         tableView.onDuplicateRow = { [c = context.coordinator] row in c.duplicateRow(row) }
@@ -665,6 +679,8 @@ struct ResultsTableView: NSViewRepresentable {
         context.coordinator.tableView = tableView
         context.coordinator.onSort = onSort
         context.coordinator.onFollowForeignKey = onFollowForeignKey
+        context.coordinator.onOpenRow = onOpenRow
+        context.coordinator.onDeleteRowsExternal = onDeleteExternalRows
         context.coordinator.onDiscardPending = onDiscardPending
         context.coordinator.installEscapeMonitor()
         context.coordinator.configure(for: tab)
@@ -675,6 +691,8 @@ struct ResultsTableView: NSViewRepresentable {
         (nsView.documentView as? GridTableView)?.onFocus = onFocus
         context.coordinator.onSort = onSort
         context.coordinator.onFollowForeignKey = onFollowForeignKey
+        context.coordinator.onOpenRow = onOpenRow
+        context.coordinator.onDeleteRowsExternal = onDeleteExternalRows
         context.coordinator.onDiscardPending = onDiscardPending
         if let table = nsView.documentView as? NSTableView, table.rowHeight != rowHeight,
            !context.coordinator.isEditingActive {
@@ -698,7 +716,17 @@ struct ResultsTableView: NSViewRepresentable {
         weak var tableView: NSTableView?
         var onSort: (String) -> Void = { _ in }
         var onFollowForeignKey: (ForeignKeyTarget, String) -> Void = { _, _ in }
+        var onOpenRow: ((Int) -> Bool)?
+        var onDeleteRowsExternal: (([Int]) -> Bool)?
         var onDiscardPending: () -> Void = {}
+
+        /// Routes a double-clicked display row to the tab's row-open handler
+        /// (Redis key browser), translated to the data row so ⌘F filtering and
+        /// local sort don't shift which row opens.
+        func openRow(displayRow: Int) -> Bool {
+            guard let onOpenRow else { return false }
+            return onOpenRow(dataRow(forDisplay: displayRow))
+        }
         static let mono = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         static let monoItalic = NSFontManager.shared.convert(mono, toHaveTrait: .italicFontMask)
         private var columnsSignature: [String] = []
@@ -1399,6 +1427,13 @@ struct ResultsTableView: NSViewRepresentable {
         /// Backspace — removes selected insert rows outright; toggles the deletion
         /// mark (red highlight) on selected fetched rows.
         func deleteSelectedRows() {
+            // Whole-row tabs (Redis key browser) handle deletion themselves —
+            // DEL against the server, not a pending SQL edit.
+            if let onDeleteRowsExternal {
+                let rows = selectionRows.map { dataRow(forDisplay: $0) }
+                if !rows.isEmpty { _ = onDeleteRowsExternal(rows) }
+                return
+            }
             guard tab.isEditable, visibleRowMap == nil else { return }
             let rows = selectionRows
             guard !rows.isEmpty else { return }

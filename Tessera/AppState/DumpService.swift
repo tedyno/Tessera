@@ -81,6 +81,7 @@ final class DumpService {
         case .mysql: ["mysql"]
         case .mariadb: ["mariadb", "mysql"]   // either client dumps MariaDB fine
         case .sqlite: []                      // no external tool
+        case .redis: []                       // no SQL dump tool
         }
         for optRoot in ["/opt/homebrew/opt", "/usr/local/opt"] {
             guard let entries = try? fileManager.contentsOfDirectory(atPath: optRoot) else { continue }

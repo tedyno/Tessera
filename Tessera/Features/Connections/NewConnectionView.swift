@@ -97,6 +97,10 @@ struct NewConnectionView: View {
             // over from a server engine would resolve against the app's cwd.
             return !name.isEmpty && (database.hasPrefix("/") || database.hasPrefix("~"))
         }
+        if kind.isKeyValue {
+            // Redis: user and password are optional, the db index defaults to 0.
+            return !name.isEmpty && !host.isEmpty
+        }
         return !name.isEmpty && !host.isEmpty && !database.isEmpty && !username.isEmpty
     }
 
@@ -149,8 +153,14 @@ struct NewConnectionView: View {
                             TextField("Port", text: $port, prompt: Text("\(kind.defaultPort)"))
                                 .frame(width: 80)
                         }
-                        TextField("Database", text: $database)
-                        TextField("User", text: $username)
+                        if kind.isKeyValue {
+                            // Redis: numbered databases and optional ACL user.
+                            TextField("Database index", text: $database, prompt: Text(verbatim: "0"))
+                            TextField("User (optional)", text: $username)
+                        } else {
+                            TextField("Database", text: $database)
+                            TextField("User", text: $username)
+                        }
                         revealableField("Password", text: $password, reveal: $revealPassword)
                         Picker("TLS", selection: $tlsMode) {
                             ForEach(TLSMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
@@ -396,7 +406,8 @@ struct NewConnectionView: View {
                 configAlias: sshUseConfig && !sshAlias.isEmpty ? sshAlias : nil)
             : nil
         // A typed "~/…" path must resolve now — the driver opens it verbatim.
-        let database = kind.isFileBased ? (self.database as NSString).expandingTildeInPath : self.database
+        var database = kind.isFileBased ? (self.database as NSString).expandingTildeInPath : self.database
+        if kind.isKeyValue, database.isEmpty { database = "0" }
         return ConnectionProfile(
             id: editing?.id ?? UUID(),
             name: name, kind: kind, host: host, port: Int(port),

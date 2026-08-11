@@ -741,6 +741,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
             case .mysql: ["mysql"]
             case .mariadb: ["mariadb", "mysql"]
             case .sqlite: ["sqlite"]
+            case .redis: ["redis"]
             }
             for name in candidates {
                 if let image = NSImage(named: name) { return image }
@@ -774,6 +775,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 case .mysql: .systemOrange
                 case .mariadb: .systemBrown
                 case .sqlite: .systemGray
+                case .redis: .systemRed
                 case nil: .secondaryLabelColor
                 }
                 return ("circle.fill", nsColor(custom) ?? base)
@@ -879,7 +881,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 if kind?.isFileBased == true {
                     // A SQLite file is its own backup — no dump/restore tooling.
                     add(menu, String(localized: "Reveal in Finder"), #selector(actionRevealFile), item)
-                } else {
+                } else if kind?.isKeyValue != true {   // Redis has no SQL dump/restore
                     add(menu, String(localized: "Export…"), #selector(actionExport), item)
                     add(menu, String(localized: "Import…"), #selector(actionImport), item)
                 }

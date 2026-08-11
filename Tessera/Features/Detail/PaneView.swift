@@ -85,6 +85,8 @@ struct PaneView: View {
                         dataToolbar(tab)
                         Divider()
                         dataSQLView(tab)
+                    } else if tab.kind == .redisKeys {
+                        redisKeysToolbar(tab)
                     } else {
                         editorToolbar(tab)
                         Divider()
@@ -92,7 +94,11 @@ struct PaneView: View {
                     }
                     // The editor's height is draggable; the data view's generated
                     // SQL is fixed, so it keeps a plain separator.
-                    if tab.kind == .data { Divider() } else { editorResizeHandle }
+                    if tab.kind == .data || tab.kind == .redisKeys {
+                        Divider()
+                    } else {
+                        editorResizeHandle
+                    }
                     DetailResultsArea(model: model, tab: tab)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if group.showInspector, tab.result != nil {
@@ -406,19 +412,54 @@ struct PaneView: View {
         return min(max(160, textWidth + 24), 440)
     }
 
-    private func explainMenu(_ tab: QueryTab) -> some View {
-        Menu {
-            Button("Explain") { model.activate(tab); onExplain(false) }
-            if let dialect = tab.session?.engine.dialect,
-               dialect.explainPrefix(analyze: true).prefix != dialect.explainPrefix(analyze: false).prefix {
-                Button("Explain Analyze") { model.activate(tab); onExplain(true) }
+    // MARK: Redis key browser toolbar
+
+    private func redisKeysToolbar(_ tab: QueryTab) -> some View {
+        TabToolbar(name: tab.title, systemImage: tab.kind.icon) {
+            Button { model.activate(tab); Task { await model.reloadRedisKeys(tab) } } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
             }
-        } label: {
-            Label("Explain", systemImage: "list.bullet.indent")
+            .buttonStyle(.glassPillProminent)
+            .disabled(tab.session == nil || tab.isRunning)
+
+            Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
+            TextField(String(""), text: Binding(get: { tab.redisPattern },
+                                                set: { tab.redisPattern = $0 }),
+                      prompt: Text(verbatim: "MATCH *"))
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, design: .monospaced))
+                .frame(width: 220)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.primary.opacity(0.12)))
+                .onSubmit { Task { await model.reloadRedisKeys(tab) } }
+
+            if tab.isRunning {
+                ProgressView().controlSize(.mini)
+                    .transition(.opacity.combined(with: .scale(scale: 0.7)))
+            }
         }
-        .menuStyle(.borderlessButton).fixedSize().controlSize(.small).pillChrome()
-        .disabled(tab.session == nil || tab.isRunning)
-        .help("Show the query plan (Analyze also executes the statement)")
+        .animation(.snappy(duration: 0.2), value: tab.isRunning)
+    }
+
+    @ViewBuilder
+    private func explainMenu(_ tab: QueryTab) -> some View {
+        // Redis has no query plans — hide the menu instead of offering a no-op.
+        if tab.session?.engine.isKeyValue != true {
+            Menu {
+                Button("Explain") { model.activate(tab); onExplain(false) }
+                if let dialect = tab.session?.engine.dialect,
+                   dialect.explainPrefix(analyze: true).prefix != dialect.explainPrefix(analyze: false).prefix {
+                    Button("Explain Analyze") { model.activate(tab); onExplain(true) }
+                }
+            } label: {
+                Label("Explain", systemImage: "list.bullet.indent")
+            }
+            .menuStyle(.borderlessButton).fixedSize().controlSize(.small).pillChrome()
+            .disabled(tab.session == nil || tab.isRunning)
+            .help("Show the query plan (Analyze also executes the statement)")
+        }
     }
 
     private func autoRefreshMenu(_ tab: QueryTab) -> some View {
