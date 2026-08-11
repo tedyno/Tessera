@@ -252,6 +252,12 @@ final class AppModel {
     }
 
     private func runChecked(_ sql: String, checking checkSQL: String? = nil, on tab: QueryTab) {
+        // Redis commands are not SQL: `session:abc123` is a key, not a `:name`
+        // placeholder, and the destructive-SQL scan has nothing to say either.
+        if tab.session?.engine.isKeyValue == true {
+            tab.task = Task { await console.run(tab, sqlToRun: sql) }
+            return
+        }
         // `:name` placeholders pause the run for their values first.
         let backslashEscapes = tab.session?.engine == .mysql
         let parameterNames = QueryParameters.names(in: sql, backslashEscapes: backslashEscapes)
