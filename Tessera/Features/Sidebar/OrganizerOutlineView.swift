@@ -86,6 +86,11 @@ final class ContextualOutlineView: NSOutlineView {
 
     /// Speed search, same as the schema tree: typing jumps the selection to the
     /// first name starting with the typed text, arrows walk the matches.
+    /// Backspace / forward-delete with a selection (and no speed search eating
+    /// the key) deletes the selected items, behind the same confirmations as the
+    /// context menu.
+    var onDeleteSelection: (() -> Void)?
+
     override func keyDown(with event: NSEvent) {
         let active = speedIsActive?() == true
         switch event.keyCode {
@@ -97,6 +102,10 @@ final class ContextualOutlineView: NSOutlineView {
             return
         case 125 where active: onSpeedStep?(1); return    // ↓
         case 126 where active: onSpeedStep?(-1); return   // ↑
+        case 51 where !selectedRowIndexes.isEmpty,        // ⌫ / forward-delete
+             117 where !selectedRowIndexes.isEmpty:
+            onDeleteSelection?()
+            return
         default: break
         }
         if event.modifierFlags.intersection([.command, .control, .option, .function]).isEmpty,
@@ -215,6 +224,9 @@ struct OrganizerOutlineView: NSViewRepresentable {
         outline.onSpeedChar = { [coordinator = context.coordinator] in coordinator.speedChar($0) }
         outline.onSpeedBackspace = { [coordinator = context.coordinator] in coordinator.speedBackspace() }
         outline.onSpeedCancel = { [coordinator = context.coordinator] in coordinator.speedEnd() }
+        outline.onDeleteSelection = { [coordinator = context.coordinator] in
+            coordinator.deleteSelection()
+        }
         outline.onSpeedStep = { [coordinator = context.coordinator] in coordinator.speedStep($0) }
 
         let scrollView = NSScrollView()
@@ -1097,12 +1109,23 @@ struct OrganizerOutlineView: NSViewRepresentable {
         }
         @objc private func actionDelete(_ sender: NSMenuItem) {
             guard let item = sender.representedObject as? OrganizerItem else { return }
+            deleteSingle(item)
+        }
+
+        /// Deletes one item behind the confirmation its kind calls for: an empty
+        /// container goes right away (nothing to lose), a connection confirms (its
+        /// settings and stored password go with it), a non-empty container asks
+        /// what happens to its contents.
+        private func deleteSingle(_ item: OrganizerItem) {
             let isWorkspace = model.organizer.workspaces.contains { $0.id == item.id }
             let isContainer = isWorkspace || model.organizer.node(id: item.id)?.children != nil
             let summary = model.deletionSummary(item.id)
 
-            // A connection, or an empty container, has nothing to lose — delete it.
             guard isContainer, !summary.isEmpty else {
+                if !isContainer {
+                    guard confirmConnectionDelete(name: model.name(forNode: item.id) ?? "")
+                    else { return }
+                }
                 model.delete(id: item.id)
                 rebuild(expandingAll: false)
                 return
@@ -1117,25 +1140,30 @@ struct OrganizerOutlineView: NSViewRepresentable {
         /// mixed multi-selection has no single sensible "move contents up a level"
         /// answer, so a non-empty container in the batch always takes its contents
         /// with it — no per-item nuance, just one confirmation for the whole batch.
-        @objc private func actionDeleteSelection() {
+        @objc private func actionDeleteSelection() { deleteSelection() }
+
+        /// Context menu and the Delete key funnel here.
+        func deleteSelection() {
             guard let outlineView else { return }
-            let ids = outlineView.selectedRowIndexes.compactMap { outlineView.item(atRow: $0) as? OrganizerItem }.map(\.id)
+            let items = outlineView.selectedRowIndexes
+                .compactMap { outlineView.item(atRow: $0) as? OrganizerItem }
             // A folder already takes its nested contents with it — drop any id that's
             // nested under another id in the same selection so it isn't deleted twice.
-            let roots = ids.filter { id in
-                !ids.contains { other in other != id && model.organizer.descendants(of: other).contains(id) }
+            let ids = items.map(\.id)
+            let roots = items.filter { item in
+                !ids.contains { other in
+                    other != item.id && model.organizer.descendants(of: other).contains(item.id)
+                }
             }
             guard !roots.isEmpty else { return }
+            // A single item (the common Delete-key case) gets its kind's own
+            // dialog rather than the generic batch one.
+            if roots.count == 1 { return deleteSingle(roots[0]) }
 
-            let hasNonEmptyContainer = roots.contains { id in
-                let isWorkspace = model.organizer.workspaces.contains { $0.id == id }
-                let isContainer = isWorkspace || model.organizer.node(id: id)?.children != nil
-                return isContainer && !model.deletionSummary(id).isEmpty
-            }
-            if hasNonEmptyContainer {
-                guard confirmBatchDelete(count: roots.count) else { return }
-            }
-            for id in roots { model.delete(id: id) }
+            // Always confirm: the batch may hold connections (whose settings and
+            // stored passwords go with them), not just empty folders.
+            guard confirmBatchDelete(count: roots.count) else { return }
+            for item in roots { model.delete(id: item.id) }
             rebuild(expandingAll: false)
         }
 
@@ -1143,7 +1171,20 @@ struct OrganizerOutlineView: NSViewRepresentable {
             let alert = NSAlert()
             alert.alertStyle = .warning
             alert.messageText = String(localized: "Delete \(count) items?")
-            alert.informativeText = String(localized: "Folders and everything nested inside them go too.")
+            alert.informativeText = String(localized: "Connections lose their settings and saved passwords; folders take everything nested inside them.")
+            alert.addButton(withTitle: String(localized: "Delete"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
+            return alert.runModal() == .alertFirstButtonReturn
+        }
+
+        /// Deleting a connection is confirmed: it takes its settings and the
+        /// password stored in the Keychain with it.
+        private func confirmConnectionDelete(name: String) -> Bool {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(localized: "Delete the connection “\(name)”?")
+            alert.informativeText = String(
+                localized: "Its settings and the password saved in the Keychain will be removed.")
             alert.addButton(withTitle: String(localized: "Delete"))
             alert.addButton(withTitle: String(localized: "Cancel"))
             return alert.runModal() == .alertFirstButtonReturn

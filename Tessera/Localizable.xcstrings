@@ -5728,6 +5728,39 @@
           }
         }
       }
+    },
+    "Delete the connection “%@”?": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Smazat připojení „%@“?"
+          }
+        }
+      }
+    },
+    "Its settings and the password saved in the Keychain will be removed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odstraní se jeho nastavení i heslo uložené v Klíčence."
+          }
+        }
+      }
+    },
+    "Connections lose their settings and saved passwords; folders take everything nested inside them.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Připojení přijdou o nastavení a uložená hesla; složky vezmou s sebou vše vnořené."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
