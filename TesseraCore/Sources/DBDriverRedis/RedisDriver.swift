@@ -207,7 +207,45 @@ public actor RedisDriver: DatabaseDriver, KeyValueDriver {
             }
             keys.append(RedisKeyInfo(key: name, type: type, ttlSeconds: ttl))
         }
+        try await addGlimpses(to: &keys)
         return (nextCursor, keys)
+    }
+
+    /// How many bytes of a string value the browser's preview column shows.
+    private static let previewBytes = 120
+
+    /// Second pipeline over a SCAN page (types now known): element counts for
+    /// collections, byte length + first bytes for strings.
+    private func addGlimpses(to keys: inout [RedisKeyInfo]) async throws {
+        var batch: [[String]] = []
+        // Which reply indices belong to which key, since kinds differ in arity.
+        var slots: [(key: Int, replies: Range<Int>)] = []
+        for (index, info) in keys.enumerated() {
+            let start = batch.count
+            switch info.type.lowercased() {
+            case "string":
+                batch.append(["STRLEN", info.key])
+                batch.append(["GETRANGE", info.key, "0", String(Self.previewBytes - 1)])
+            case "hash": batch.append(["HLEN", info.key])
+            case "list": batch.append(["LLEN", info.key])
+            case "set": batch.append(["SCARD", info.key])
+            case "zset": batch.append(["ZCARD", info.key])
+            case "stream": batch.append(["XLEN", info.key])
+            default: continue
+            }
+            slots.append((index, start..<batch.count))
+        }
+        guard !batch.isEmpty else { return }
+        let replies = try await sendPipeline(batch)
+        for slot in slots {
+            let first = replies[slot.replies.lowerBound]
+            if case .integer(let count) = first { keys[slot.key].size = Int(count) }
+            if slot.replies.count == 2,
+               case .bulkString(let text?) = replies[slot.replies.lowerBound + 1] {
+                let truncated = (keys[slot.key].size ?? 0) > Self.previewBytes
+                keys[slot.key].preview = truncated ? text + "…" : text
+            }
+        }
     }
 
     public func deleteKeys(_ keys: [String]) async throws -> Int {

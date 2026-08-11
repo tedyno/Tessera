@@ -149,7 +149,7 @@ public enum MCPConnectionPolicy {
         let name = spec.name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw MCPToolError("A connection needs a name.") }
         guard let kind = DatabaseKind(rawValue: spec.engine.lowercased()) else {
-            throw MCPToolError("Unknown engine “\(spec.engine)”. Use postgres, mysql, mariadb or sqlite.")
+            throw MCPToolError("Unknown engine “\(spec.engine)”. Use postgres, mysql, mariadb, sqlite or redis.")
         }
         let host = spec.host.trimmingCharacters(in: .whitespacesAndNewlines)
         var database = spec.database
@@ -167,7 +167,9 @@ public enum MCPConnectionPolicy {
             }
         } else {
             guard !host.isEmpty else { throw MCPToolError("A connection needs a host.") }
-            guard !spec.user.isEmpty else { throw MCPToolError("A connection needs a user.") }
+            // Redis authenticates with a password alone (or an optional ACL user).
+            guard !spec.user.isEmpty || kind.isKeyValue
+            else { throw MCPToolError("A connection needs a user.") }
         }
 
         return ConnectionProfile(

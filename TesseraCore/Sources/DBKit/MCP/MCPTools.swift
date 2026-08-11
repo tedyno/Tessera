@@ -127,7 +127,7 @@ enum MCPTools {
                         + "the user turns that on in Tessera. A password may be given here and "
                         + "nowhere else; it goes straight to the Keychain.",
              properties: ["name": stringSchema("Display name."),
-                          "engine": stringSchema("postgres, mysql, mariadb or sqlite."),
+                          "engine": stringSchema("postgres, mysql, mariadb, sqlite or redis."),
                           "host": stringSchema("Database host (not used for sqlite)."),
                           "port": integerSchema("Port; defaults to the engine's standard port."),
                           "database": stringSchema("Database name; for sqlite, the file path."),

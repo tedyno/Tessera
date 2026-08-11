@@ -63,6 +63,28 @@ final class RedisDriverTests: XCTestCase {
         } while cursor != "0" && found == nil
         XCTAssertEqual(found?.type, "hash")
         XCTAssertNil(found?.ttlSeconds)
+        XCTAssertEqual(found?.size, 2, "hash glimpse carries HLEN")
+    }
+
+    func testStringKeysCarrySizeAndPreview() async throws {
+        let driver = try await makeDriverOrSkip()
+        defer { Task { await driver.close() } }
+
+        _ = try await driver.execute(#"SET tessera:test:s "hello preview""#, maxRows: nil)
+        defer { Task { _ = try? await driver.deleteKeys(["tessera:test:s"]) } }
+
+        var cursor = "0"
+        var found: RedisKeyInfo?
+        repeat {
+            let page = try await driver.scanKeys(matching: "tessera:test:s",
+                                                 cursor: cursor, count: 100)
+            cursor = page.cursor
+            if let match = page.keys.first(where: { $0.key == "tessera:test:s" }) {
+                found = match
+            }
+        } while cursor != "0" && found == nil
+        XCTAssertEqual(found?.preview, "hello preview")
+        XCTAssertEqual(found?.size, "hello preview".utf8.count)
     }
 
     func testErrorReplySurfacesAsQueryFailed() async throws {

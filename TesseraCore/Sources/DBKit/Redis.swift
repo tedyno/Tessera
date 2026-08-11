@@ -1,17 +1,24 @@
 import Foundation
 
-/// One key in a SCAN page: name, type and remaining TTL.
+/// One key in a SCAN page: name, type, remaining TTL, and a cheap value glimpse.
 public struct RedisKeyInfo: Sendable, Equatable {
     public var key: String
     /// Redis TYPE reply: string, list, set, zset, hash, stream, …
     public var type: String
     /// Seconds until expiry; nil when the key has no TTL.
     public var ttlSeconds: Int?
+    /// Element count (HLEN/LLEN/SCARD/ZCARD/XLEN) or a string's byte length.
+    public var size: Int?
+    /// For string keys, the value's first bytes ("…"-suffixed when truncated).
+    public var preview: String?
 
-    public init(key: String, type: String, ttlSeconds: Int? = nil) {
+    public init(key: String, type: String, ttlSeconds: Int? = nil,
+                size: Int? = nil, preview: String? = nil) {
         self.key = key
         self.type = type
         self.ttlSeconds = ttlSeconds
+        self.size = size
+        self.preview = preview
     }
 }
 
@@ -130,16 +137,19 @@ public enum RedisCommandLine {
 /// Renders Redis data into the grid's `QueryResult` shape — pure and tested,
 /// like the SQL-side display helpers.
 public enum RedisGridDisplay {
-    /// The key browser's page: key / type / TTL columns.
+    /// The key browser's page: key / type / TTL / size / value-preview columns.
     public static func keyListResult(_ keys: [RedisKeyInfo], truncated: Bool) -> QueryResult {
         QueryResult(
             columns: [
                 ColumnDescriptor(name: "key", typeName: "string"),
                 ColumnDescriptor(name: "type", typeName: "string"),
                 ColumnDescriptor(name: "ttl", typeName: "int"),
+                ColumnDescriptor(name: "size", typeName: "int"),
+                ColumnDescriptor(name: "value", typeName: "string"),
             ],
             rows: keys.map {
-                [Cell($0.key), Cell($0.type), Cell($0.ttlSeconds.map(String.init))]
+                [Cell($0.key), Cell($0.type), Cell($0.ttlSeconds.map(String.init)),
+                 Cell($0.size.map(String.init)), Cell($0.preview)]
             },
             isTruncated: truncated,
             returnsRows: true)

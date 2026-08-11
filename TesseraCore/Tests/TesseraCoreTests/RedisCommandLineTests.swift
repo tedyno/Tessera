@@ -74,13 +74,14 @@ final class RedisCommandLineTests: XCTestCase {
 
     func testKeyListResultShape() {
         let result = RedisGridDisplay.keyListResult([
-            RedisKeyInfo(key: "user:1", type: "hash", ttlSeconds: 60),
-            RedisKeyInfo(key: "cache:x", type: "string", ttlSeconds: nil),
+            RedisKeyInfo(key: "user:1", type: "hash", ttlSeconds: 60, size: 3),
+            RedisKeyInfo(key: "cache:x", type: "string", ttlSeconds: nil,
+                         size: 5, preview: "hello"),
         ], truncated: true)
-        XCTAssertEqual(result.columns.map(\.name), ["key", "type", "ttl"])
+        XCTAssertEqual(result.columns.map(\.name), ["key", "type", "ttl", "size", "value"])
         XCTAssertEqual(result.rows, [
-            [Cell("user:1"), Cell("hash"), Cell("60")],
-            [Cell("cache:x"), Cell("string"), Cell(nil)],
+            [Cell("user:1"), Cell("hash"), Cell("60"), Cell("3"), Cell(nil)],
+            [Cell("cache:x"), Cell("string"), Cell(nil), Cell("5"), Cell("hello")],
         ])
         XCTAssertTrue(result.isTruncated)
         XCTAssertTrue(result.returnsRows)
