@@ -62,10 +62,10 @@ struct SpotlightResult: Identifiable, Hashable {
     var subtitle: String {
         switch kind {
         case .connection: locationPath
-        case .schema: "Schema · \(locationPath)"
-        case .table: "Table · \(locationPath) · \(schema ?? "")"
-        case .column: "Column · \(locationPath) · \(schema ?? "").\(table ?? "")"
-        case .index: "Index · \(locationPath) · \(schema ?? "").\(table ?? "")"
+        case .schema: String(localized: "Schema · \(locationPath)")
+        case .table: String(localized: "Table · \(locationPath) · \(schema ?? "")")
+        case .column: String(localized: "Column · \(locationPath) · \(schema ?? "").\(table ?? "")")
+        case .index: String(localized: "Index · \(locationPath) · \(schema ?? "").\(table ?? "")")
         }
     }
 

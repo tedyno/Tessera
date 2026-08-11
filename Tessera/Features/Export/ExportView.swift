@@ -383,7 +383,7 @@ struct ExportView: View {
                 options: options, outputURL: outputURL)
             running = false
             resultSuccess = result.success
-            resultMessage = result.success ? "Saved to \(outputURL.path)" : result.message
+            resultMessage = result.success ? String(localized: "Saved to \(outputURL.path)") : result.message
             if result.success, ExportSettings.revealAfterExport {
                 NSWorkspace.shared.activateFileViewerSelecting([outputURL])
             }

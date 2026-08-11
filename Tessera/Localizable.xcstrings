@@ -5516,6 +5516,174 @@
           }
         }
       }
+    },
+    "Not connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepřipojeno"
+          }
+        }
+      }
+    },
+    "Executed %lld statements": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Executed %lld statement"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Executed %lld statements"
+                }
+              }
+            }
+          }
+        },
+        "cs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Proveden %lld příkaz"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Provedeny %lld příkazy"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Provedeno %lld příkazů"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Statement %lld of %lld failed:": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Příkaz %1$lld z %2$lld selhal:"
+          }
+        }
+      }
+    },
+    "Could not write %@: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepodařilo se zapsat %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "%lld to update": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld k aktualizaci"
+          }
+        }
+      }
+    },
+    "%lld to delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld ke smazání"
+          }
+        }
+      }
+    },
+    " — ⌘↩ to commit": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " — ⌘↩ potvrdí"
+          }
+        }
+      }
+    },
+    "Schema · %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schéma · %@"
+          }
+        }
+      }
+    },
+    "Table · %@ · %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabulka · %1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "Column · %@ · %@.%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sloupec · %1$@ · %2$@.%3$@"
+          }
+        }
+      }
+    },
+    "Index · %@ · %@.%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Index · %1$@ · %2$@.%3$@"
+          }
+        }
+      }
+    },
+    "Saved to %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uloženo do %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

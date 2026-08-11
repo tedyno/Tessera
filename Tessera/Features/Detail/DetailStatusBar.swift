@@ -201,8 +201,8 @@ struct DetailStatusBar: View {
 
     private func pendingSummary(updates: Int, deletes: Int) -> String {
         var parts: [String] = []
-        if updates > 0 { parts.append("\(updates) to update") }
-        if deletes > 0 { parts.append("\(deletes) to delete") }
-        return parts.joined(separator: ", ") + " — ⌘↩ to commit"
+        if updates > 0 { parts.append(String(localized: "\(updates) to update")) }
+        if deletes > 0 { parts.append(String(localized: "\(deletes) to delete")) }
+        return parts.joined(separator: ", ") + String(localized: " — ⌘↩ to commit")
     }
 }
