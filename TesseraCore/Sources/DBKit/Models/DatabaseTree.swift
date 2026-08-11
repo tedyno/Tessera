@@ -108,4 +108,24 @@ public struct DatabaseTree: Codable, Sendable, Hashable {
         self.databaseName = databaseName
         self.schemas = schemas
     }
+
+    /// Every column in the tree whose foreign key points at the given column —
+    /// the reverse of `SchemaColumn.references`, so the UI can offer the rows
+    /// that reference a cell (e.g. all `orders.customer_id` for a `users.id`).
+    /// Results are in tree order (schema, then table, then column position).
+    public func incomingReferences(toSchema schema: String, table: String,
+                                   column: String) -> [ForeignKeyTarget] {
+        let target = ForeignKeyTarget(schema: schema, table: table, column: column)
+        var origins: [ForeignKeyTarget] = []
+        for namespace in schemas {
+            for referencing in namespace.tables {
+                for col in referencing.columns where col.references == target {
+                    origins.append(ForeignKeyTarget(schema: namespace.name,
+                                                    table: referencing.name,
+                                                    column: col.name))
+                }
+            }
+        }
+        return origins
+    }
 }

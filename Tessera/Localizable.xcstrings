@@ -5505,6 +5505,17 @@
           }
         }
       }
+    },
+    "Referencing Rows": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odkazující řádky"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -19,6 +19,9 @@ final class CompletionPopup: NSObject, NSTableViewDataSource, NSTableViewDelegat
 
     var isVisible: Bool { panel?.isVisible ?? false }
     var selectedItem: SQLCompletionItem? { items.indices.contains(selectedIndex) ? items[selectedIndex] : nil }
+    /// Index of the highlighted row, for callers that map items back to their own
+    /// source list (the grid's reference picker) rather than inserting text.
+    var selectedRow: Int { selectedIndex }
 
     /// Shows the list anchored so its top-left sits at `belowPoint` (screen coords).
     func show(items: [SQLCompletionItem], belowPoint: NSPoint, parent: NSWindow) {

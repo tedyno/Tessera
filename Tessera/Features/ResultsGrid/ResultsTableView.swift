@@ -191,6 +191,8 @@ final class ClearHeaderView: NSTableHeaderView {
 }
 
 struct CellPos: Hashable { let row: Int; let col: Int }
+/// A cell plus an index into its list of incoming references (menu items).
+struct IncomingRefPos: Hashable { let row: Int; let col: Int; let index: Int }
 
 /// Numeric columns are right-aligned and copied unquoted; the classification is
 /// shared with the MCP server so both agree on what a number is.
@@ -230,6 +232,17 @@ final class GridTableView: NSTableView {
     var onFollowForeignKey: ((Int, Int) -> Void)?
     /// ⌘↓ — follows the reference in the selected cell; false when it isn't one.
     var onFollowSelectedForeignKey: (() -> Bool)?
+    /// Menu titles for the reverse route — tables whose foreign key points at this
+    /// cell's column (empty = the cell isn't referenced by anything).
+    var incomingReferenceTitles: ((Int, Int) -> [String])?
+    var onFollowIncomingReference: ((Int, Int, Int) -> Void)?
+    /// ⌘↑ — follows the incoming reference on the selected cell (a picker popup
+    /// when several tables reference it); false when nothing references the cell.
+    var onFollowSelectedIncomingReference: (() -> Bool)?
+    /// Routes a key press to the open reference-picker popup; true = consumed.
+    var referencePickerKeyDown: ((NSEvent) -> Bool)?
+    /// Closes the reference-picker popup (mouse click, focus loss).
+    var onDismissReferencePicker: (() -> Void)?
     /// Only full-table results (`tab.editSource`) expose the row-editing menu.
     var canEditRows = false
     /// Number of fetched rows; rows at/after this index are pending inserts.
@@ -263,6 +276,8 @@ final class GridTableView: NSTableView {
     var valueEditorMenuTitle: ((Int, Int) -> String?)?
 
     override func keyDown(with event: NSEvent) {
+        // An open reference picker owns the keyboard (arrows, Return, Esc).
+        if referencePickerKeyDown?(event) == true { return }
         let shift = event.modifierFlags.contains(.shift)
         switch event.keyCode {
         case 123: if onMoveSelection?(0, -1, shift) != true { super.keyDown(with: event) }   // ←
@@ -324,6 +339,11 @@ final class GridTableView: NSTableView {
            onFollowSelectedForeignKey?() == true {
             return true
         }
+        // ⌘↑ goes the other way — opens the single table referencing the cell.
+        if modifiers == .command, event.keyCode == 126, isFocused,
+           onFollowSelectedIncomingReference?() == true {
+            return true
+        }
         return super.performKeyEquivalent(with: event)
     }
 
@@ -334,6 +354,7 @@ final class GridTableView: NSTableView {
 
         // Following a reference is the most contextual action, so it leads the menu.
         let clickedColumn = self.column(at: point)
+        var hasReferenceItems = false
         if row >= 0, clickedColumn >= 0, let title = foreignKeyTitle?(row, clickedColumn) {
             let follow = NSMenuItem(title: title, action: #selector(followForeignKeyAction(_:)),
                                     keyEquivalent: String(UnicodeScalar(NSDownArrowFunctionKey)!))
@@ -341,8 +362,38 @@ final class GridTableView: NSTableView {
             follow.target = self
             follow.representedObject = CellPos(row: row, col: clickedColumn)
             menu.addItem(follow)
-            menu.addItem(.separator())
+            hasReferenceItems = true
         }
+        // The reverse route: rows elsewhere pointing at this cell. One incoming key
+        // gets a flat item (with the ⌘↑ shortcut); several collapse into a submenu.
+        if row >= 0, clickedColumn >= 0,
+           let titles = incomingReferenceTitles?(row, clickedColumn), !titles.isEmpty {
+            if titles.count == 1 {
+                let item = NSMenuItem(title: titles[0],
+                                      action: #selector(followIncomingReferenceAction(_:)),
+                                      keyEquivalent: String(UnicodeScalar(NSUpArrowFunctionKey)!))
+                item.keyEquivalentModifierMask = .command
+                item.target = self
+                item.representedObject = IncomingRefPos(row: row, col: clickedColumn, index: 0)
+                menu.addItem(item)
+            } else {
+                let parent = NSMenuItem(title: String(localized: "Referencing Rows"),
+                                        action: nil, keyEquivalent: "")
+                let submenu = NSMenu()
+                for (index, title) in titles.enumerated() {
+                    let item = NSMenuItem(title: title,
+                                          action: #selector(followIncomingReferenceAction(_:)),
+                                          keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = IncomingRefPos(row: row, col: clickedColumn, index: index)
+                    submenu.addItem(item)
+                }
+                parent.submenu = submenu
+                menu.addItem(parent)
+            }
+            hasReferenceItems = true
+        }
+        if hasReferenceItems { menu.addItem(.separator()) }
 
         if row >= 0, clickedColumn >= 0, let title = valueEditorMenuTitle?(row, clickedColumn) {
             let item = NSMenuItem(title: title, action: #selector(openValueEditorAction(_:)),
@@ -455,12 +506,24 @@ final class GridTableView: NSTableView {
         if let cell = sender.representedObject as? CellPos { onFollowForeignKey?(cell.row, cell.col) }
     }
 
+    @objc private func followIncomingReferenceAction(_ sender: NSMenuItem) {
+        if let ref = sender.representedObject as? IncomingRefPos {
+            onFollowIncomingReference?(ref.row, ref.col, ref.index)
+        }
+    }
+
     /// The cell the last drag-select event targeted, so a drag that stays within
     /// one cell doesn't rebuild the whole rectangular selection on every mouse move.
     private var lastDragCell: CellPos?
 
+    override func resignFirstResponder() -> Bool {
+        onDismissReferencePicker?()
+        return super.resignFirstResponder()
+    }
+
     override func mouseDown(with event: NSEvent) {
         onFocus?()   // give this pane focus in a tiled layout
+        onDismissReferencePicker?()
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
         let col = self.column(at: point)
@@ -498,7 +561,8 @@ struct ResultsTableView: NSViewRepresentable {
     let tab: QueryTab
     /// Called when a column header is clicked (full-table view sorting).
     var onSort: (String) -> Void = { _ in }
-    /// Opens the table a foreign key points at, filtered to the referenced row.
+    /// Opens the table on the other end of a foreign key — the referenced table
+    /// (⌘↓) or a referencing one (⌘↑) — filtered by the given WHERE clause.
     var onFollowForeignKey: (ForeignKeyTarget, String) -> Void = { _, _ in }
     /// Discards this tab's uncommitted edits — bound to Escape when they exist.
     var onDiscardPending: () -> Void = {}
@@ -552,6 +616,21 @@ struct ResultsTableView: NSViewRepresentable {
         }
         tableView.onFollowSelectedForeignKey = { [c = context.coordinator] in
             c.followSelectedForeignKey()
+        }
+        tableView.incomingReferenceTitles = { [c = context.coordinator] row, col in
+            c.incomingReferenceTitles(row: row, col: col)
+        }
+        tableView.onFollowIncomingReference = { [c = context.coordinator] row, col, index in
+            c.followIncomingReference(row: row, col: col, index: index)
+        }
+        tableView.onFollowSelectedIncomingReference = { [c = context.coordinator] in
+            c.followSelectedIncomingReference()
+        }
+        tableView.referencePickerKeyDown = { [c = context.coordinator] event in
+            c.handleReferencePickerKey(event)
+        }
+        tableView.onDismissReferencePicker = { [c = context.coordinator] in
+            c.dismissReferencePicker()
         }
         tableView.onEscape = { [c = context.coordinator] in c.handleEscape() }
         tableView.onMoveSelection = { [c = context.coordinator] dRow, dCol, extend in
@@ -922,6 +1001,7 @@ struct ResultsTableView: NSViewRepresentable {
         /// Called from `dismantleNSView` — the NSEvent monitors and popovers
         /// are not tied to the view hierarchy and would leak past it.
         func teardown() {
+            dismissReferencePicker()
             closeDatePopover()
             filterPopover?.close()
             filterPopover = nil
@@ -1560,6 +1640,121 @@ struct ResultsTableView: NSViewRepresentable {
                   let value = cellString(row: row, col: col) else { return }
             let literal = SQLTypes.literal(value, typeName: result.columns[col].typeName)
             onFollowForeignKey(target, "\(session.quote(target.column)) = \(literal)")
+        }
+
+        /// The reverse route: columns elsewhere in the schema whose foreign key
+        /// points at this grid column, when the rows come from a known table.
+        private func incomingReferences(forColumn col: Int) -> [ForeignKeyTarget] {
+            guard let result = tab.result, col < result.columns.count,
+                  let schemaName = tab.editSource?.schema ?? tab.dataSchema,
+                  let tableName = tab.editSource?.table ?? tab.dataTable,
+                  let tree = tab.session?.schema else { return [] }
+            return tree.incomingReferences(toSchema: schemaName, table: tableName,
+                                           column: result.columns[col].name)
+        }
+
+        /// Menu titles for the rows referencing this cell — one per incoming
+        /// foreign key; empty when nothing references it or the cell holds NULL.
+        func incomingReferenceTitles(row: Int, col: Int) -> [String] {
+            guard let value = cellString(row: row, col: col) else { return [] }
+            let shown = value.count > 30 ? value.prefix(30) + "…" : value[...]
+            return incomingReferences(forColumn: col).map { origin in
+                String(localized: "Open \(origin.table) where \(origin.column) = \(String(shown))")
+            }
+        }
+
+        /// ⌘↑ — follows the incoming reference on the selected cell: one referencing
+        /// table opens directly, several pop a picker menu at the cell. Returns
+        /// false when there is no single selection or nothing references the cell.
+        func followSelectedIncomingReference() -> Bool {
+            guard selected.count == 1, let cell = selected.first,
+                  cellString(row: cell.row, col: cell.col) != nil else { return false }
+            let origins = incomingReferences(forColumn: cell.col)
+            switch origins.count {
+            case 0:
+                return false
+            case 1:
+                followIncomingReference(row: cell.row, col: cell.col, index: 0)
+            default:
+                popUpIncomingReferences(row: cell.row, col: cell.col)
+            }
+            return true
+        }
+
+        /// The reference picker reuses the SQL editor's completion popup so both
+        /// "pick from a list" moments look the same. The popup only displays;
+        /// this coordinator drives selection and commit via `handleReferencePickerKey`.
+        private var referencePopup: CompletionPopup?
+        /// The cell the open picker belongs to (nil = no picker showing).
+        private var referencePickerCell: CellPos?
+
+        /// The same list the context menu offers, anchored below the cell, so the
+        /// keyboard route also lets the user pick which referencing table to open.
+        private func popUpIncomingReferences(row: Int, col: Int) {
+            guard let tableView, let window = tableView.window,
+                  let value = cellString(row: row, col: col) else { return }
+            let origins = incomingReferences(forColumn: col)
+            guard origins.count > 1 else { return }
+            let shown = value.count > 30 ? value.prefix(30) + "…" : value[...]
+            // A referencing table in another schema keeps its qualifier so two
+            // same-named tables stay distinguishable in the list.
+            let currentSchema = tab.editSource?.schema ?? tab.dataSchema
+            let items = origins.map { origin in
+                SQLCompletionItem(
+                    insert: "",
+                    label: origin.schema == currentSchema
+                        ? origin.table : "\(origin.schema).\(origin.table)",
+                    detail: "\(origin.column) = \(shown)",
+                    kind: .join)
+            }
+            if referencePopup == nil {
+                let popup = CompletionPopup()
+                popup.onClickCommit = { [weak self] in self?.commitReferencePicker() }
+                referencePopup = popup
+            }
+            referencePickerCell = CellPos(row: row, col: col)
+            let cellFrame = tableView.convert(tableView.frameOfCell(atColumn: col, row: row), to: nil)
+            let screenRect = window.convertToScreen(cellFrame)
+            referencePopup?.show(items: items,
+                                 belowPoint: NSPoint(x: screenRect.minX, y: screenRect.minY - 3),
+                                 parent: window)
+        }
+
+        /// Keys while the picker is open: arrows move, Return/Tab commit, Esc
+        /// closes. Any other key closes it and returns false so the grid still
+        /// handles the press normally.
+        func handleReferencePickerKey(_ event: NSEvent) -> Bool {
+            guard let popup = referencePopup, popup.isVisible else { return false }
+            switch event.keyCode {
+            case 125: popup.moveSelection(1); return true      // ↓
+            case 126: popup.moveSelection(-1); return true     // ↑
+            case 36, 48: commitReferencePicker(); return true  // Return / Tab
+            case 53: dismissReferencePicker(); return true     // Esc
+            default: dismissReferencePicker(); return false
+            }
+        }
+
+        private func commitReferencePicker() {
+            guard let popup = referencePopup, let cell = referencePickerCell else { return }
+            let index = popup.selectedRow
+            dismissReferencePicker()
+            followIncomingReference(row: cell.row, col: cell.col, index: index)
+        }
+
+        func dismissReferencePicker() {
+            referencePopup?.hide()
+            referencePickerCell = nil
+        }
+
+        /// Opens the referencing table filtered to the rows pointing at this cell.
+        func followIncomingReference(row: Int, col: Int, index: Int) {
+            let origins = incomingReferences(forColumn: col)
+            guard index < origins.count, let result = tab.result,
+                  col < result.columns.count, let session = tab.session,
+                  let value = cellString(row: row, col: col) else { return }
+            let origin = origins[index]
+            let literal = SQLTypes.literal(value, typeName: result.columns[col].typeName)
+            onFollowForeignKey(origin, "\(session.quote(origin.column)) = \(literal)")
         }
 
         /// The raw value of a cell (nil = SQL NULL), preferring a pending edit/insert.
