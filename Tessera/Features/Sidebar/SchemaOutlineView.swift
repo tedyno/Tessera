@@ -77,6 +77,10 @@ final class SchemaTreeView: NSOutlineView {
         }
     }
 
+    /// ⌫ / forward-delete with a selection (and no speed search eating the key):
+    /// opens the Drop sheet for the selected table/column/index.
+    var onDeleteKey: (() -> Void)?
+
     override func keyDown(with event: NSEvent) {
         let active = speedIsActive?() == true
         switch event.keyCode {
@@ -85,6 +89,10 @@ final class SchemaTreeView: NSOutlineView {
         case 36 where active: onSpeedCommit?(); return    // Return
         case 125 where active: onSpeedStep?(1); return    // ↓
         case 126 where active: onSpeedStep?(-1); return   // ↑
+        case 51 where !selectedRowIndexes.isEmpty,        // ⌫ / forward-delete
+             117 where !selectedRowIndexes.isEmpty:
+            onDeleteKey?()
+            return
         default: break
         }
         // A plain printable character starts (or extends) the filter.
@@ -232,6 +240,7 @@ struct SchemaOutlineView: NSViewRepresentable {
         outline.onSpeedCommit = { [weak coordinator] in
             coordinator?.openSpeedSelection()
         }
+        outline.onDeleteKey = { [weak coordinator] in coordinator?.dropSelection() }
 
         let scrollView = NSScrollView()
         scrollView.documentView = outline
@@ -988,6 +997,29 @@ struct SchemaOutlineView: NSViewRepresentable {
         @objc private func dropTableAction(_ sender: NSMenuItem) {
             if let node = node(from: sender), let table = node.table {
                 onDDL(.dropTable(schema: node.schema, table: table))
+            }
+        }
+
+        /// ⌫ — opens the Drop sheet for the single selected table, column or
+        /// index; the same operations the context menu offers. Nothing executes
+        /// here: the DDL sheet previews the SQL and waits for its own Execute.
+        /// Multi-selections and non-droppable nodes (schemas, groups) are ignored.
+        func dropSelection() {
+            let nodes = selectedNodes()
+            guard nodes.count == 1, let node = nodes.first, let table = node.table else { return }
+            switch node.kind {
+            case .table:
+                onDDL(.dropTable(schema: node.schema, table: table))
+            case .column:
+                if let column = node.columnInfo {
+                    onDDL(.dropColumn(schema: node.schema, table: table, column: column.name))
+                }
+            case .index:
+                if let index = node.indexInfo {
+                    onDDL(.dropIndex(schema: node.schema, table: table, index: index.name))
+                }
+            default:
+                break
             }
         }
         @objc private func renameColumnAction(_ sender: NSMenuItem) {
