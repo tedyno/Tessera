@@ -73,6 +73,8 @@ public enum SchemaDDL {
             // SQLite can't retype a column without rebuilding the table; the UI
             // hides this operation (see supports(_:for:)).
             return "-- SQLite cannot change a column's type without a table rebuild"
+        case .redis:
+            return "-- Redis has no columns"   // unreachable: DDL is SQL-only
         }
     }
 
@@ -89,6 +91,8 @@ public enum SchemaDDL {
             return "ALTER TABLE \(target) MODIFY COLUMN \(spec.definition(for: engine));"
         case .sqlite:
             return "-- SQLite cannot change a column's nullability without a table rebuild"
+        case .redis:
+            return "-- Redis has no columns"   // unreachable: DDL is SQL-only
         }
     }
 
@@ -116,6 +120,8 @@ public enum SchemaDDL {
         case .sqlite:
             // Indexes live in the single namespace — never table-qualified.
             return "DROP INDEX \(quote(name, for: engine));"
+        case .redis:
+            return "-- Redis has no indexes"   // unreachable: DDL is SQL-only
         }
     }
 
@@ -142,7 +148,7 @@ public enum SchemaDDL {
                                    for engine: DatabaseKind) -> String {
         let target = qualified(schema: schema, table: oldName, for: engine)
         switch engine {
-        case .postgres, .sqlite:
+        case .postgres, .sqlite, .redis:
             return "ALTER TABLE \(target) RENAME TO \(quote(newName, for: engine));"
         case .mysql, .mariadb:
             return "RENAME TABLE \(target) TO \(quote(newName, for: engine));"

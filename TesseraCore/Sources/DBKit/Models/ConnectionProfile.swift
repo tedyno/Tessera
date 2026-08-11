@@ -6,6 +6,7 @@ public enum DatabaseKind: String, Codable, Sendable, CaseIterable, Hashable {
     case mysql
     case mariadb
     case sqlite
+    case redis
 
     public var displayName: String {
         switch self {
@@ -13,6 +14,7 @@ public enum DatabaseKind: String, Codable, Sendable, CaseIterable, Hashable {
         case .mysql: "MySQL"
         case .mariadb: "MariaDB"
         case .sqlite: "SQLite"
+        case .redis: "Redis"
         }
     }
 
@@ -21,6 +23,7 @@ public enum DatabaseKind: String, Codable, Sendable, CaseIterable, Hashable {
         case .postgres: 5432
         case .mysql, .mariadb: 3306
         case .sqlite: 0   // file-based, no port
+        case .redis: 6379
         }
     }
 
@@ -30,6 +33,10 @@ public enum DatabaseKind: String, Codable, Sendable, CaseIterable, Hashable {
 
     /// SQLite connects to a file, not a server: no host/port/user/TLS/SSH.
     public var isFileBased: Bool { self == .sqlite }
+
+    /// Redis is a key-value store: no SQL, no schema tree, no relational UI.
+    /// Gates the SQL-only surfaces (DDL, dumps, diagrams, data views).
+    public var isKeyValue: Bool { self == .redis }
 }
 
 /// Connection TLS mode (naming follows libpq / MySQL `sslmode`).

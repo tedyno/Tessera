@@ -17,11 +17,14 @@ let package = Package(
         .library(name: "DBDriverMySQL", targets: ["DBDriverMySQL"]),
         // File-based SQLite on the system libsqlite3 — no external dependency.
         .library(name: "DBDriverSQLite", targets: ["DBDriverSQLite"]),
+        // Redis over a hand-rolled RESP2 client on NIO (no external dependency).
+        .library(name: "DBDriverRedis", targets: ["DBDriverRedis"]),
         // SSH local port forwarding.
         .library(name: "DBTunnel", targets: ["DBTunnel"]),
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.21.0"),
+        .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.27.0"),
         .package(url: "https://github.com/vapor/mysql-nio.git", from: "1.7.2"),
         .package(url: "https://github.com/orlandos-nl/Citadel.git", from: "0.12.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.65.0"),
@@ -49,6 +52,17 @@ let package = Package(
             dependencies: ["DBKit"]
         ),
         .target(
+            name: "DBDriverRedis",
+            dependencies: [
+                "DBKit",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOSSL", package: "swift-nio-ssl"),
+            ],
+            // NIO channel handlers don't fit Swift 6 strict concurrency cleanly.
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .target(
             name: "DBTunnel",
             dependencies: [
                 "DBKit",
@@ -71,6 +85,10 @@ let package = Package(
         .testTarget(
             name: "TesseraCoreTests",
             dependencies: ["DBKit", "DBPersistence", "DBSecurity"]
+        ),
+        .testTarget(
+            name: "DBDriverRedisTests",
+            dependencies: ["DBDriverRedis"]
         ),
         .testTarget(
             name: "DBMCPServerTests",

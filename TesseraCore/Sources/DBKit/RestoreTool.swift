@@ -46,6 +46,7 @@ public enum RestoreTool {
         case .mysql: "mysql"
         case .mariadb: "mariadb"
         case .sqlite: "sqlite3"   // unreachable via the UI; kept total for safety
+        case .redis: "redis-cli"   // unreachable: restore is SQL-only
         }
     }
 
@@ -84,6 +85,8 @@ public enum RestoreTool {
             """
         case .sqlite:
             "SQLite databases are single files — no restore tool is needed."
+        case .redis:
+            "Redis connections have no SQL restore tool."
         }
     }
 
@@ -106,8 +109,8 @@ public enum RestoreTool {
                                 input: input, filePath: filePath, options: options)
         case .mysql, .mariadb:
             ["--host=\(host)", "--port=\(port)", "--user=\(user)", database]
-        case .sqlite:
-            []   // unreachable: import is disabled for file-based engines
+        case .sqlite, .redis:
+            []   // unreachable: import is disabled for these engines
         }
     }
 

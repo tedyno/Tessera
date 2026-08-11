@@ -21,7 +21,7 @@ public enum PlanParser {
                 return postgresPlan(json)
             case .mysql, .mariadb:
                 return mysqlPlan(json)
-            case .sqlite:
+            case .sqlite, .redis:
                 return nil
             }
         case .sqliteQueryPlan:

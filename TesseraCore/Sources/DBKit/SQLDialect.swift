@@ -58,8 +58,25 @@ public extension DatabaseKind {
         case .mysql: MySQLDialect()
         case .mariadb: MariaDBDialect()
         case .sqlite: SQLiteDialect()
+        case .redis: RedisDialect()
         }
     }
+}
+
+/// Redis speaks commands, not SQL — this dialect exists so `DatabaseKind.dialect`
+/// stays total, and it deliberately does nothing: identifiers pass through
+/// unquoted and no SQL-shaped feature (EXPLAIN, database listing) is offered.
+public struct RedisDialect: SQLDialect {
+    public init() {}
+    public func quote(_ identifier: String) -> String { identifier }
+    public func needsQuoting(_ identifier: String) -> Bool { false }
+    public var hasSchemaLayer: Bool { false }
+    public func emptyInsert(table: String) -> String { "" }
+    public func explainPrefix(analyze: Bool) -> (prefix: String, executes: Bool) { ("", false) }
+    public func structuredExplain(analyze: Bool) -> (prefix: String, executes: Bool, format: ExplainPlanFormat)? { nil }
+    public var listDatabasesSQL: String? { nil }
+    public var completionKeywords: [String] { [] }
+    public var reservedWords: Set<String> { [] }
 }
 
 /// Reserved words shared across dialects — an approximation tuned for "would

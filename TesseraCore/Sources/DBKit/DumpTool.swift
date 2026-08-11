@@ -51,6 +51,7 @@ public enum DumpTool {
         case .mysql: "mysqldump"
         case .mariadb: "mariadb-dump"
         case .sqlite: "sqlite3"   // unreachable via the UI; kept total for safety
+        case .redis: "redis-cli"   // unreachable: dumps are SQL-only
         }
     }
 
@@ -113,6 +114,8 @@ public enum DumpTool {
             """
         case .sqlite:
             "SQLite databases are single files — no dump tool is needed."
+        case .redis:
+            "Redis connections have no SQL dump tool."
         }
     }
 
@@ -125,8 +128,8 @@ public enum DumpTool {
             postgresArguments(host: host, port: port, user: user, database: database, options: options)
         case .mysql, .mariadb:
             mysqlArguments(host: host, port: port, user: user, database: database, options: options)
-        case .sqlite:
-            []   // unreachable: export is disabled for file-based engines
+        case .sqlite, .redis:
+            []   // unreachable: export is disabled for these engines
         }
     }
 
@@ -136,7 +139,7 @@ public enum DumpTool {
         switch kind {
         case .postgres: return ["PGPASSWORD": password]
         case .mysql, .mariadb: return ["MYSQL_PWD": password]   // mariadb clients honour it too
-        case .sqlite: return [:]
+        case .sqlite, .redis: return [:]
         }
     }
 
