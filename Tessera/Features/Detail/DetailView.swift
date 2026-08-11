@@ -101,7 +101,8 @@ struct DetailView: View {
                     onRunHistory(entry)
                     showingHistory = false
                 },
-                onClear: { model.clearHistory(profileID: $0) })
+                onClear: { model.clearHistory(profileID: $0) },
+                onDelete: { model.deleteHistoryEntries($0) })
                 .tesseraModalBackground()
         }
     }

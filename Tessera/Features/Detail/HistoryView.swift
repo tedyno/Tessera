@@ -17,6 +17,8 @@ struct HistoryView: View {
     var onRun: (QueryHistoryEntry) -> Void = { _ in }
     /// Clears one connection's history, or all of it when the id is `nil`.
     var onClear: (UUID?) -> Void = { _ in }
+    /// Removes individual entries (context-menu Delete, or ⌫ on the selection).
+    var onDelete: ([UUID]) -> Void = { _ in }
 
     private enum Scope: Hashable { case connection, all }
 
@@ -24,6 +26,7 @@ struct HistoryView: View {
     @State private var search = ""
     @State private var scope: Scope = .connection
     @State private var confirmingClear = false
+    @State private var selected: Set<UUID> = []
 
     /// The picked scope, forced to `.all` when there is no connection to scope to.
     private var effectiveScope: Scope { activeProfileID == nil ? .all : scope }
@@ -92,10 +95,13 @@ struct HistoryView: View {
             if filtered.isEmpty {
                 emptyState.frame(maxHeight: .infinity)
             } else {
-                List(filtered) { entry in
+                List(filtered, selection: $selected) { entry in
                     row(entry)
                 }
                 .scrollContentBackground(.hidden)
+                // ⌫ removes the selected entries; row identity survives, so the
+                // selection is pruned to what the list still shows.
+                .onDeleteCommand { deleteEntries(Array(selected)) }
             }
         }
         .frame(width: 560, height: 480)
@@ -154,7 +160,9 @@ struct HistoryView: View {
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
-        .onTapGesture { onPick(entry) }
+        // Single click selects (the list's own behaviour); double-click loads —
+        // the macOS pattern, and it keeps ⌫-delete from fighting the tap.
+        .onTapGesture(count: 2) { onPick(entry) }
         .contextMenu {
             Button("Load into Editor") { onPick(entry) }
             Button("Run") { onRun(entry) }
@@ -163,6 +171,18 @@ struct HistoryView: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(entry.sql, forType: .string)
             }
+            Divider()
+            Button("Delete", role: .destructive) {
+                // Deleting a row that is part of the selection takes the whole
+                // selection with it, Finder-style; otherwise just this row.
+                deleteEntries(selected.contains(entry.id) ? Array(selected) : [entry.id])
+            }
         }
+    }
+
+    private func deleteEntries(_ ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        onDelete(ids)
+        selected.subtract(ids)
     }
 }

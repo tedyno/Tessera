@@ -991,6 +991,14 @@ final class QueryConsoleModel {
 
     /// Empties the query history (and its on-disk store) — one connection's when a
     /// profile is given, otherwise all of it.
+    /// Removes individual history entries (the history sheet's Delete).
+    func deleteHistoryEntries(_ ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        let doomed = Set(ids)
+        history.removeAll { doomed.contains($0.id) }
+        persistHistory()
+    }
+
     func clearHistory(profileID: UUID? = nil) {
         history = profileID.map { QueryHistoryStore.removing(history, profileID: $0) } ?? []
         persistHistory()
