@@ -169,6 +169,25 @@ public struct SQLCompletionEngine {
         return (range, rankAndDedupe(pool, query: query))
     }
 
+    /// The identifier scope of a statement for `SQLAutoQuote`: column types across
+    /// the tables the statement references (first match wins on name clashes), and
+    /// every name — column, table, alias — a bare word could legitimately mean.
+    public func statementScope(_ text: String) -> SQLAutoQuote.Scope {
+        let context = statementContext(text, extra: cteTables(text))
+        var types: [String: String] = [:]
+        var names: Set<String> = []
+        for table in context.tables {
+            names.insert(table.name.lowercased())
+            for column in table.columns {
+                let key = column.name.lowercased()
+                types[key] = types[key] ?? column.type
+                names.insert(key)
+            }
+        }
+        names.formUnion(context.aliases.keys)
+        return SQLAutoQuote.Scope(columnTypes: types, identifiers: names)
+    }
+
     /// Rewrites `from.` qualifiers to `to.` within the statement at `caret`,
     /// skipping any inside `excluding` (the just-inserted text). Returns the new
     /// text and adjusted caret, or nil when nothing changes.

@@ -372,7 +372,7 @@ final class QueryConsoleModel {
     func run(_ tab: QueryTab, sqlToRun: String? = nil, preserveSort: Bool = false,
              preserveSearch: Bool = false) async {
         guard let session = tab.session, !tab.isRunning else { return }
-        let sql = sqlToRun ?? tab.sql
+        var sql = sqlToRun ?? tab.sql
         let clock = ContinuousClock()
         let started = clock.now
         if !preserveSort { tab.sortOrder = [] }
@@ -383,6 +383,13 @@ final class QueryConsoleModel {
             tab.errorMessage = session.errorMessage ?? "Not connected"
             tab.isRunning = false
             return
+        }
+        // Console SQL gets bare string values auto-quoted before running
+        // (`WHERE status = active` → `= 'active'`); the editor text stays the
+        // user's. A data view's SQL is generated from an already-quoted filter.
+        if tab.kind == .console, let schema = session.schema {
+            let completion = SQLCompletionEngine(schema: schema, engine: session.engine)
+            sql = SQLAutoQuote.quoted(sql, scope: completion.statementScope(sql))
         }
         do {
             // A data view honors its own "Limit" field — an explicit row count the
@@ -902,11 +909,20 @@ final class QueryConsoleModel {
 
     /// Applies a new WHERE filter, resets paging, and refreshes the count.
     /// No-op with pending changes so a reload can't silently discard them.
+    /// Bare string values are auto-quoted (`status = active` → `= 'active'`) and
+    /// the fixed clause is written back so the field shows what actually runs.
     func applyFilter(_ tab: QueryTab, where clause: String) async {
         guard tab.kind == .data, !tab.hasEdits else { return }
-        tab.filterWhere = clause
+        tab.filterWhere = autoQuotedFilter(clause, tab: tab)
         tab.pageLimit = QueryTab.defaultPageLimit
         await reloadData(tab, refreshCount: true)
+    }
+
+    private func autoQuotedFilter(_ clause: String, tab: QueryTab) -> String {
+        guard let schemaName = tab.dataSchema, let tableName = tab.dataTable,
+              let table = schema(for: tab)?.schemas.first(where: { $0.name == schemaName })?
+                  .tables.first(where: { $0.name == tableName }) else { return clause }
+        return SQLAutoQuote.quoted(clause, scope: SQLAutoQuote.Scope(table: table))
     }
 
     func loadIntoActiveTab(_ sql: String) {
