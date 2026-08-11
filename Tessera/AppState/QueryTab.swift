@@ -319,6 +319,10 @@ final class QueryTab: Identifiable {
             break
         case .redisKeys:
             copy.redisPattern = redisPattern
+            // The active pattern travels with the cursor: without it the copy
+            // would resume a mid-scan cursor as MATCH *, appending unfiltered
+            // keys to a list the toolbar still presents as filtered.
+            copy.redisActivePattern = redisActivePattern
             copy.redisCursor = redisCursor
             copy.totalRows = totalRows
         case .data:

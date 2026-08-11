@@ -876,8 +876,8 @@ final class QueryConsoleModel {
         }
         do {
             tab.redisActivePattern = tab.redisPattern
-            let page = try await driver.scanKeys(matching: tab.redisActivePattern, cursor: "0",
-                                                 count: Self.redisScanPageSize)
+            let page = try await driver.scanPage(matching: tab.redisActivePattern, cursor: "0",
+                                                 target: Self.redisScanPageSize)
             tab.redisCursor = page.cursor
             tab.result = RedisGridDisplay.keyListResult(page.keys, truncated: page.cursor != "0")
             tab.hasMoreRows = page.cursor != "0"
@@ -896,9 +896,9 @@ final class QueryConsoleModel {
         tab.isRunning = true
         defer { tab.isRunning = false }
         do {
-            let page = try await driver.scanKeys(matching: tab.redisActivePattern,
+            let page = try await driver.scanPage(matching: tab.redisActivePattern,
                                                  cursor: tab.redisCursor,
-                                                 count: Self.redisScanPageSize)
+                                                 target: Self.redisScanPageSize)
             tab.redisCursor = page.cursor
             let appended = RedisGridDisplay.keyListResult(page.keys, truncated: false)
             tab.result?.rows += appended.rows

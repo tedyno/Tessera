@@ -98,8 +98,10 @@ struct NewConnectionView: View {
             return !name.isEmpty && (database.hasPrefix("/") || database.hasPrefix("~"))
         }
         if kind.isKeyValue {
-            // Redis: user and password are optional, the db index defaults to 0.
-            return !name.isEmpty && !host.isEmpty
+            // Redis: user and password are optional, the db index defaults to 0
+            // — but a non-numeric one would connect to db0 and quietly browse
+            // the wrong keyspace, so it is refused here rather than at connect.
+            return !name.isEmpty && !host.isEmpty && RedisDatabaseIndex.isValid(database)
         }
         return !name.isEmpty && !host.isEmpty && !database.isEmpty && !username.isEmpty
     }

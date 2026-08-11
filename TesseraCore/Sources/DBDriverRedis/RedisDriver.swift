@@ -101,7 +101,7 @@ public actor RedisDriver: DatabaseDriver, KeyValueDriver {
                 try check(await send(auth))
             }
             // The profile's "database" is the numeric db index (default 0).
-            let index = Int(profile.database) ?? 0
+            let index = try RedisDatabaseIndex.parse(profile.database)
             if index != 0 {
                 try check(await send(["SELECT", String(index)]))
             }
@@ -127,14 +127,17 @@ public actor RedisDriver: DatabaseDriver, KeyValueDriver {
 
     // MARK: DatabaseDriver
 
-    /// Commands this driver must refuse: subscriptions and MONITOR turn the
-    /// connection into a push stream (desyncing FIFO reply matching for every
-    /// later command), and blocking commands would hold the session's command
-    /// lock forever with no way to cancel (`future.get()` isn't cancellable,
-    /// and there is no second connection to CLIENT KILL from).
+    /// Commands this driver must refuse: subscriptions, MONITOR and the
+    /// replication stream turn the connection into a push stream (desyncing
+    /// FIFO reply matching for every later command), and blocking commands
+    /// would hold the session's command lock forever with no way to cancel
+    /// (`future.get()` isn't cancellable, and there is no second connection to
+    /// CLIENT KILL from). Every blocking form has to be listed — missing one
+    /// hangs the whole session, key browser included.
     private static let unsupportedCommands: Set<String> = [
-        "SUBSCRIBE", "PSUBSCRIBE", "SSUBSCRIBE", "MONITOR",
-        "BLPOP", "BRPOP", "BLMOVE", "BLMPOP", "BRPOPLPUSH", "WAIT", "WAITAOF",
+        "SUBSCRIBE", "PSUBSCRIBE", "SSUBSCRIBE", "MONITOR", "SYNC", "PSYNC",
+        "BLPOP", "BRPOP", "BLMOVE", "BLMPOP", "BRPOPLPUSH",
+        "BZPOPMIN", "BZPOPMAX", "BZMPOP", "WAIT", "WAITAOF",
     ]
 
     private static func checkSupported(_ command: [String]) throws {
@@ -192,8 +195,24 @@ public actor RedisDriver: DatabaseDriver, KeyValueDriver {
             _ = try? await send(["DISCARD"])
             throw error
         }
-        let reply = try await send(["EXEC"])
+        try Self.checkExecReply(await send(["EXEC"]))
+    }
+
+    /// EXEC reports per-command failures *inside* its array rather than as a
+    /// RESP error, and answers `*-1` when a WATCH made the transaction abort.
+    /// Both mean the batch didn't apply, so both have to throw — the callers
+    /// of a transaction take a return as "committed".
+    static func checkExecReply(_ reply: RESPValue) throws {
         if case .error(let message) = reply { throw DatabaseError.queryFailed(message) }
+        guard case .array(let results) = reply else { return }
+        guard let results else {
+            throw DatabaseError.queryFailed(
+                "The transaction was aborted because a watched key changed.")
+        }
+        // Report the first failure: the rest are usually its consequences.
+        for case .error(let message) in results {
+            throw DatabaseError.queryFailed(message)
+        }
     }
 
     /// The keyspace has no relational schema; the tree only names the database
@@ -343,12 +362,18 @@ public actor RedisDriver: DatabaseDriver, KeyValueDriver {
 }
 
 /// Accumulates inbound bytes, parses RESP replies, and fulfills the pending
-/// promises in FIFO order (replies always arrive in command order). Lives on
-/// the channel's event loop.
-final class RESPClientHandler: ChannelInboundHandler {
+/// promises in FIFO order (replies always arrive in command order).
+///
+/// State is only ever touched on the channel's event loop — `expectReplies`
+/// hops there before it registers anything — which is why the `@unchecked
+/// Sendable` conformance is safe.
+final class RESPClientHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
 
     private var buffer = ByteBufferAllocator().buffer(capacity: 0)
+    /// Stateful on purpose: it carries a half-received reply between reads, so
+    /// it must be the same instance for the lifetime of the connection.
+    private var parser = RESPParser()
     private var pending: [EventLoopPromise<RESPValue>] = []
     /// Flips when the connection dies. Promises registered afterwards fail
     /// immediately — a command sent after a remote disconnect must error, not
@@ -377,7 +402,7 @@ final class RESPClientHandler: ChannelInboundHandler {
         buffer.writeBuffer(&incoming)
         while !pending.isEmpty {
             do {
-                guard let reply = try RESPCodec.parse(&buffer) else { break }
+                guard let reply = try parser.next(&buffer) else { break }
                 pending.removeFirst().succeed(reply)
             } catch {
                 die(with: error, context: context)
@@ -386,14 +411,22 @@ final class RESPClientHandler: ChannelInboundHandler {
         }
         if buffer.readableBytes == 0 {
             // Reclaim consumed bytes so a long session doesn't grow the buffer.
+            // The parser keeps any half-built value, so this is safe mid-frame.
             buffer.clear()
-        } else if pending.isEmpty, (try? RESPCodec.parse(&buffer)) != nil {
-            // A complete frame with nothing awaiting it is an unsolicited push
-            // (a subscribe leak, or a peer that isn't Redis). Matching it to a
-            // later command would silently shift every reply — kill the
-            // connection instead so the failure is loud and immediate.
-            die(with: DatabaseError.connectionFailed(
-                "Protocol desync: the server sent an unsolicited reply"), context: context)
+        } else if pending.isEmpty {
+            // Bytes with nothing awaiting them are either an unsolicited push
+            // (a subscribe leak) or a peer that isn't Redis. Matching either to
+            // a later command would silently shift every reply — kill the
+            // connection instead so the failure is loud and immediate. A parse
+            // error counts: swallowing it would leave the stream desynced.
+            do {
+                if try parser.next(&buffer) != nil {
+                    die(with: DatabaseError.connectionFailed(
+                        "Protocol desync: the server sent an unsolicited reply"), context: context)
+                }
+            } catch {
+                die(with: error, context: context)
+            }
         }
     }
 

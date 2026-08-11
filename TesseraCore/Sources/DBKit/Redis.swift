@@ -22,6 +22,29 @@ public struct RedisKeyInfo: Sendable, Equatable {
     }
 }
 
+/// The numeric database a Redis profile points at, held in `ConnectionProfile`
+/// as text like every other engine's database field.
+public enum RedisDatabaseIndex {
+    /// Anything unparseable is refused rather than coerced: `Int(…) ?? 0` turned
+    /// a typo — or a database *name* left over from another engine — into a
+    /// silent connection to db0, where the user then browsed the wrong keyspace
+    /// with nothing reported anywhere. Empty means the default, db0.
+    public static func parse(_ text: String) throws -> Int {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return 0 }
+        guard let index = Int(trimmed), index >= 0 else {
+            throw DatabaseError.connectionFailed(
+                "\"\(text)\" is not a Redis database index — use a number like 0.")
+        }
+        return index
+    }
+
+    /// Whether the connection form should accept the field as typed.
+    public static func isValid(_ text: String) -> Bool {
+        (try? parse(text)) != nil
+    }
+}
+
 /// The key-value side of a Redis connection — what the key browser needs beyond
 /// the plain command console.
 public protocol KeyValueDriver: Sendable {
@@ -31,6 +54,34 @@ public protocol KeyValueDriver: Sendable {
                   count: Int) async throws -> (cursor: String, keys: [RedisKeyInfo])
     /// Deletes the keys; returns how many existed.
     func deleteKeys(_ keys: [String]) async throws -> Int
+}
+
+public extension KeyValueDriver {
+    /// A page's worth of matches, not a single SCAN.
+    ///
+    /// SCAN walks a slice of the keyspace per call and filters MATCH *after*
+    /// picking it, so over a large keyspace a selective pattern returns empty
+    /// pages for many cursors in a row. Issuing one SCAN per page therefore
+    /// showed "no keys" for a filter that matches thousands, and left the user
+    /// clicking "Load more" to find them.
+    ///
+    /// Keeps scanning until it has `target` keys or the cursor comes back to
+    /// "0", but no more than `maxRounds` round trips — a pattern matching
+    /// nothing at all must not stall the UI for the length of the keyspace.
+    /// Stopping early just returns a non-"0" cursor, which the browser already
+    /// presents as "there is more".
+    func scanPage(matching pattern: String, cursor: String, target: Int,
+                  maxRounds: Int = 20) async throws -> (cursor: String, keys: [RedisKeyInfo]) {
+        var cursor = cursor
+        var collected: [RedisKeyInfo] = []
+        for _ in 0..<max(1, maxRounds) {
+            let page = try await scanKeys(matching: pattern, cursor: cursor, count: target)
+            collected += page.keys
+            cursor = page.cursor
+            if cursor == "0" || collected.count >= target { break }
+        }
+        return (cursor, collected)
+    }
 }
 
 /// Pure helpers for the Redis console and key browser: command-line tokenizing,

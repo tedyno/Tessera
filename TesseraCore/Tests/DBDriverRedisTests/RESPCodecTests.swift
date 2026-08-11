@@ -81,6 +81,100 @@ final class RESPCodecTests: XCTestCase {
         XCTAssertThrowsError(try RESPCodec.parse(&b))
     }
 
+    func testThrowLeavesTheBufferUntouched() {
+        // The unsolicited-reply check parses speculatively; if a throw left the
+        // reader index inside a half-consumed frame, the next real reply would
+        // be parsed against the leftovers and silently desync the stream.
+        for frame in ["?garbage\r\n+OK\r\n", "$-2\r\n", "+OK\n"] {
+            var b = buffer(frame)
+            let before = b.readableBytes
+            XCTAssertThrowsError(try RESPCodec.parse(&b), frame)
+            XCTAssertEqual(b.readableBytes, before, "must not consume on error: \(frame)")
+        }
+    }
+
+    func testBareLineFeedIsRejected() {
+        // RESP is CRLF-only. Treating "+OK\n" as a line silently ate the "K",
+        // and "+\n" looped as "incomplete" forever with the driver lock held.
+        for frame in ["+OK\n", "+\n", ":12\n"] {
+            var b = buffer(frame)
+            XCTAssertThrowsError(try RESPCodec.parse(&b), frame)
+        }
+    }
+
+    func testBulkStringTerminatorIsVerified() {
+        // A wrong terminator means the declared length was wrong; skipping two
+        // bytes regardless would misalign every reply that follows.
+        for frame in ["$2\r\nhi\n\n", "$2\r\nhixx", "$0\r\nxx"] {
+            var b = buffer(frame)
+            XCTAssertThrowsError(try RESPCodec.parse(&b), frame)
+        }
+        // Genuinely incomplete stays incomplete rather than becoming an error.
+        var partial = buffer("$2\r\nhi\n")
+        XCTAssertNil(try? RESPCodec.parse(&partial))
+    }
+
+    func testDeepNestingThrowsInsteadOfExhaustingTheStack() {
+        // A peer that isn't Redis can send array headers indefinitely; parsing
+        // must not track that depth on the call stack.
+        let frame = String(repeating: "*1\r\n", count: 100_000) + ":1\r\n"
+        var b = buffer(frame)
+        XCTAssertThrowsError(try RESPCodec.parse(&b)) { error in
+            XCTAssertEqual(error as? RESPCodec.ParseError, .tooDeep)
+        }
+    }
+
+    func testNestingUpToTheLimitStillParses() throws {
+        let depth = RESPCodec.maxDepth - 1
+        let frame = String(repeating: "*1\r\n", count: depth) + ":7\r\n"
+        var b = buffer(frame)
+        var value = try RESPCodec.parse(&b)
+        for _ in 0..<depth {
+            guard case .array(let elements?) = value, elements.count == 1 else {
+                return XCTFail("expected \(depth) nested arrays, got \(String(describing: value))")
+            }
+            value = elements[0]
+        }
+        XCTAssertEqual(value, .integer(7))
+    }
+
+    // MARK: Incremental parsing
+
+    func testParserConsumesEachChunkOnceAcrossFeeds() throws {
+        // The point of the stateful parser: bytes already seen stay consumed,
+        // so a reply split over many reads isn't re-parsed from the start each
+        // time (which made a large array cost O(chunks × elements)).
+        var parser = RESPParser()
+        var b = buffer("*3\r\n$1\r\na\r\n")
+        XCTAssertNil(try parser.next(&b))
+        XCTAssertEqual(b.readableBytes, 0, "the complete prefix must not be re-read later")
+        b.writeString("$1\r\nb\r\n")
+        XCTAssertNil(try parser.next(&b))
+        XCTAssertEqual(b.readableBytes, 0)
+        b.writeString("$1\r\nc\r\n+OK\r\n")
+        XCTAssertEqual(try parser.next(&b),
+                       .array([.bulkString("a"), .bulkString("b"), .bulkString("c")]))
+        XCTAssertEqual(try parser.next(&b), .simpleString("OK"))
+        XCTAssertNil(try parser.next(&b))
+    }
+
+    func testParserResumesATokenSplitMidBytes() throws {
+        var parser = RESPParser()
+        var b = buffer("$5\r\nhel")
+        XCTAssertNil(try parser.next(&b))
+        b.writeString("lo\r\n")
+        XCTAssertEqual(try parser.next(&b), .bulkString("hello"))
+    }
+
+    func testParserHandlesNestedArraysAcrossFeeds() throws {
+        var parser = RESPParser()
+        var b = buffer("*2\r\n*2\r\n:1\r\n")
+        XCTAssertNil(try parser.next(&b))
+        b.writeString(":2\r\n$1\r\nx\r\n")
+        XCTAssertEqual(try parser.next(&b),
+                       .array([.array([.integer(1), .integer(2)]), .bulkString("x")]))
+    }
+
     func testHostileLengthsThrowInsteadOfCrashing() {
         // A non-Redis peer declaring absurd sizes must not overflow or allocate.
         for frame in ["$9223372036854775806\r\n", "$99999999999999999999\r\n",
@@ -93,6 +187,10 @@ final class RESPCodecTests: XCTestCase {
     func testUnsupportedCommandsAreRefusedBeforeSending() async {
         let driver = RedisDriver()   // deliberately unconnected
         for command in ["SUBSCRIBE news", "BLPOP jobs 0", "MONITOR",
+                        // Every blocking form counts: one that slips through
+                        // takes the session's command lock and never returns.
+                        "BZPOPMIN z 0", "BZPOPMAX z 0", "BZMPOP 0 1 z MIN",
+                        "SYNC", "PSYNC ? -1",
                         "XREAD BLOCK 0 STREAMS s $"] {
             do {
                 _ = try await driver.execute(command, maxRows: nil)
@@ -103,6 +201,29 @@ final class RESPCodecTests: XCTestCase {
                 XCTFail("wrong error for \(command): \(error)")
             }
         }
+    }
+
+    // MARK: Transactions
+
+    func testExecReportsFailuresCarriedInsideTheReply() {
+        // EXEC answers with an array; a command that failed sits in it as an
+        // error rather than failing EXEC itself. Returning normally would tell
+        // the caller the batch committed.
+        XCTAssertThrowsError(try RedisDriver.checkExecReply(
+            .array([.simpleString("OK"), .error("WRONGTYPE against a key")]))) { error in
+                XCTAssertEqual(error as? DatabaseError,
+                               .queryFailed("WRONGTYPE against a key"))
+            }
+    }
+
+    func testExecReportsAWatchAbort() {
+        // *-1: a watched key changed, so nothing ran.
+        XCTAssertThrowsError(try RedisDriver.checkExecReply(.array(nil)))
+    }
+
+    func testExecAcceptsAnAllSuccessReply() {
+        XCTAssertNoThrow(try RedisDriver.checkExecReply(
+            .array([.simpleString("OK"), .integer(1), .bulkString("v")])))
     }
 
     // MARK: Reply rendering
