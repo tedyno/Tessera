@@ -338,18 +338,7 @@ struct PaneView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.85)))
             }
 
-            Image(systemName: "line.3.horizontal.decrease").foregroundStyle(.secondary)
-            FilterField(
-                text: Binding(get: { tab.filterWhere }, set: { tab.filterWhere = $0 }),
-                table: tab.dataTable,
-                schema: model.schema(for: tab),
-                engine: model.engine(for: tab),
-                columns: tab.result?.columns.map(\.name) ?? [],
-                placeholder: String(localized: "WHERE …"),
-                onSubmit: { clause in Task { await model.applyFilter(tab, where: clause) } })
-                .frame(width: 160, height: 24)
-                .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.primary.opacity(0.12)))
+            filterBar(tab)
 
             sortMenu(tab)
             limitField(tab)
@@ -369,6 +358,54 @@ struct PaneView: View {
         }
         .animation(.snappy(duration: 0.2), value: tab.isEditable)
         .animation(.snappy(duration: 0.2), value: tab.isRunning)
+    }
+
+    /// The WHERE filter as one search-field-like capsule: funnel icon, the
+    /// completing text field, and a clear button once a filter is set. The field
+    /// grows with its clause (a followed foreign key writes one in whole) instead
+    /// of scrolling inside a fixed box, and an applied filter tints the chrome so
+    /// a filtered grid is recognisable at a glance.
+    private func filterBar(_ tab: QueryTab) -> some View {
+        let active = !tab.filterWhere.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return HStack(spacing: 5) {
+            Image(systemName: "line.3.horizontal.decrease")
+                .foregroundStyle(active ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+            FilterField(
+                text: Binding(get: { tab.filterWhere }, set: { tab.filterWhere = $0 }),
+                table: tab.dataTable,
+                schema: model.schema(for: tab),
+                engine: model.engine(for: tab),
+                columns: tab.result?.columns.map(\.name) ?? [],
+                placeholder: String(localized: "WHERE …"),
+                onSubmit: { clause in Task { await model.applyFilter(tab, where: clause) } })
+                .frame(width: Self.filterFieldWidth(for: tab.filterWhere), height: 24)
+            if active {
+                Button {
+                    tab.filterWhere = ""
+                    Task { await model.applyFilter(tab, where: "") }
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear Filter")
+                .transition(.opacity.combined(with: .scale(scale: 0.7)))
+            }
+        }
+        .padding(.horizontal, 7)
+        .background(.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6)
+            .strokeBorder(active ? AnyShapeStyle(Color.accentColor.opacity(0.5))
+                                 : AnyShapeStyle(.primary.opacity(0.12))))
+        .animation(.snappy(duration: 0.18), value: active)
+    }
+
+    /// Width for the filter field: sized to its text (the field's monospaced font)
+    /// with room for the caret, clamped so an empty field stays compact and a long
+    /// clause caps out instead of pushing every other control off the toolbar.
+    private static func filterFieldWidth(for text: String) -> CGFloat {
+        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let textWidth = (text as NSString).size(withAttributes: [.font: font]).width
+        return min(max(160, textWidth + 24), 440)
     }
 
     private func explainMenu(_ tab: QueryTab) -> some View {
