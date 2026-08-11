@@ -638,19 +638,42 @@ final class QueryConsoleModel {
     /// which is wrong when opening a search hit that belongs to another connection.
     func openTable(schema: String, table: String, on session: ConnectionSession? = nil) async {
         guard let session = session ?? activeSession else { return }
+        let (tab, isNew) = dataTab(schema: schema, table: table, on: session)
+        // A restored (or idle-disconnected) tab is focused but has no live
+        // connection and no data — clicking it in the schema should behave like
+        // opening it fresh: reconnect and load. A tab already showing data on a
+        // live connection just refocuses, keeping its scroll and any edits.
+        if isNew || !session.isReady || tab.result == nil {
+            await reloadData(tab, refreshCount: true)
+        }
+    }
+
+    /// Opens the table on the other end of a foreign key, filtered to the rows the
+    /// reference selects — "follow this reference", in either direction. Reuses an
+    /// existing view of that table, replacing its filter so the same tab doesn't
+    /// keep a stale one.
+    func openReferencedTable(schema: String, table: String, where clause: String) async {
+        // Stays on the tab's own connection — a foreign key never crosses databases.
+        guard let session = activeSession else { return }
+        let (tab, _) = dataTab(schema: schema, table: table, on: session)
+        // The filter is in place before the first load, so the tab never flashes
+        // the unfiltered table on its way to the referenced rows.
+        tab.filterWhere = clause
+        tab.sortOrder = []
+        tab.pageLimit = QueryTab.defaultPageLimit
+        await reloadData(tab, refreshCount: true)
+    }
+
+    /// Focuses the data-view tab for a table on this connection, creating (but not
+    /// loading) one when none exists yet — the caller decides how to load it.
+    private func dataTab(schema: String, table: String,
+                         on session: ConnectionSession) -> (tab: QueryTab, isNew: Bool) {
         // Reuse an existing data view for the same table on this connection.
         if let existing = tabs.first(where: {
             $0.session === session && $0.kind == .data && $0.dataSchema == schema && $0.dataTable == table
         }) {
             activate(existing)
-            // A restored (or idle-disconnected) tab is focused but has no live
-            // connection and no data — clicking it in the schema should behave like
-            // opening it fresh: reconnect and load. A tab already showing data on a
-            // live connection just refocuses, keeping its scroll and any edits.
-            if !session.isReady || existing.result == nil {
-                await reloadData(existing, refreshCount: true)
-            }
-            return
+            return (existing, false)
         }
         let tab = QueryTab(title: table)
         tab.session = session
@@ -660,20 +683,7 @@ final class QueryConsoleModel {
         tab.pageLimit = QueryTab.defaultPageLimit
         tabs.append(tab)
         activate(tab)
-        await reloadData(tab, refreshCount: true)
-    }
-
-    /// Opens the table a foreign key points at, filtered to the referenced row —
-    /// "follow this reference". Reuses an existing view of that table, replacing its
-    /// filter so the same tab doesn't keep a stale one.
-    func openReferencedTable(schema: String, table: String, where clause: String) async {
-        // Stays on the tab's own connection — a foreign key never crosses databases.
-        await openTable(schema: schema, table: table, on: activeSession)
-        guard let tab = activeTab, tab.kind == .data else { return }
-        tab.filterWhere = clause
-        tab.sortOrder = []
-        tab.pageLimit = QueryTab.defaultPageLimit
-        await reloadData(tab, refreshCount: true)
+        return (tab, true)
     }
 
     /// Opens (or refocuses) an ER-diagram tab on a connection. A table scope
