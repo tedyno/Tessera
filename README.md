@@ -5,8 +5,8 @@
 ![Platform: macOS 26+](https://img.shields.io/badge/platform-macOS%2026%2B-lightgrey)
 
 A fast, native database client for macOS. No Electron, no webview, no JavaScript —
-pure Swift and SwiftUI. Built for PostgreSQL, MySQL, MariaDB and SQLite, with secure
-credential storage and SSH tunnelling.
+pure Swift and SwiftUI. Built for PostgreSQL, MySQL, MariaDB, SQLite and Redis, with
+secure credential storage and SSH tunnelling.
 
 The name is the Latin word for a single tile of a mosaic: one cell of a data grid, from
 which the whole picture is assembled.
@@ -15,11 +15,16 @@ which the whole picture is assembled.
 
 ## Features
 
-- **PostgreSQL, MySQL, MariaDB and SQLite** through one interface, with several connections
+- **PostgreSQL, MySQL, MariaDB, SQLite and Redis** through one interface, with several connections
   live at once — staging and production side by side. Each tab is bound to its own session,
   labelled with its connection and a live status dot, and a per-tab picker points it at any
   connection. SQLite needs no server at all: point a connection at a file (or a new path —
   the file is created on first connect).
+- **Redis** gets its own primitives instead of a SQL facade: the console is a redis-cli
+  (⌘↩ runs the line under the cursor, replies render into the grid — HGETALL as
+  field/value pairs, ZRANGE WITHSCORES as member/score), and connecting opens a key
+  browser — SCAN with a MATCH pattern, key/type/TTL pages with Load more, double-click
+  opens a key with its type's read command, ⌫ deletes keys behind a confirmation.
 - **Split-pane tiling** — drag a tab onto a pane's edge to split the workspace four ways,
   drop it on another pane's tab bar to move it there, drag the dividers to resize, and close
   a whole pane with its tabs. Tabs reorder within a pane by drag. The whole layout persists
@@ -174,6 +179,7 @@ TesseraCore/           # local Swift Package — portable core, no SwiftUI
   Sources/DBDriverPostgres/
   Sources/DBDriverMySQL/   # also serves MariaDB (same wire protocol)
   Sources/DBDriverSQLite/  # system libsqlite3, no dependencies
+  Sources/DBDriverRedis/   # hand-rolled RESP2 client over SwiftNIO
   Sources/DBTunnel/        # SSH local port forwarding
   Sources/DBSecurity/      # Keychain wrapper
   Sources/DBMCPServer/     # MCP HTTP transport
@@ -184,7 +190,8 @@ the other way round. The UI talks to the core purely through `DBKit` protocols, 
 dependencies.
 
 **Tech stack:** Swift 6 (strict concurrency), SwiftUI, PostgresNIO, MySQLNIO, the system
-SQLite3 C library, Citadel (swift-nio-ssh), Security.framework.
+SQLite3 C library, a hand-rolled RESP2 Redis client on SwiftNIO, Citadel (swift-nio-ssh),
+Security.framework.
 
 ## Contributing
 
