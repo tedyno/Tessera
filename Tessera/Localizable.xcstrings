@@ -5772,6 +5772,39 @@
           }
         }
       }
+    },
+    "Connections could not be loaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Připojení se nepodařilo načíst"
+          }
+        }
+      }
+    },
+    "Quit": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukončit"
+          }
+        }
+      }
+    },
+    "Tessera could not read your saved connections from %@.\n\nNothing has been changed or overwritten, and saving is disabled until this is resolved. Earlier versions are in %@ — replace the file with one of those and start Tessera again.\n\n(%@)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tessera nedokázala načíst uložená připojení ze souboru %@.\n\nNic nebylo změněno ani přepsáno a ukládání je zakázané, dokud se to nevyřeší. Starší verze najdeš v %@ — nahraď soubor některou z nich a spusť Tesseru znovu.\n\n(%@)"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

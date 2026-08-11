@@ -1,4 +1,5 @@
 import Foundation
+import DBKit
 
 /// A named SQL snippet the user bookmarked for reuse.
 public struct SavedQuery: Codable, Sendable, Identifiable, Hashable {
@@ -29,7 +30,7 @@ public struct SavedQueryStore: Sendable {
     }
 
     public static func defaultURL(
-        bundleID: String = "io.github.tedyno.tessera",
+        bundleID: String = StorageIdentity.current,
         fileManager: FileManager = .default
     ) throws -> URL {
         let base = try fileManager.url(

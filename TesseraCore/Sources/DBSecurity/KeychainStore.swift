@@ -1,4 +1,5 @@
 import Foundation
+import DBKit
 import Security
 
 public enum KeychainError: Error, Sendable, Equatable {
@@ -14,7 +15,7 @@ public enum KeychainError: Error, Sendable, Equatable {
 public struct KeychainStore: Sendable {
     public let service: String
 
-    public init(service: String = "io.github.tedyno.tessera") {
+    public init(service: String = StorageIdentity.current) {
         self.service = service
     }
 

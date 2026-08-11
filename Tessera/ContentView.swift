@@ -119,6 +119,17 @@ struct ContentView: View {
             MCPAuditView(app: app)
                 .tesseraModalBackground()
         }
+        // An unreadable profiles file leaves the app with no connections. Saying so
+        // loudly matters: silence looks like "they're gone", and the user might
+        // start recreating them over a file that is merely damaged.
+        .alert(Text("Connections could not be loaded"),
+               isPresented: Binding(get: { app.connections.profileStoreFailure != nil },
+                                    set: { _ in }),
+               presenting: app.connections.profileStoreFailure) { _ in
+            Button { NSApp.terminate(nil) } label: { Text("Quit") }
+        } message: { failure in
+            Text(verbatim: failure)
+        }
         // A changed SSH host key blocks the connect; trusting the new key must be
         // an explicit decision, so it gets a real dialog, not just an error line.
         .alert(Text("SSH host key changed"),

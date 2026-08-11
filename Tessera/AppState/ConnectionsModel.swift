@@ -11,6 +11,10 @@ import DBSecurity
 final class ConnectionsModel {
     private(set) var profiles: [ConnectionProfile] = []
     private(set) var organizer = OrganizerDocument()
+    /// Set when the profiles file exists but could not be read. While it is set,
+    /// nothing is written to that file — an empty in-memory list must never be
+    /// saved over connections that are merely unreadable.
+    private(set) var profileStoreFailure: String?
     /// Schema names the user has hidden in the tree, per profile.
     private(set) var hiddenSchemasByProfile: [UUID: Set<String>] = [:]
 
@@ -74,14 +78,47 @@ final class ConnectionsModel {
     // MARK: Loading / seeding
 
     private func loadAll() {
-        profiles = (try? profileStore.load()) ?? []
+        let profilesExisted = profileStore.fileExists
+        do {
+            profiles = try profileStore.load()
+        } catch {
+            // The file is there but unreadable. Treating that as "no connections
+            // yet" would seed a sample profile and overwrite the only copy of the
+            // user's connections, so instead: keep nothing, write nothing, and say
+            // so. Every later save is blocked until the file is dealt with.
+            profiles = []
+            profileStoreFailure = Self.message(for: error, url: profileStore.fileURL,
+                                               backups: profileStore.backups.directory)
+        }
         organizer = (try? organizerStore.load()) ?? OrganizerDocument()
-        if profiles.isEmpty { seedLocalProfile() }
-        if organizer.workspaces.isEmpty {
+        // Only a genuinely absent file is a first run.
+        if profiles.isEmpty, !profilesExisted, profileStoreFailure == nil {
+            seedLocalProfile()
+        }
+        if organizer.workspaces.isEmpty, profileStoreFailure == nil {
             let refs = profiles.map { OrganizerNode.connection(ConnectionRef(profileID: $0.id)) }
             organizer.workspaces = [Workspace(name: "My Connections", children: refs)]
             saveOrganizer()
         }
+    }
+
+    private static func message(for error: Error, url: URL, backups: URL) -> String {
+        String(localized: """
+            Tessera could not read your saved connections from \(url.path).
+
+            Nothing has been changed or overwritten, and saving is disabled until \
+            this is resolved. Earlier versions are in \(backups.path) — replace the \
+            file with one of those and start Tessera again.
+
+            (\(String(describing: error)))
+            """)
+    }
+
+    /// Writes the profile list, unless the stored file failed to load — in that
+    /// case the in-memory list is empty and saving would erase the real one.
+    private func saveProfiles() {
+        guard profileStoreFailure == nil else { return }
+        try? profileStore.save(profiles)
     }
 
     /// Dev convenience: a connection to the local Docker Postgres on first run.
@@ -91,7 +128,7 @@ final class ConnectionsModel {
             database: "shop", username: "tessera", tlsMode: .disable)
         try? secretsStore.save(for: profile, secrets: Secrets(databasePassword: "tessera"))
         profiles = [profile]
-        try? profileStore.save(profiles)
+        saveProfiles()
     }
 
     // MARK: Lookups
@@ -154,7 +191,7 @@ final class ConnectionsModel {
     func addConnection(_ profile: ConnectionProfile, secrets: Secrets, into parentID: UUID? = nil) -> UUID {
         try? secretsStore.save(for: profile, secrets: secrets)
         profiles.append(profile)
-        try? profileStore.save(profiles)
+        saveProfiles()
         let ref = ConnectionRef(profileID: profile.id)
         let node = OrganizerNode.connection(.init(id: ref.id, profileID: profile.id))
         // No parent means no workspace: the connection sits loose above them all.
@@ -213,7 +250,7 @@ final class ConnectionsModel {
             removed.append(profileID)
         }
         guard !removed.isEmpty else { return }
-        try? profileStore.save(profiles)
+        saveProfiles()
         // A live session (and any tab on it) would otherwise outlive the connection.
         onProfilesRemoved(removed)
     }
@@ -321,7 +358,7 @@ final class ConnectionsModel {
     func setProfileColor(_ color: String?, profileID: UUID) {
         guard let index = profiles.firstIndex(where: { $0.id == profileID }) else { return }
         profiles[index].color = color
-        try? profileStore.save(profiles)
+        saveProfiles()
         onProfileChanged(profiles[index])
     }
 
@@ -333,7 +370,7 @@ final class ConnectionsModel {
         } else {
             profiles.append(profile)
         }
-        try? profileStore.save(profiles)
+        saveProfiles()
         onProfileChanged(profile)
     }
 
@@ -349,7 +386,7 @@ final class ConnectionsModel {
     func removeProfileKeepingSecrets(_ profileID: UUID) {
         for ref in organizer.refs(toProfile: profileID) { organizer.remove(ref.id) }
         profiles.removeAll { $0.id == profileID }
-        try? profileStore.save(profiles)
+        saveProfiles()
         saveOrganizer()
     }
 
@@ -363,7 +400,7 @@ final class ConnectionsModel {
     func reinstate(_ profile: ConnectionProfile, into parentID: UUID?) {
         guard !profiles.contains(where: { $0.id == profile.id }) else { return }
         profiles.append(profile)
-        try? profileStore.save(profiles)
+        saveProfiles()
         let node = OrganizerNode.connection(ConnectionRef(profileID: profile.id))
         if let parentID, organizer.append(node, toParent: parentID) {
             saveOrganizer()

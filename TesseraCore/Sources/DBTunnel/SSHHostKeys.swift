@@ -1,4 +1,5 @@
 import Foundation
+import DBKit
 import Crypto
 
 /// Host-key trust for the SSH tunnel: helpers shared by the known-hosts parser,
@@ -180,7 +181,7 @@ public struct SSHHostKeyStore: Sendable {
     }
 
     public static func defaultURL(
-        bundleID: String = "io.github.tedyno.tessera",
+        bundleID: String = StorageIdentity.current,
         fileManager: FileManager = .default
     ) throws -> URL {
         let base = try fileManager.url(

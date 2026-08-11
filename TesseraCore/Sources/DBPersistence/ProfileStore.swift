@@ -7,14 +7,19 @@ import DBKit
 /// Keychain.
 public struct ProfileStore: Sendable {
     public let fileURL: URL
+    /// Previous versions, kept next to the file. Connection parameters can't be
+    /// regenerated from anything else, so every write leaves the old content
+    /// behind first.
+    public let backups: StoreBackups
 
-    public init(fileURL: URL) {
+    public init(fileURL: URL, backups: StoreBackups? = nil) {
         self.fileURL = fileURL
+        self.backups = backups ?? .alongside(fileURL)
     }
 
     /// `~/Library/Application Support/<bundleID>/profiles.json` (creates the directory).
     public static func defaultURL(
-        bundleID: String = "io.github.tedyno.tessera",
+        bundleID: String = StorageIdentity.current,
         fileManager: FileManager = .default
     ) throws -> URL {
         let base = try fileManager.url(
@@ -28,10 +33,16 @@ public struct ProfileStore: Sendable {
         return dir.appendingPathComponent("profiles.json", isDirectory: false)
     }
 
+    /// True when a profiles file is already on disk. The distinction matters:
+    /// "no file yet" is a first run and may be seeded, while "a file we failed to
+    /// read" must never be replaced — that would destroy the only copy of the
+    /// user's connections.
+    public var fileExists: Bool {
+        FileManager.default.fileExists(atPath: fileURL.path)
+    }
+
     public func load() throws -> [ConnectionProfile] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return []
-        }
+        guard fileExists else { return [] }
         let data = try Data(contentsOf: fileURL)
         return try JSONDecoder().decode([ConnectionProfile].self, from: data)
     }
@@ -40,6 +51,9 @@ public struct ProfileStore: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(profiles)
+        // Keep what's there now before replacing it — including when the caller
+        // is about to write a shorter list than the file holds.
+        backups.capture(fileURL)
         try PrivateFile.write(data, to: fileURL)
     }
 }

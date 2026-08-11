@@ -1,16 +1,21 @@
 import Foundation
+import DBKit
 
 /// Loads and atomically saves the organizer to a JSON file.
 public struct OrganizerStore: Sendable {
     public let fileURL: URL
+    /// Previous versions of the tree, kept next to the file — the arrangement of
+    /// folders and connections is the user's work and can't be reconstructed.
+    public let backups: StoreBackups
 
-    public init(fileURL: URL) {
+    public init(fileURL: URL, backups: StoreBackups? = nil) {
         self.fileURL = fileURL
+        self.backups = backups ?? .alongside(fileURL)
     }
 
     /// `~/Library/Application Support/<bundleID>/organizer.json` (creates the directory).
     public static func defaultURL(
-        bundleID: String = "io.github.tedyno.tessera",
+        bundleID: String = StorageIdentity.current,
         fileManager: FileManager = .default
     ) throws -> URL {
         let base = try fileManager.url(
@@ -37,6 +42,7 @@ public struct OrganizerStore: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(document)
+        backups.capture(fileURL)
         try PrivateFile.write(data, to: fileURL)
     }
 }

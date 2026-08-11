@@ -1,4 +1,5 @@
 import Foundation
+import DBKit
 
 /// One executed query, recorded for the history panel.
 public struct QueryHistoryEntry: Codable, Sendable, Identifiable, Hashable {
@@ -61,7 +62,7 @@ public struct QueryHistoryStore: Sendable {
     }
 
     public static func defaultURL(
-        bundleID: String = "io.github.tedyno.tessera",
+        bundleID: String = StorageIdentity.current,
         fileManager: FileManager = .default
     ) throws -> URL {
         let base = try fileManager.url(
