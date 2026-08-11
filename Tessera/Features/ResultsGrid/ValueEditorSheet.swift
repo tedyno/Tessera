@@ -12,12 +12,30 @@ struct ValueEditorSheet: View {
 
     @State private var text: String
     @State private var isNull: Bool
+    /// The text is a complete JSON object/array — enables the format toggle.
+    @State private var isFormattableJSON: Bool
+    /// The stored value was single-line JSON: it opens pretty-printed for
+    /// editing and Save minifies it back to match the stored format. A value
+    /// stored formatted keeps the user's own formatting untouched.
+    private let wasInline: Bool
 
     init(target: ValueEditorTarget, onSave: @escaping (String?) -> Void) {
         self.target = target
         self.onSave = onSave
-        _text = State(initialValue: target.text)
         _isNull = State(initialValue: target.isNull)
+        // Formatting must happen here, not in onAppear — a later write to `text`
+        // would trip the onChange that clears `isNull`.
+        if !target.isNull, JSONText.isInline(target.text),
+           let pretty = JSONText.prettyPrinted(target.text) {
+            wasInline = true
+            _text = State(initialValue: pretty)
+            _isFormattableJSON = State(initialValue: true)
+        } else {
+            wasInline = false
+            _text = State(initialValue: target.text)
+            let scanned = target.isNull ? nil : JSONText.scan(target.text)
+            _isFormattableJSON = State(initialValue: scanned.map { $0.isValid && $0.isContainer } ?? false)
+        }
     }
 
     var body: some View {
@@ -77,18 +95,29 @@ struct ValueEditorSheet: View {
                 Divider()
             }
 
-            TextEditor(text: $text)
-                .font(.system(.body, design: .monospaced))
-                .disabled(!target.isEditable)
-                .scrollContentBackground(.hidden)
+            ValueTextEditor(text: $text, isEditable: target.isEditable)
                 .padding(6)
-                .onChange(of: text) { _, _ in isNull = false }
+                .onChange(of: text) { _, _ in
+                    isNull = false
+                    isFormattableJSON = JSONText.scan(text)
+                        .map { $0.isValid && $0.isContainer } ?? false
+                }
 
             Divider()
 
             HStack {
-                Button("Pretty-print JSON") { prettyPrint() }
-                    .disabled(prettyPrinted() == nil)
+                // One toggle, labeled by what it would do to the current text.
+                if JSONText.isInline(text) {
+                    Button("Pretty-print JSON") {
+                        if let pretty = JSONText.prettyPrinted(text) { text = pretty }
+                    }
+                    .disabled(!isFormattableJSON)
+                } else {
+                    Button("Minify JSON") {
+                        if let minified = JSONText.minified(text) { text = minified }
+                    }
+                    .disabled(!isFormattableJSON)
+                }
                 if target.isEditable {
                     // Insert rows can't express NULL — removing the value falls
                     // back to the column default, so the button says what it does.
@@ -103,7 +132,7 @@ struct ValueEditorSheet: View {
                 if target.isEditable {
                     Button("Save") {
                         // An untouched NULL saves as NULL, not as "".
-                        onSave(isNull ? nil : text)
+                        onSave(isNull ? nil : savedText)
                         dismiss()
                     }
                     // ⌘↩, not plain Return — Return types a newline in the editor.
@@ -178,18 +207,15 @@ struct ValueEditorSheet: View {
         return formatter.string(from: date)
     }
 
-    /// The text re-serialized with indentation, or nil when it isn't JSON.
-    private func prettyPrinted() -> String? {
-        guard let data = text.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
-              object is [Any] || object is [String: Any],
-              let pretty = try? JSONSerialization.data(
-                withJSONObject: object, options: [.prettyPrinted, .withoutEscapingSlashes]),
-              let string = String(data: pretty, encoding: .utf8) else { return nil }
-        return string
-    }
-
-    private func prettyPrint() {
-        if let pretty = prettyPrinted() { text = pretty }
+    /// What Save writes: a value stored as inline JSON goes back minified (the
+    /// pretty-printing was only for editing); anything else is saved exactly as
+    /// displayed. An untouched value returns the byte-identical original, so the
+    /// caller's "did it change" guard still discards no-op saves.
+    private var savedText: String {
+        guard wasInline else { return text }
+        if JSONText.haveSameTokens(text, target.text) { return target.text }
+        // Invalid JSON after an edit: save as typed — the server reports the
+        // error the same way it does today, nothing is silently dropped.
+        return JSONText.minified(text) ?? text
     }
 }

@@ -3171,6 +3171,17 @@
         }
       }
     },
+    "Minify JSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minifikovat JSON"
+          }
+        }
+      }
+    },
     "Pretty-print JSON": {
       "extractionState": "manual",
       "localizations": {
