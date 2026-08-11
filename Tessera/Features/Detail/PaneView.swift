@@ -445,8 +445,9 @@ struct PaneView: View {
 
     @ViewBuilder
     private func explainMenu(_ tab: QueryTab) -> some View {
-        // Redis has no query plans — hide the menu instead of offering a no-op.
-        if tab.session?.engine.isKeyValue != true {
+        // Engines without query plans (Redis) hide the menu instead of offering
+        // a no-op.
+        if tab.session?.engine.consolePipeline.supportsExplain != false {
             Menu {
                 Button("Explain") { model.activate(tab); onExplain(false) }
                 if let dialect = tab.session?.engine.dialect,

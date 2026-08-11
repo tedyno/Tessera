@@ -230,8 +230,6 @@ final class AppModel {
         var checkSQL: String?
         var names: [String]
         var tab: QueryTab
-        /// MySQL escapes `\'` inside strings; Postgres (standard strings) not.
-        var backslashEscapes: Bool
     }
     var pendingParameterRun: PendingParameterRun?
     /// Last values by parameter name, pre-filled on the next prompt.
@@ -242,32 +240,31 @@ final class AppModel {
         guard let pending = pendingParameterRun else { return }
         pendingParameterRun = nil
         lastParameterValues.merge(values) { _, new in new }
-        let escapes = pending.backslashEscapes
-        let sql = QueryParameters.substitute(pending.sql, values: values,
-                                             backslashEscapes: escapes)
+        let pipeline = consolePipeline(for: pending.tab)
+        let sql = pipeline.substituteParameters(in: pending.sql, values: values)
         let checkSQL = pending.checkSQL.map {
-            QueryParameters.substitute($0, values: values, backslashEscapes: escapes)
+            pipeline.substituteParameters(in: $0, values: values)
         }
         runChecked(sql, checking: checkSQL, on: pending.tab)
     }
 
+    /// The engine's console strategy: which scans and rewrites a run goes
+    /// through. Redis skips the SQL-only ones by construction, not by ad-hoc
+    /// engine checks at every call site.
+    private func consolePipeline(for tab: QueryTab) -> any ConsolePipeline {
+        (tab.session?.engine ?? .postgres).consolePipeline
+    }
+
     private func runChecked(_ sql: String, checking checkSQL: String? = nil, on tab: QueryTab) {
-        // Redis commands are not SQL: `session:abc123` is a key, not a `:name`
-        // placeholder, and the destructive-SQL scan has nothing to say either.
-        if tab.session?.engine.isKeyValue == true {
-            tab.task = Task { await console.run(tab, sqlToRun: sql) }
-            return
-        }
-        // `:name` placeholders pause the run for their values first.
-        let backslashEscapes = tab.session?.engine == .mysql
-        let parameterNames = QueryParameters.names(in: sql, backslashEscapes: backslashEscapes)
+        let pipeline = consolePipeline(for: tab)
+        // Placeholders (`:name` in SQL) pause the run for their values first.
+        let parameterNames = pipeline.parameterNames(in: sql)
         guard parameterNames.isEmpty else {
             pendingParameterRun = PendingParameterRun(sql: sql, checkSQL: checkSQL,
-                                                      names: parameterNames, tab: tab,
-                                                      backslashEscapes: backslashEscapes)
+                                                      names: parameterNames, tab: tab)
             return
         }
-        let warnings = SQLSafety.warnings(in: checkSQL ?? sql)
+        let warnings = pipeline.safetyWarnings(in: checkSQL ?? sql)
         guard warnings.isEmpty else {
             destructiveWarnings = warnings
             pendingDestructiveSQL = sql

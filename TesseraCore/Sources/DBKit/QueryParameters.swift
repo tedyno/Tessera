@@ -9,16 +9,16 @@ import Foundation
 /// `backslashEscapes` mirrors the engine: MySQL treats `\'` as an escaped
 /// quote inside strings (and needs backslashes doubled in literals); Postgres
 /// with standard_conforming_strings does not.
-enum QueryParameters {
+public enum QueryParameters {
     /// Placeholder names in first-appearance order, deduplicated.
-    static func names(in sql: String, backslashEscapes: Bool = false) -> [String] {
+    public static func names(in sql: String, backslashEscapes: Bool = false) -> [String] {
         var seen = Set<String>()
         return scan(sql, backslashEscapes: backslashEscapes) { _ in nil }
             .names.filter { seen.insert($0).inserted }
     }
 
     /// Replaces every placeholder with a literal from `values`.
-    static func substitute(_ sql: String, values: [String: String],
+    public static func substitute(_ sql: String, values: [String: String],
                            backslashEscapes: Bool = false) -> String {
         scan(sql, backslashEscapes: backslashEscapes) { name in
             values[name].map { literal(for: $0, backslashEscapes: backslashEscapes) }
@@ -27,7 +27,7 @@ enum QueryParameters {
 
     /// Empty and "NULL" run as SQL NULL, plain numbers stay unquoted,
     /// everything else becomes a quoted (escaped) string literal.
-    static func literal(for value: String, backslashEscapes: Bool = false) -> String {
+    public static func literal(for value: String, backslashEscapes: Bool = false) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty || trimmed.uppercased() == "NULL" { return "NULL" }
         // Strict SQL-number shape — `Double()` would also wave through

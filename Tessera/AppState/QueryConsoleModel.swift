@@ -363,16 +363,16 @@ final class QueryConsoleModel {
         if tab.hasEdits { await commitEdits(tab) } else { await run(tab, sqlToRun: tab.sql) }
     }
 
-    /// Which SQL to run given the caret position (statement under cursor, with
-    /// subselect disambiguation). Redis commands are line-based: the run unit is
-    /// the line under the cursor (first non-empty line for an empty one).
+    /// Which text to run given the caret position — the engine's console
+    /// pipeline decides (a `;`-delimited statement for SQL, the current line
+    /// for Redis).
     func resolveRunTarget(_ tab: QueryTab) -> SQLRunTarget {
-        if tab.session?.engine.isKeyValue == true {
-            let line = RedisCommandLine.lineUnderCursor(in: tab.sql, cursor: tab.cursorPosition)
-            return .statement(line.isEmpty
-                ? (RedisCommandLine.scriptLines(tab.sql).first ?? "") : line)
-        }
-        return SQLStatements.resolve(sql: tab.sql, cursor: tab.cursorPosition)
+        pipeline(for: tab).runTarget(in: tab.sql, cursor: tab.cursorPosition)
+    }
+
+    /// The engine's console strategy (scans, rewrites, run units).
+    private func pipeline(for tab: QueryTab) -> any ConsolePipeline {
+        (tab.session?.engine ?? .postgres).consolePipeline
     }
 
     func run(_ tab: QueryTab, sqlToRun: String? = nil, preserveSort: Bool = false,
@@ -390,11 +390,13 @@ final class QueryConsoleModel {
             tab.isRunning = false
             return
         }
-        // Console SQL gets bare string values auto-quoted before running
-        // (`WHERE status = active` → `= 'active'`); the editor text stays the
-        // user's. A data view's SQL is generated from an already-quoted filter.
-        if tab.kind == .console, session.schema != nil {
-            sql = SQLAutoQuote.quoted(sql, scope: session.completionEngine.statementScope(sql))
+        // The engine's pre-run rewrite: SQL gets bare string values auto-quoted
+        // (`WHERE status = active` → `= 'active'`), Redis runs commands exactly
+        // as typed. The editor text stays the user's either way; a data view's
+        // SQL is generated from an already-quoted filter and skips this.
+        if tab.kind == .console {
+            sql = session.engine.consolePipeline.rewriteForRun(
+                sql, completion: session.schema != nil ? session.completionEngine : nil)
         }
         do {
             // A data view honors its own "Limit" field — an explicit row count the
@@ -461,9 +463,7 @@ final class QueryConsoleModel {
     /// result; on failure reports which statement failed.
     func runScript(_ tab: QueryTab) async {
         guard let session = tab.session, !tab.isRunning else { return }
-        let statements = session.engine.isKeyValue
-            ? RedisCommandLine.scriptLines(tab.sql)
-            : SQLScript.statements(in: tab.sql)
+        let statements = session.engine.consolePipeline.scriptStatements(in: tab.sql)
         guard !statements.isEmpty else { return }
         let clock = ContinuousClock()
         let started = clock.now
