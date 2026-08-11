@@ -7,15 +7,15 @@ import DBKit
 /// database). `focusTrigger` increments to request keyboard focus (⌘L).
 struct SQLEditor: NSViewRepresentable {
     @Binding var text: String
-    var schema: DatabaseTree?
+    /// The session's cached schema-aware completion engine (nil = no completion).
+    /// Built once per schema generation by `ConnectionSession` — the editor must
+    /// not rebuild it per keystroke.
+    var completion: SQLCompletionEngine?
     var focusTrigger: Int
     var cursor: Binding<Int>?
     /// Read-only mode: shows highlighted, selectable SQL that can't be edited
     /// (used to display a data view's generated query).
     var readOnly: Bool = false
-    /// Which SQL dialect drives completion: keyword pools and identifier quoting
-    /// differ between PostgreSQL and MySQL.
-    var engine: DatabaseKind? = nil
     /// Called when the editor is clicked, so its pane takes focus in a tiled layout.
     var onFocus: () -> Void = {}
 
@@ -50,8 +50,7 @@ struct SQLEditor: NSViewRepresentable {
         // tab dragged onto it (pasting its id) instead of letting the pane split.
         textView.unregisterDraggedTypes()
         context.coordinator.textView = textView
-        context.coordinator.schema = schema
-        context.coordinator.engine = engine
+        context.coordinator.completionEngine = completion
         if !readOnly {
             textView.completionSource = { [weak c = context.coordinator] text, caret, forced in
                 c?.completion(text: text, caret: caret, forced: forced)
@@ -70,8 +69,7 @@ struct SQLEditor: NSViewRepresentable {
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = context.coordinator.textView as? CompletingTextView else { return }
         textView.onFocus = onFocus
-        context.coordinator.schema = schema
-        context.coordinator.engine = engine
+        context.coordinator.completionEngine = completion
         // A pane reuses one editor (and its coordinator) across tab switches, but the
         // coordinator captured these bindings when it was born against a different tab.
         // Refresh them each update so edits write back to the tab now shown — otherwise
@@ -100,13 +98,10 @@ struct SQLEditor: NSViewRepresentable {
         var lastFocusTrigger = 0
         var previousLength = 0
 
-        var schema: DatabaseTree? { didSet { rebuildEngine() } }
-        var engine: DatabaseKind? { didSet { rebuildEngine() } }
-
-        /// The pure completion engine (in TesseraCore); rebuilt when the schema or
-        /// dialect changes. The coordinator is just its editor-side shell.
-        private var completionEngine = SQLCompletionEngine(schema: nil, engine: nil)
-        private func rebuildEngine() { completionEngine = SQLCompletionEngine(schema: schema, engine: engine) }
+        /// The session's cached pure completion engine (in TesseraCore); assigned
+        /// from `updateNSView` — a cheap struct copy, never a rebuild. Nil while
+        /// no session/schema exists.
+        var completionEngine: SQLCompletionEngine?
 
         init(text: Binding<String>, cursor: Binding<Int>?) {
             self.text = text
@@ -130,7 +125,7 @@ struct SQLEditor: NSViewRepresentable {
         /// qualifiers in the statement to the alias (`action.name` → `a.name`). The
         /// engine decides which; this only applies the edits.
         private func applyAliasRewrites() {
-            guard let textView, !isApplyingAliasRewrite else { return }
+            guard let textView, let completionEngine, !isApplyingAliasRewrite else { return }
             let caret = textView.selectedRange().location
             let renames = completionEngine.pendingAliasRewrites(text: textView.string, caret: caret)
             guard !renames.isEmpty else { return }
@@ -143,6 +138,7 @@ struct SQLEditor: NSViewRepresentable {
 
         /// Supplies the replace-range and candidates for the caret (schema-aware).
         func completion(text: String, caret: Int, forced: Bool) -> (NSRange, [SQLCompletionItem]) {
+            guard let completionEngine else { return (NSRange(location: caret, length: 0), []) }
             let result = completionEngine.complete(text: text, caret: caret, forced: forced)
             return (result.range, result.items)
         }
@@ -162,7 +158,7 @@ struct SQLEditor: NSViewRepresentable {
 
         /// Applies one engine-computed qualifier rewrite to the live text view.
         private func applyRename(from: String, to: String, excluding: NSRange) {
-            guard let textView,
+            guard let textView, let completionEngine,
                   let result = completionEngine.rename(text: textView.string, from: from, to: to,
                                                        caret: textView.selectedRange().location,
                                                        excluding: excluding)

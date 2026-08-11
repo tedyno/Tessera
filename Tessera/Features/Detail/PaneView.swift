@@ -264,10 +264,9 @@ struct PaneView: View {
 
     private func editor(_ tab: QueryTab) -> some View {
         SQLEditor(text: Binding(get: { tab.sql }, set: { tab.sql = $0 }),
-                  schema: model.schema(for: tab),
+                  completion: tab.session?.completionEngine,
                   focusTrigger: isFocused ? focusTrigger : 0,
                   cursor: Binding(get: { tab.cursorPosition }, set: { tab.cursorPosition = $0 }),
-                  engine: model.engine(for: tab),
                   onFocus: { model.activate(tab) })
             .frame(height: currentEditorHeight)
     }
@@ -373,8 +372,7 @@ struct PaneView: View {
             FilterField(
                 text: Binding(get: { tab.filterWhere }, set: { tab.filterWhere = $0 }),
                 table: tab.dataTable,
-                schema: model.schema(for: tab),
-                engine: model.engine(for: tab),
+                completion: tab.session?.completionEngine,
                 columns: tab.result?.columns.map(\.name) ?? [],
                 placeholder: String(localized: "WHERE …"),
                 onSubmit: { clause in Task { await model.applyFilter(tab, where: clause) } })
@@ -496,7 +494,7 @@ struct PaneView: View {
 
     private func dataSQLView(_ tab: QueryTab) -> some View {
         // Flush, like the query editor — no boxed chrome around the generated SQL.
-        SQLEditor(text: .constant(tab.sql), schema: nil, focusTrigger: 0, cursor: nil, readOnly: true)
+        SQLEditor(text: .constant(tab.sql), completion: nil, focusTrigger: 0, cursor: nil, readOnly: true)
             .frame(height: 52)
     }
 }

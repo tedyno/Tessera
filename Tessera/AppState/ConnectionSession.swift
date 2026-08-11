@@ -37,7 +37,26 @@ final class ConnectionSession: Identifiable {
 
     private(set) var status: Status = .idle
     private(set) var serverVersion: String?
-    private(set) var schema: DatabaseTree?
+    private(set) var schema: DatabaseTree? {
+        didSet { schemaGeneration &+= 1 }
+    }
+    /// Bumped whenever `schema` is (re)assigned. Consumers that derive expensive
+    /// structures from the tree (completion engines, sidebar hashes) compare this
+    /// token instead of walking or hashing the whole tree to detect change.
+    private(set) var schemaGeneration = 0
+
+    /// Completion engine over the current schema, rebuilt lazily once per schema
+    /// generation — building one walks every table and column, far too much per
+    /// keystroke or per query run.
+    var completionEngine: SQLCompletionEngine {
+        if cachedEngineGeneration != schemaGeneration || cachedCompletionEngine == nil {
+            cachedCompletionEngine = SQLCompletionEngine(schema: schema, engine: engine)
+            cachedEngineGeneration = schemaGeneration
+        }
+        return cachedCompletionEngine!
+    }
+    @ObservationIgnored private var cachedCompletionEngine: SQLCompletionEngine?
+    @ObservationIgnored private var cachedEngineGeneration = -1
     /// The host/port a client should actually connect to — the SSH tunnel's local
     /// endpoint when tunnelled, otherwise the direct host. Used by dump/export.
     private(set) var endpoint: NetworkEndpoint?

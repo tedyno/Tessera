@@ -380,16 +380,15 @@ final class QueryConsoleModel {
         tab.errorMessage = nil
         // Reconnect a dropped connection first, then run.
         guard await ensureReady(session), let driver = session.driver else {
-            tab.errorMessage = session.errorMessage ?? "Not connected"
+            tab.errorMessage = session.errorMessage ?? String(localized: "Not connected")
             tab.isRunning = false
             return
         }
         // Console SQL gets bare string values auto-quoted before running
         // (`WHERE status = active` → `= 'active'`); the editor text stays the
         // user's. A data view's SQL is generated from an already-quoted filter.
-        if tab.kind == .console, let schema = session.schema {
-            let completion = SQLCompletionEngine(schema: schema, engine: session.engine)
-            sql = SQLAutoQuote.quoted(sql, scope: completion.statementScope(sql))
+        if tab.kind == .console, session.schema != nil {
+            sql = SQLAutoQuote.quoted(sql, scope: session.completionEngine.statementScope(sql))
         }
         do {
             // A data view honors its own "Limit" field — an explicit row count the
@@ -463,7 +462,7 @@ final class QueryConsoleModel {
         tab.isRunning = true
         tab.errorMessage = nil
         guard await ensureReady(session), let driver = session.driver else {
-            tab.errorMessage = session.errorMessage ?? "Not connected"
+            tab.errorMessage = session.errorMessage ?? String(localized: "Not connected")
             tab.isRunning = false
             return
         }
@@ -474,8 +473,11 @@ final class QueryConsoleModel {
             for statement in statements {
                 lastResult = try await driver.execute(statement, maxRows: cap > 0 ? cap : nil)
                 executed += 1
+                // History is written to disk once after the loop — a long script
+                // would otherwise re-encode the whole file per statement.
                 recordHistory(sql: statement, session: session,
-                              rowCount: lastResult?.rows.count ?? 0, elapsedMS: nil)
+                              rowCount: lastResult?.rows.count ?? 0, elapsedMS: nil,
+                              persist: false)
             }
             tab.result = lastResult ?? QueryResult()
             tab.resultVersion &+= 1
@@ -485,12 +487,13 @@ final class QueryConsoleModel {
             tab.clearEditHistory()
             tab.clearSearch()
             tab.editSource = nil   // a script isn't a single editable table view
-            tab.scriptSummary = "Executed \(executed) statement\(executed == 1 ? "" : "s")"
+            tab.scriptSummary = String(localized: "Executed \(executed) statements")
         } catch {
             tab.scriptSummary = nil
-            tab.errorMessage = "Statement \(executed + 1) of \(statements.count) failed:\n"
+            tab.errorMessage = String(localized: "Statement \(executed + 1) of \(statements.count) failed:") + "\n"
                 + ConnectionSession.message(for: error)
         }
+        if executed > 0 { persistHistory() }
         tab.isRunning = false
         Self.bounceDockIfLong(started, clock: clock)
     }
@@ -501,7 +504,7 @@ final class QueryConsoleModel {
         tab.isRunning = true
         tab.errorMessage = nil
         guard await ensureReady(session), let driver = session.driver else {
-            tab.errorMessage = session.errorMessage ?? "Not connected"
+            tab.errorMessage = session.errorMessage ?? String(localized: "Not connected")
             tab.isRunning = false
             return
         }
@@ -760,7 +763,7 @@ final class QueryConsoleModel {
                       table: String?, to url: URL) async -> Bool {
         guard let session = tab.session else { return false }
         guard await ensureReady(session), let driver = session.driver else {
-            tab.errorMessage = session.errorMessage ?? "Not connected"
+            tab.errorMessage = session.errorMessage ?? String(localized: "Not connected")
             return false
         }
         do {
@@ -768,8 +771,8 @@ final class QueryConsoleModel {
                                                        format: format, table: table ?? "table", to: url)
             return true
         } catch {
-            tab.errorMessage = "Could not write \(url.lastPathComponent): "
-                + ConnectionSession.message(for: error)
+            tab.errorMessage = String(localized:
+                "Could not write \(url.lastPathComponent): \(ConnectionSession.message(for: error))")
             return false
         }
     }
@@ -837,9 +840,8 @@ final class QueryConsoleModel {
         guard let session = tab.session, let driver = session.driver,
               let schema = tab.dataSchema, let table = tab.dataTable else { return }
         session.touch()
-        var sql = "SELECT count(*) FROM \(session.quote(schema)).\(session.quote(table))"
-        let filter = tab.filterWhere.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !filter.isEmpty { sql += " WHERE \(filter)" }
+        let sql = DataViewSQL.count(schema: schema, table: table, filter: tab.filterWhere,
+                                    dialect: session.engine.dialect)
         if let result = try? await driver.execute(sql), let text = result.rows.first?.first?.text,
            let count = Int(text.trimmingCharacters(in: .whitespaces)) {
             tab.totalRows = count
@@ -866,7 +868,7 @@ final class QueryConsoleModel {
         tab.errorMessage = nil
         defer { tab.isRunning = false }
         guard await ensureReady(session), let driver = session.driver else {
-            tab.errorMessage = session.errorMessage ?? "Not connected"
+            tab.errorMessage = session.errorMessage ?? String(localized: "Not connected")
             return
         }
         let offset = tab.result?.rows.count ?? 0
@@ -951,7 +953,7 @@ final class QueryConsoleModel {
         tab.isRunning = true
         defer { tab.isRunning = false }
         guard await ensureReady(session) else {
-            tab.errorMessage = session.errorMessage ?? "Not connected"
+            tab.errorMessage = session.errorMessage ?? String(localized: "Not connected")
             return
         }
         await session.refreshSchema()
@@ -966,9 +968,9 @@ final class QueryConsoleModel {
     /// Applies a schema change on the active connection and re-introspects, so the
     /// tree reflects it right away. Returns an error message on failure.
     func runDDL(_ sql: String) async -> String? {
-        guard let session = activeSession else { return "Not connected" }
+        guard let session = activeSession else { return String(localized: "Not connected") }
         guard await ensureReady(session), let driver = session.driver else {
-            return session.errorMessage ?? "Not connected"
+            return session.errorMessage ?? String(localized: "Not connected")
         }
         do {
             _ = try await driver.execute(sql)
@@ -1034,21 +1036,28 @@ final class QueryConsoleModel {
 
     /// Persists saved queries without sharing their value graph across threads: the
     /// encode runs here on the main actor (sole owner of the COW buffers) and only
-    /// the flat `Data` is handed to a background task for the file write.
+    /// the flat `Data` is handed to a background writer, which serializes and
+    /// coalesces so a burst of saves can't land an older snapshot last.
     private func persistSavedQueries() {
         guard let data = savedQueryStore.encode(savedQueries) else { return }
-        let store = savedQueryStore
-        Task.detached { store.write(data) }
+        savedQueryWriter.submit(data)
     }
 
     /// Persists history the same copy-isolated way as `persistSavedQueries`.
     private func persistHistory() {
         guard let data = historyStore.encode(history) else { return }
-        let store = historyStore
-        Task.detached { store.write(data) }
+        historyWriter.submit(data)
     }
 
+    @ObservationIgnored private lazy var savedQueryWriter =
+        SnapshotWriter { [savedQueryStore] in savedQueryStore.write($0) }
+    @ObservationIgnored private lazy var historyWriter =
+        SnapshotWriter { [historyStore] in historyStore.write($0) }
+
+    /// `persist: false` lets a caller batch many entries (a script run) and write
+    /// the history file once afterwards instead of re-encoding it per statement.
     private func recordHistory(sql: String, session: ConnectionSession, rowCount: Int, elapsedMS: Int?,
+                               persist: Bool = true,
                                schema: String? = nil, table: String? = nil) {
         // Collapse a re-run of the identical query on the same connection (e.g.
         // refreshing a table view) into the existing entry instead of duplicating it.
@@ -1069,7 +1078,7 @@ final class QueryConsoleModel {
             history = historyStore.capped(history)
         }
         // Persist off the main actor so a query never blocks the UI on disk I/O.
-        persistHistory()
+        if persist { persistHistory() }
     }
 
     // MARK: Helpers

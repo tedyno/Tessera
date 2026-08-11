@@ -307,9 +307,20 @@ private struct OrganizerSidebarColumn: View {
 private struct SchemaSidebarColumn: View {
     let app: AppModel
 
+    /// Stands in for the tree's content when deciding whether the outline must
+    /// rebuild: which profile, which schema generation, and live vs cached.
+    private var treeIdentity: Int {
+        var hasher = Hasher()
+        hasher.combine(app.console.currentProfileID)
+        hasher.combine(app.console.activeSession?.schemaGeneration ?? -1)
+        hasher.combine(app.console.isShowingCachedSchema)
+        return hasher.finalize()
+    }
+
     var body: some View {
         SchemaSidebar(
             tree: app.console.schema,
+            treeIdentity: treeIdentity,
             hiddenSchemas: app.currentHiddenSchemas,
             reveal: app.schemaReveal,
             connectionName: app.console.connectionName,

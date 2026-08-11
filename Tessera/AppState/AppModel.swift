@@ -296,7 +296,16 @@ final class AppModel {
     }
 
     /// Spotlight-style global search (double-Shift).
-    var showingSpotlight = false
+    var showingSpotlight = false {
+        didSet {
+            // The index holds an item per column across every cached profile —
+            // only needed while the palette is open, so don't keep it resident.
+            if oldValue, !showingSpotlight {
+                spotlightIndex = []
+                spotlightIndexSignature = -1
+            }
+        }
+    }
     /// A schema-tree item to expand/scroll to after a spotlight selection.
     var schemaReveal: SchemaRevealTarget?
     /// Cached schema per profile. Persisted, so search reaches connections that
@@ -315,14 +324,17 @@ final class AppModel {
     /// Persists the schema cache without ever sharing its value graph across
     /// threads: the encode runs here on the main actor (which exclusively owns the
     /// `CachedSchema` COW buffers), and only the resulting flat `Data` is handed to
-    /// a background task for the file write. Sharing the graph via a shallow
-    /// `Task.detached` snapshot instead risked a use-after-free — the crash that
-    /// surfaced as a corrupt `SchemaColumn` dealloc in `cacheSchema`.
+    /// a background writer. Sharing the graph via a shallow `Task.detached`
+    /// snapshot instead risked a use-after-free — the crash that surfaced as a
+    /// corrupt `SchemaColumn` dealloc in `cacheSchema`. The writer serializes and
+    /// coalesces, so a burst of saves can't land an older snapshot last.
     private func persistSchemaCache() {
         guard let data = schemaCacheStore.encode(schemaCache) else { return }
-        let store = schemaCacheStore
-        Task.detached { store.write(data) }
+        schemaCacheWriter.submit(data)
     }
+
+    @ObservationIgnored private lazy var schemaCacheWriter =
+        SnapshotWriter { [schemaCacheStore] in schemaCacheStore.write($0) }
 
     /// When a connection's cached schema was last read, for the search UI.
     func cachedSchemaDate(for profileID: UUID) -> Date? { schemaCache[profileID]?.updatedAt }
@@ -1099,14 +1111,22 @@ final class AppModel {
             }
             return
         }
-        do {
-            let data = try ResultExport.data(from: result, format: format, table: table)
-            try data.write(to: url, options: .atomic)
-            if ExportSettings.revealAfterExport {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
+        // Encode and write off the main actor — an XLSX workbook over a large grid
+        // beachballed the UI. `result` is an immutable Sendable snapshot here.
+        let snapshot = result
+        Task {
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    let data = try ResultExport.data(from: snapshot, format: format, table: table)
+                    try data.write(to: url, options: .atomic)
+                }.value
+                if ExportSettings.revealAfterExport {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
+            } catch {
+                console.activeTab?.errorMessage = String(
+                    localized: "Could not write \(url.lastPathComponent): \(error.localizedDescription)")
             }
-        } catch {
-            console.activeTab?.errorMessage = "Could not write \(url.lastPathComponent): \(error.localizedDescription)"
         }
     }
 

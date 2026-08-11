@@ -12,9 +12,10 @@ struct FilterField: NSViewRepresentable {
     @Binding var text: String
     /// The table the filter runs against, so completion is scoped to its columns.
     var table: String?
-    /// Live schema and dialect for the connection; drive the rich completion.
-    var schema: DatabaseTree?
-    var engine: DatabaseKind?
+    /// The session's cached schema-aware completion engine (nil = names only).
+    /// Built once per schema generation by `ConnectionSession` — this field must
+    /// not rebuild it per keystroke.
+    var completion: SQLCompletionEngine?
     /// Fallback column names (from the current result) used before the schema loads.
     var columns: [String]
     var placeholder: String
@@ -65,8 +66,7 @@ struct FilterField: NSViewRepresentable {
         guard let textView = context.coordinator.textView else { return }
         context.coordinator.table = table
         context.coordinator.columns = columns
-        context.coordinator.schema = schema
-        context.coordinator.engine = engine
+        context.coordinator.completionEngine = completion
         context.coordinator.onSubmit = onSubmit
         (textView as? CompletingTextView)?.placeholder = placeholder
         if textView.string != text {
@@ -77,7 +77,7 @@ struct FilterField: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, table: table, schema: schema, engine: engine,
+        Coordinator(text: $text, table: table, completion: completion,
                     columns: columns, onSubmit: onSubmit)
     }
 
@@ -89,21 +89,17 @@ struct FilterField: NSViewRepresentable {
         weak var textView: NSTextView?
         var previousLength = 0
 
-        /// The shared pure engine (TesseraCore); rebuilt when schema/dialect change.
-        var schema: DatabaseTree? { didSet { rebuildEngine() } }
-        var engine: DatabaseKind? { didSet { rebuildEngine() } }
-        private var completionEngine: SQLCompletionEngine
-        private func rebuildEngine() { completionEngine = SQLCompletionEngine(schema: schema, engine: engine) }
+        /// The session's cached pure engine (TesseraCore); assigned from
+        /// `updateNSView` — a cheap struct copy, never a rebuild.
+        var completionEngine: SQLCompletionEngine?
 
-        init(text: Binding<String>, table: String?, schema: DatabaseTree?, engine: DatabaseKind?,
+        init(text: Binding<String>, table: String?, completion: SQLCompletionEngine?,
              columns: [String], onSubmit: @escaping (String) -> Void) {
             self.text = text
             self.table = table
-            self.schema = schema
-            self.engine = engine
             self.columns = columns
             self.onSubmit = onSubmit
-            self.completionEngine = SQLCompletionEngine(schema: schema, engine: engine)
+            self.completionEngine = completion
         }
 
         func textDidChange(_ notification: Notification) {
@@ -115,6 +111,7 @@ struct FilterField: NSViewRepresentable {
 
         /// Schema-aware candidates for the caret, scoped to the filtered table.
         func completion(text: String, caret: Int, forced: Bool) -> (NSRange, [SQLCompletionItem]) {
+            guard let completionEngine else { return (NSRange(location: caret, length: 0), []) }
             let result = completionEngine.completeFilter(text: text, caret: caret, table: table,
                                                          fallbackColumns: columns, forced: forced)
             return (result.range, result.items)

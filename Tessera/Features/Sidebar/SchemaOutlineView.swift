@@ -148,6 +148,9 @@ final class SchemaRowView: NSTableRowView {
 /// AppKit performance on large schemas, none of which SwiftUI's `List` managed.
 struct SchemaOutlineView: NSViewRepresentable {
     var tree: DatabaseTree?
+    /// Cheap change token for `tree` (profile + schema generation). The outline
+    /// compares this instead of hashing the whole tree on every update pass.
+    var treeIdentity: Int = 0
     var hiddenSchemas: Set<String> = []
     /// Lowercased name filter from the bottom bar; empty shows everything.
     var query: String = ""
@@ -250,13 +253,13 @@ struct SchemaOutlineView: NSViewRepresentable {
         coordinator.lastCommitToken = keyboardCommitToken
         coordinator.lastCancelToken = speedCancelToken
         apply(to: coordinator)
-        coordinator.sync(tree: tree, hidden: hiddenSchemas, query: query)
+        coordinator.sync(tree: tree, identity: treeIdentity, hidden: hiddenSchemas, query: query)
         return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         apply(to: context.coordinator)
-        context.coordinator.sync(tree: tree, hidden: hiddenSchemas, query: query)
+        context.coordinator.sync(tree: tree, identity: treeIdentity, hidden: hiddenSchemas, query: query)
         context.coordinator.applyReveal(reveal)
         if context.coordinator.lastCancelToken != speedCancelToken {
             context.coordinator.lastCancelToken = speedCancelToken
@@ -359,9 +362,12 @@ struct SchemaOutlineView: NSViewRepresentable {
 
         // MARK: Build
 
-        func sync(tree: DatabaseTree?, hidden: Set<String>, query: String) {
+        func sync(tree: DatabaseTree?, identity: Int, hidden: Set<String>, query: String) {
+            // `identity` stands in for the tree (profile + schema generation):
+            // hashing the whole tree here walked every column on every update pass.
             var hasher = Hasher()
-            hasher.combine(tree)
+            hasher.combine(identity)
+            hasher.combine(tree == nil)
             hasher.combine(hidden)
             hasher.combine(query)
             let hash = hasher.finalize()

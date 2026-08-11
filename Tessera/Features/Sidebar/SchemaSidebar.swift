@@ -14,6 +14,8 @@ struct SchemaRevealTarget: Equatable {
 /// bottom filter bar with the visible-schemas popover.
 struct SchemaSidebar: View {
     let tree: DatabaseTree?
+    /// Cheap change token for `tree`; see `SchemaOutlineView.treeIdentity`.
+    var treeIdentity: Int = 0
     var hiddenSchemas: Set<String> = []
     var reveal: SchemaRevealTarget?
     /// Which connection this tree belongs to. Two connections often share a database
@@ -84,6 +86,7 @@ struct SchemaSidebar: View {
                     .padding(.bottom, 6)
                     SchemaOutlineView(
                         tree: tree,
+                        treeIdentity: treeIdentity,
                         hiddenSchemas: hiddenSchemas,
                         reveal: reveal,
                         engine: engine,
