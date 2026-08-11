@@ -26,8 +26,9 @@ public struct Cell: Sendable, Hashable {
     public static let null = Cell(nil)
 }
 
-/// Buffered query result (MVP). A streamed variant (`QueryHandle` backed by an
-/// `AsyncSequence`) arrives in Phase 8 to handle large result sets.
+/// Buffered query result for the grid. Large result sets that must not buffer
+/// (exports) go through `DatabaseDriver.stream(_:batchSize:into:)` + `RowSink`
+/// instead and never build one of these.
 public struct QueryResult: Sendable {
     public var columns: [ColumnDescriptor]
     public var rows: [[Cell]]

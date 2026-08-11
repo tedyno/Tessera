@@ -203,9 +203,7 @@ private func isNumericColumnType(_ typeName: String) -> Bool {
 /// Date/time columns route their editing through the value-editor sheet,
 /// which offers the date picker next to the raw text.
 func isTemporalColumnType(_ typeName: String) -> Bool {
-    let type = typeName.lowercased()
-    return type.contains("timestamp") || type.contains("datetime")
-        || type == "date" || type.hasPrefix("time")
+    SQLTemporal.isTemporalType(typeName)
 }
 
 /// Clipboard formats offered by the grid's "Copy as" menu.
@@ -1314,40 +1312,19 @@ struct ResultsTableView: NSViewRepresentable {
             }
         }
 
+        // Parsing/formatting live in Core (`SQLTemporal`) with round-trip tests —
+        // these values are written into the user's database. The wrappers only
+        // translate the AppKit picker-element flags.
         static func parseTemporal(_ string: String) -> Date? {
-            let trimmed = string.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { return nil }
-            let iso = ISO8601DateFormatter()
-            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = iso.date(from: trimmed) { return date }
-            iso.formatOptions = [.withInternetDateTime]
-            if let date = iso.date(from: trimmed) { return date }
-            for pattern in ["yyyy-MM-dd HH:mm:ss.SSSZZZZZ", "yyyy-MM-dd HH:mm:ssZZZZZ",
-                            "yyyy-MM-dd HH:mm:ss.SSS", "yyyy-MM-dd HH:mm:ss",
-                            "yyyy-MM-dd HH:mm", "yyyy-MM-dd",
-                            "HH:mm:ss.SSS", "HH:mm:ss", "HH:mm"] {
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.timeZone = TimeZone(identifier: "UTC")
-                formatter.dateFormat = pattern
-                if let date = formatter.date(from: trimmed) { return date }
-            }
-            return nil
+            SQLTemporal.parse(string)
         }
 
         static func formatTemporal(_ date: Date, elements: NSDatePicker.ElementFlags,
                                    iso: Bool) -> String {
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = TimeZone(identifier: "UTC")
-            if elements.contains(.yearMonthDay), elements.contains(.hourMinuteSecond) {
-                formatter.dateFormat = iso ? "yyyy-MM-dd'T'HH:mm:ss'Z'" : "yyyy-MM-dd HH:mm:ss"
-            } else if elements.contains(.yearMonthDay) {
-                formatter.dateFormat = "yyyy-MM-dd"
-            } else {
-                formatter.dateFormat = "HH:mm:ss"
-            }
-            return formatter.string(from: date)
+            SQLTemporal.format(date,
+                               dateParts: elements.contains(.yearMonthDay),
+                               timeParts: elements.contains(.hourMinuteSecond),
+                               iso: iso)
         }
 
         /// Cells a multi-selection edit session will write into on commit.
@@ -1788,71 +1765,35 @@ struct ResultsTableView: NSViewRepresentable {
         }
 
         /// ⌘C copies as TSV; the context menu offers CSV / JSON / SQL INSERT.
+        /// Formatting/escaping live in Core (`GridClipboard`, tested); this only
+        /// materializes the selected cells (honouring pending edits) and pastes.
         func copySelection(as format: GridCopyFormat = .tsv) {
             guard let result = tab.result, let block = selectionBlock() else { return }
-            let text: String
+            let clipboardFormat: GridClipboard.Format
+            let matrix: [[String?]]
             switch format {
             case .tsv:
                 // ⌘C honours the exact cells picked (a ⌘-toggled selection can be
                 // ragged); the structured formats below use the bounding rectangle.
-                text = block.rows.map { row in
+                clipboardFormat = .tsv
+                matrix = block.rows.map { row in
                     selected.filter { $0.row == row }.map(\.col).sorted()
-                        .map { cellString(row: row, col: $0) ?? "" }.joined(separator: "\t")
-                }.joined(separator: "\n")
-            case .csv:
-                let header = block.cols.map { csvField(result.columns[$0].name) }.joined(separator: ",")
-                let body = block.rows.map { row in
-                    block.cols.map { csvField(cellString(row: row, col: $0)) }.joined(separator: ",")
+                        .map { cellString(row: row, col: $0) }
                 }
-                text = ([header] + body).joined(separator: "\n")
-            case .json:
-                let objects = block.rows.map { row -> [String: Any] in
-                    var object: [String: Any] = [:]
-                    for col in block.cols {
-                        object[result.columns[col].name] = jsonValue(cellString(row: row, col: col), col: col)
-                    }
-                    return object
+            case .csv, .json, .insert:
+                clipboardFormat = format == .csv ? .csv : format == .json ? .json : .insert
+                matrix = block.rows.map { row in
+                    block.cols.map { cellString(row: row, col: $0) }
                 }
-                guard let data = try? JSONSerialization.data(withJSONObject: objects,
-                                                             options: [.prettyPrinted, .sortedKeys]),
-                      let string = String(data: data, encoding: .utf8) else { return }
-                text = string
-            case .insert:
-                let table = tab.editSource.map { "\($0.schema).\($0.table)" }
-                    ?? tab.dataTable ?? "table"
-                let columnList = block.cols.map { result.columns[$0].name }.joined(separator: ", ")
-                text = block.rows.map { row in
-                    let values = block.cols.map { sqlLiteral(cellString(row: row, col: $0), col: $0) }
-                        .joined(separator: ", ")
-                    return "INSERT INTO \(table) (\(columnList)) VALUES (\(values));"
-                }.joined(separator: "\n")
             }
+            let table = tab.editSource.map { "\($0.schema).\($0.table)" }
+                ?? tab.dataTable ?? "table"
+            guard let text = GridClipboard.text(
+                format: clipboardFormat,
+                columns: block.cols.compactMap { $0 < result.columns.count ? result.columns[$0] : nil },
+                matrix: matrix, table: table) else { return }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
-        }
-
-        /// A JSON value for a cell: `null`, a real number for numeric columns (via
-        /// `NSDecimalNumber`, so large int8/numeric keep full precision), else a string.
-        private func jsonValue(_ value: String?, col: Int) -> Any {
-            guard let value else { return NSNull() }
-            guard let result = tab.result, col < result.columns.count,
-                  isNumericColumnType(result.columns[col].typeName) else { return value }
-            if let integer = Int(value) { return integer }
-            // POSIX locale so the decimal separator is always ".", not the user's.
-            let decimal = NSDecimalNumber(string: value, locale: Locale(identifier: "en_US_POSIX"))
-            return decimal == NSDecimalNumber.notANumber ? value : decimal
-        }
-
-        private func csvField(_ value: String?) -> String {
-            guard let value else { return "" }
-            guard value.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" })
-            else { return value }
-            return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-        }
-
-        private func sqlLiteral(_ value: String?, col: Int) -> String {
-            let typeName = tab.result.map { col < $0.columns.count ? $0.columns[col].typeName : "" } ?? ""
-            return SQLTypes.literal(value, typeName: typeName)
         }
 
         private var result: QueryResult? { tab.result }
