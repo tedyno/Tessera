@@ -59,8 +59,14 @@ final class QueryTab: Identifiable {
 
     // MARK: Redis key browser
 
-    /// SCAN MATCH pattern the browser filters by (empty = `*`).
+    /// SCAN MATCH pattern the browser filters by (empty = `*`). Bound to the
+    /// toolbar field, so it changes per keystroke — the running scan snapshots
+    /// it into `redisActivePattern` on submit.
     var redisPattern = ""
+    /// The pattern the current scan started with. "Load more" continues with
+    /// this one, so a half-typed new pattern can't splice a different filter
+    /// into the pages already shown.
+    var redisActivePattern = ""
     /// SCAN cursor for the next page; "0" = the scan is complete.
     var redisCursor = "0"
 

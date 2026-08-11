@@ -81,6 +81,30 @@ final class RESPCodecTests: XCTestCase {
         XCTAssertThrowsError(try RESPCodec.parse(&b))
     }
 
+    func testHostileLengthsThrowInsteadOfCrashing() {
+        // A non-Redis peer declaring absurd sizes must not overflow or allocate.
+        for frame in ["$9223372036854775806\r\n", "$99999999999999999999\r\n",
+                      "*4611686018427387904\r\n", "$-2\r\n", "*-5\r\n"] {
+            var b = buffer(frame)
+            XCTAssertThrowsError(try RESPCodec.parse(&b), frame)
+        }
+    }
+
+    func testUnsupportedCommandsAreRefusedBeforeSending() async {
+        let driver = RedisDriver()   // deliberately unconnected
+        for command in ["SUBSCRIBE news", "BLPOP jobs 0", "MONITOR",
+                        "XREAD BLOCK 0 STREAMS s $"] {
+            do {
+                _ = try await driver.execute(command, maxRows: nil)
+                XCTFail("expected \(command) to be refused")
+            } catch let DatabaseError.unsupported(message) {
+                XCTAssertTrue(message.contains("not supported"), message)
+            } catch {
+                XCTFail("wrong error for \(command): \(error)")
+            }
+        }
+    }
+
     // MARK: Reply rendering
 
     func testScalarReplies() {

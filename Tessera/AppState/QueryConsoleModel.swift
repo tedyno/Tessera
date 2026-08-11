@@ -875,7 +875,8 @@ final class QueryConsoleModel {
             return
         }
         do {
-            let page = try await driver.scanKeys(matching: tab.redisPattern, cursor: "0",
+            tab.redisActivePattern = tab.redisPattern
+            let page = try await driver.scanKeys(matching: tab.redisActivePattern, cursor: "0",
                                                  count: Self.redisScanPageSize)
             tab.redisCursor = page.cursor
             tab.result = RedisGridDisplay.keyListResult(page.keys, truncated: page.cursor != "0")
@@ -895,7 +896,7 @@ final class QueryConsoleModel {
         tab.isRunning = true
         defer { tab.isRunning = false }
         do {
-            let page = try await driver.scanKeys(matching: tab.redisPattern,
+            let page = try await driver.scanKeys(matching: tab.redisActivePattern,
                                                  cursor: tab.redisCursor,
                                                  count: Self.redisScanPageSize)
             tab.redisCursor = page.cursor

@@ -19,8 +19,20 @@ final class ConsolePipelineTests: XCTestCase {
     func testRedisRunTargetIsTheCursorLine() {
         let text = "GET a\nGET b"
         XCTAssertEqual(redis.runTarget(in: text, cursor: 7), .statement("GET b"))
-        // An empty cursor line falls back to the first non-empty command.
+        // A blank cursor line resolves to the nearest command ABOVE — the one
+        // just typed — never the top of the buffer (FLUSHDB up there must not
+        // run because Enter left the caret on an empty line).
+        XCTAssertEqual(redis.runTarget(in: "FLUSHDB\nGET a\n", cursor: 14),
+                       .statement("GET a"))
+        // Only with nothing above does it fall forward to the first command.
         XCTAssertEqual(redis.runTarget(in: "\n\nGET c", cursor: 0), .statement("GET c"))
+    }
+
+    func testRedisFlushCommandsWarn() {
+        XCTAssertEqual(redis.safetyWarnings(in: "FLUSHALL").map(\.risk), [.flush])
+        XCTAssertEqual(redis.safetyWarnings(in: "flushdb ASYNC").map(\.risk), [.flush])
+        XCTAssertTrue(redis.safetyWarnings(in: "DEL user:1").isEmpty,
+                      "an explicit DEL names its targets, like DELETE with WHERE")
     }
 
     func testScriptStatements() {
@@ -55,7 +67,7 @@ final class ConsolePipelineTests: XCTestCase {
         XCTAssertFalse(sql.safetyWarnings(in: "DELETE FROM users").isEmpty)
         XCTAssertTrue(redis.safetyWarnings(in: "DEL users").isEmpty)
         XCTAssertTrue(redis.safetyWarnings(in: "DELETE FROM users").isEmpty,
-                      "even SQL-looking text is just a Redis command line")
+                      "SQL-looking text is just a Redis command line")
     }
 
     // MARK: Pre-run rewrite

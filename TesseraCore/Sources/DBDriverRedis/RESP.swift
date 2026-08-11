@@ -34,6 +34,13 @@ public enum RESPCodec {
         case invalidLength
     }
 
+    /// Sanity bounds on wire-declared sizes, so a malformed or hostile peer
+    /// (a non-Redis service on the profiled port) can't crash the app with a
+    /// declared multi-exabyte frame: Redis itself caps bulk strings at 512 MB,
+    /// and no real reply carries a billion elements.
+    static let maxBulkLength = 512 * 1024 * 1024
+    static let maxArrayCount = 10_000_000
+
     /// Parses one complete reply from the buffer, consuming its bytes; nil when
     /// the buffer doesn't yet hold a full frame (nothing is consumed then).
     public static func parse(_ buffer: inout ByteBuffer) throws -> RESPValue? {
@@ -58,7 +65,8 @@ public enum RESPCodec {
             return .integer(value)
         case UInt8(ascii: "$"):
             guard let line = readLine(&buffer) else { return nil }
-            guard let length = Int(line), length >= -1 else { throw ParseError.invalidLength }
+            guard let length = Int(line), length >= -1, length <= Self.maxBulkLength
+            else { throw ParseError.invalidLength }
             if length == -1 { return .bulkString(nil) }
             guard buffer.readableBytes >= length + 2,
                   let bytes = buffer.readBytes(length: length) else { return nil }
@@ -66,10 +74,13 @@ public enum RESPCodec {
             return .bulkString(String(decoding: bytes, as: UTF8.self))
         case UInt8(ascii: "*"):
             guard let line = readLine(&buffer) else { return nil }
-            guard let count = Int(line), count >= -1 else { throw ParseError.invalidLength }
+            guard let count = Int(line), count >= -1, count <= Self.maxArrayCount
+            else { throw ParseError.invalidLength }
             if count == -1 { return .array(nil) }
             var elements: [RESPValue] = []
-            elements.reserveCapacity(count)
+            // Reserve modestly: the declared count is untrusted until the
+            // elements actually arrive.
+            elements.reserveCapacity(min(count, 4096))
             for _ in 0..<count {
                 guard let element = try parseValue(&buffer) else { return nil }
                 elements.append(element)

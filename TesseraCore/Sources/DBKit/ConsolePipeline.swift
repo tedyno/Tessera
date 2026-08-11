@@ -71,9 +71,7 @@ public struct RedisConsolePipeline: ConsolePipeline {
     public init() {}
 
     public func runTarget(in text: String, cursor: Int) -> SQLRunTarget {
-        let line = RedisCommandLine.lineUnderCursor(in: text, cursor: cursor)
-        return .statement(line.isEmpty
-            ? (RedisCommandLine.scriptLines(text).first ?? "") : line)
+        .statement(RedisCommandLine.commandNearCursor(in: text, cursor: cursor))
     }
 
     public func scriptStatements(in text: String) -> [String] {
@@ -85,7 +83,15 @@ public struct RedisConsolePipeline: ConsolePipeline {
     public func substituteParameters(in statement: String,
                                      values: [String: String]) -> String { statement }
 
-    public func safetyWarnings(in statement: String) -> [SQLSafety.Warning] { [] }
+    /// FLUSHDB/FLUSHALL wipe the keyspace and get the same confirmation SQL's
+    /// TRUNCATE does. A DEL of named keys stays unprompted — like a DELETE with
+    /// a WHERE, the command already spells out exactly what it targets.
+    public func safetyWarnings(in statement: String) -> [SQLSafety.Warning] {
+        guard let name = RedisCommandLine.tokenize(statement)?.first?.uppercased(),
+              name == "FLUSHDB" || name == "FLUSHALL" else { return [] }
+        return [SQLSafety.Warning(risk: .flush,
+                                  statement: statement.trimmingCharacters(in: .whitespaces))]
+    }
 
     public func rewriteForRun(_ statement: String,
                               completion: SQLCompletionEngine?) -> String { statement }

@@ -102,6 +102,21 @@ public enum RedisCommandLine {
         return ns.substring(with: range).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The run unit for ⌘↩: the cursor's own line, or — on a blank line — the
+    /// nearest non-empty line above (the command the user just finished
+    /// typing), falling back to the first one below. Mirrors how the SQL
+    /// console resolves the statement adjacent to the caret rather than
+    /// jumping to the top of the buffer.
+    public static func commandNearCursor(in text: String, cursor: Int) -> String {
+        let line = lineUnderCursor(in: text, cursor: cursor)
+        if !line.isEmpty { return line }
+        let ns = text as NSString
+        let clamped = min(max(cursor, 0), ns.length)
+        let before = ns.substring(to: clamped)
+        if let previous = scriptLines(before).last { return previous }
+        return scriptLines(ns.substring(from: clamped)).first ?? ""
+    }
+
     /// A script's run units: one command per non-empty line.
     public static func scriptLines(_ text: String) -> [String] {
         text.split(whereSeparator: \.isNewline)

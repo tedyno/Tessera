@@ -51,11 +51,21 @@ public actor RedisDriver: DatabaseDriver, KeyValueDriver {
             case .verifyCA: .noHostnameVerification
             default: .fullVerification
             }
-            tls = try? NIOSSLContext(configuration: configuration)
+            do {
+                tls = try NIOSSLContext(configuration: configuration)
+            } catch {
+                // Never downgrade silently: the user demanded TLS, so a setup
+                // failure is a connection failure, not a plaintext fallback.
+                throw DatabaseError.connectionFailed("TLS setup failed: \(error)")
+            }
         }
         // SNI wants the certificate's name (the profile host, not the tunnel
         // endpoint) — and must be nil for IP literals, which SNI cannot carry.
-        let isIPLiteral = profile.host.allSatisfy { $0.isHexDigit || $0 == "." || $0 == ":" }
+        // Only actual dotted-quad / IPv6 shapes count; an all-hex *hostname*
+        // like "abc" still gets SNI.
+        let isIPLiteral = profile.host.contains(":")
+            || profile.host.range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#,
+                                  options: .regularExpression) != nil
         let serverHostname = isIPLiteral ? nil : profile.host
         do {
             let channel = try await ClientBootstrap(group: MultiThreadedEventLoopGroup.singleton)
@@ -117,6 +127,30 @@ public actor RedisDriver: DatabaseDriver, KeyValueDriver {
 
     // MARK: DatabaseDriver
 
+    /// Commands this driver must refuse: subscriptions and MONITOR turn the
+    /// connection into a push stream (desyncing FIFO reply matching for every
+    /// later command), and blocking commands would hold the session's command
+    /// lock forever with no way to cancel (`future.get()` isn't cancellable,
+    /// and there is no second connection to CLIENT KILL from).
+    private static let unsupportedCommands: Set<String> = [
+        "SUBSCRIBE", "PSUBSCRIBE", "SSUBSCRIBE", "MONITOR",
+        "BLPOP", "BRPOP", "BLMOVE", "BLMPOP", "BRPOPLPUSH", "WAIT", "WAITAOF",
+    ]
+
+    private static func checkSupported(_ command: [String]) throws {
+        let name = command[0].uppercased()
+        if unsupportedCommands.contains(name) {
+            throw DatabaseError.unsupported(
+                "\(name) needs a dedicated connection and is not supported here.")
+        }
+        // XREAD/XREADGROUP are fine unless they BLOCK.
+        if name == "XREAD" || name == "XREADGROUP",
+           command.dropFirst().contains(where: { $0.uppercased() == "BLOCK" }) {
+            throw DatabaseError.unsupported(
+                "\(name) BLOCK would hang the session and is not supported here.")
+        }
+    }
+
     /// Executes one redis-cli style command line typed in the console.
     public func execute(_ sql: String, maxRows: Int?) async throws -> QueryResult {
         let tokens = RedisCommandLine.tokenize(sql)
@@ -124,6 +158,7 @@ public actor RedisDriver: DatabaseDriver, KeyValueDriver {
             throw DatabaseError.queryFailed(
                 tokens == nil ? "Unbalanced quote in the command" : "Empty command")
         }
+        try Self.checkSupported(command)
         await lock()
         defer { unlock() }
         let clock = ContinuousClock()
@@ -144,6 +179,7 @@ public actor RedisDriver: DatabaseDriver, KeyValueDriver {
             guard let command = RedisCommandLine.tokenize(statement), !command.isEmpty else {
                 throw DatabaseError.queryFailed("Unbalanced quote in the command")
             }
+            try Self.checkSupported(command)
             return command
         }
         guard !commands.isEmpty else { return }
@@ -314,12 +350,25 @@ final class RESPClientHandler: ChannelInboundHandler {
 
     private var buffer = ByteBufferAllocator().buffer(capacity: 0)
     private var pending: [EventLoopPromise<RESPValue>] = []
+    /// Flips when the connection dies. Promises registered afterwards fail
+    /// immediately — a command sent after a remote disconnect must error, not
+    /// hang forever with the driver's command lock held.
+    private var isDead = false
 
     /// Registers `count` promises for the replies of a just-written pipeline.
-    /// Hop to the event loop so `pending` is only ever touched there.
+    /// Hop to the event loop so `pending` (and `isDead`) are only ever touched
+    /// there.
     func expectReplies(count: Int, on eventLoop: EventLoop) -> [EventLoopFuture<RESPValue>] {
         let promises = (0..<count).map { _ in eventLoop.makePromise(of: RESPValue.self) }
-        eventLoop.execute { self.pending.append(contentsOf: promises) }
+        eventLoop.execute {
+            if self.isDead {
+                for promise in promises {
+                    promise.fail(DatabaseError.connectionFailed("Connection closed"))
+                }
+            } else {
+                self.pending.append(contentsOf: promises)
+            }
+        }
         return promises.map(\.futureResult)
     }
 
@@ -331,23 +380,35 @@ final class RESPClientHandler: ChannelInboundHandler {
                 guard let reply = try RESPCodec.parse(&buffer) else { break }
                 pending.removeFirst().succeed(reply)
             } catch {
-                failAll(error)
-                context.close(promise: nil)
+                die(with: error, context: context)
                 return
             }
         }
-        // Reclaim consumed bytes so a long session doesn't grow the buffer.
         if buffer.readableBytes == 0 {
+            // Reclaim consumed bytes so a long session doesn't grow the buffer.
             buffer.clear()
+        } else if pending.isEmpty, (try? RESPCodec.parse(&buffer)) != nil {
+            // A complete frame with nothing awaiting it is an unsolicited push
+            // (a subscribe leak, or a peer that isn't Redis). Matching it to a
+            // later command would silently shift every reply — kill the
+            // connection instead so the failure is loud and immediate.
+            die(with: DatabaseError.connectionFailed(
+                "Protocol desync: the server sent an unsolicited reply"), context: context)
         }
     }
 
     func channelInactive(context: ChannelHandlerContext) {
+        isDead = true
         failAll(DatabaseError.connectionFailed("Connection closed"))
         context.fireChannelInactive()
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
+        die(with: error, context: context)
+    }
+
+    private func die(with error: Error, context: ChannelHandlerContext) {
+        isDead = true
         failAll(error)
         context.close(promise: nil)
     }

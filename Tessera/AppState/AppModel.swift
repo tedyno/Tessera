@@ -935,9 +935,14 @@ final class AppModel {
             }
             return
         }
-        // A data view has no editable SQL; ⌘↩ just refreshes it.
+        // A data view has no editable SQL; ⌘↩ just refreshes it. The key
+        // browser likewise re-runs its scan, not an (empty) command line.
         if tab.kind == .data {
             tab.task = Task { await console.reloadData(tab, refreshCount: true) }
+            return
+        }
+        if tab.kind == .redisKeys {
+            tab.task = Task { await console.reloadRedisKeys(tab) }
             return
         }
         switch console.resolveRunTarget(tab) {
@@ -974,8 +979,9 @@ final class AppModel {
     }
 
     var canExplain: Bool {
-        guard let tab = console.activeTab, tab.session != nil, !tab.isRunning,
-              tab.kind != .diagram else { return false }
+        guard let tab = console.activeTab, let session = tab.session, !tab.isRunning,
+              tab.kind != .diagram,
+              session.engine.consolePipeline.supportsExplain else { return false }
         // Running anything replaces the result and clears pending edits — don't let
         // a reflexive ⌘E eat unsaved changes.
         return !tab.hasEdits
@@ -995,7 +1001,10 @@ final class AppModel {
     /// through the same destructive-statement confirmation as a normal run.
     func explainActiveQuery(analyze: Bool) {
         guard let tab = console.activeTab, let session = tab.session,
-              !tab.isRunning, !tab.hasEdits else { return }
+              !tab.isRunning, !tab.hasEdits,
+              // No plans for this engine (Redis): the dialect's empty prefix
+              // would otherwise run the command itself, bypassing every scan.
+              session.engine.consolePipeline.supportsExplain else { return }
         let sql: String
         if tab.kind == .data {
             sql = tab.sql   // the generated SELECT for this data view
@@ -1152,12 +1161,18 @@ final class AppModel {
         // Qualify the table for generated INSERTs so they can be replayed elsewhere.
         let table = tab.dataSchema.map { "\($0).\(tab.dataTable ?? "")" } ?? tab.dataTable
         // CSV and SQL stream the full result straight to disk — no row cap, nothing
-        // held in memory. JSON and XLSX keep the buffered in-memory path.
+        // held in memory. JSON and XLSX keep the buffered in-memory path. Redis
+        // never streams: re-running the command server-side could mutate data
+        // (SPOP/INCR), so its exports snapshot the visible result instead.
         let streamFormat: StreamingResultExport.Format?
-        switch format {
-        case .csv: streamFormat = .csv
-        case .sql: streamFormat = .sql
-        case .json, .xlsx: streamFormat = nil
+        if tab.session?.engine.isKeyValue == true {
+            streamFormat = nil
+        } else {
+            switch format {
+            case .csv: streamFormat = .csv
+            case .sql: streamFormat = .sql
+            case .json, .xlsx: streamFormat = nil
+            }
         }
         if let streamFormat {
             Task {

@@ -7,6 +7,8 @@ public enum SQLSafety {
         case updateWithoutWhere
         case drop
         case truncate
+        /// Redis FLUSHDB/FLUSHALL — wipes the whole keyspace.
+        case flush
 
         /// A short, user-facing description of what the statement will do.
         public var explanation: String {
@@ -15,6 +17,7 @@ public enum SQLSafety {
             case .updateWithoutWhere: "UPDATE without WHERE — rewrites every row in the table."
             case .drop: "DROP — permanently removes the object and its data."
             case .truncate: "TRUNCATE — empties the table."
+            case .flush: "FLUSH — removes every key in the database."
             }
         }
     }
