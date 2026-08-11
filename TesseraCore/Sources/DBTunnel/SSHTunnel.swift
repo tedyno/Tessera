@@ -41,16 +41,33 @@ public actor SSHTunnel {
                                            passphrase: secrets.sshPassphrase)
         }
 
+        // TOFU host-key checking: a key from ~/.ssh/known_hosts or the app's own
+        // store passes; a first-time host is recorded after the connect succeeds;
+        // a contradicting key aborts with SSHHostKeyMismatchError so the UI can
+        // offer a deliberate "trust the new key".
+        let hostKeyStore = SSHHostKeyStore.standard()
+        let validator = TOFUHostKeyValidator(
+            host: ssh.host, port: ssh.port,
+            knownHosts: SSHKnownHosts.loadDefault(),
+            stored: hostKeyStore.storedKey(host: ssh.host, port: ssh.port))
+
         let client: SSHClient
         do {
             client = try await SSHClient.connect(
                 host: ssh.host,
                 port: ssh.port,
                 authenticationMethod: auth,
-                hostKeyValidator: .acceptAnything(),
+                hostKeyValidator: .custom(validator),
                 reconnect: .never)
         } catch {
+            // The library may wrap the promise failure; the validator's own
+            // record of the mismatch is authoritative either way.
+            if let mismatch = validator.currentMismatch { throw mismatch }
             throw DatabaseError.connectionFailed("SSH connect failed: \(error)")
+        }
+        if let firstUse = validator.currentFirstUse {
+            hostKeyStore.record(host: ssh.host, port: ssh.port,
+                                algorithm: firstUse.algorithm, keyBase64: firstUse.keyBase64)
         }
         self.client = client
 
@@ -120,19 +137,103 @@ public actor SSHTunnel {
     private static func privateKeyAuth(username: String, path: String,
                                        passphrase: String?) throws -> SSHAuthenticationMethod {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        guard let key = try? String(contentsOf: url, encoding: .utf8) else {
-            throw DatabaseError.connectionFailed("Cannot read the SSH private key at \(path)")
+        let key: String
+        do {
+            key = try String(contentsOf: url, encoding: .utf8)
+        } catch {
+            // Keep the underlying reason: "no such file" and "permission denied"
+            // need different fixes, and a swallowed error made them identical.
+            throw DatabaseError.connectionFailed(
+                "Cannot read the SSH private key at \(path): \(error.localizedDescription)")
         }
         let decryptionKey = passphrase.flatMap { $0.isEmpty ? nil : Data($0.utf8) }
 
-        if let ed25519 = try? Curve25519.Signing.PrivateKey(sshEd25519: key, decryptionKey: decryptionKey) {
-            return .ed25519(username: username, privateKey: ed25519)
+        var failures: [String] = []
+        do {
+            return .ed25519(username: username,
+                            privateKey: try Curve25519.Signing.PrivateKey(
+                                sshEd25519: key, decryptionKey: decryptionKey))
+        } catch {
+            failures.append("ed25519: \(error)")
         }
-        if let rsa = try? Insecure.RSA.PrivateKey(sshRsa: key, decryptionKey: decryptionKey) {
-            return .rsa(username: username, privateKey: rsa)
+        do {
+            return .rsa(username: username,
+                        privateKey: try Insecure.RSA.PrivateKey(
+                            sshRsa: key, decryptionKey: decryptionKey))
+        } catch {
+            failures.append("RSA: \(error)")
         }
         throw DatabaseError.connectionFailed(
-            "Unsupported or encrypted SSH key at \(path). Supported: OpenSSH ed25519 and RSA"
-            + (decryptionKey == nil ? " (add the passphrase if the key is encrypted)." : "."))
+            "Could not load the SSH key at \(path)"
+            + (decryptionKey == nil ? " (add the passphrase if the key is encrypted)" : "")
+            + " — " + failures.joined(separator: "; "))
+    }
+}
+
+/// Trust-on-first-use host-key validation for the tunnel. Runs on the SSH
+/// handshake's event loop; the tunnel actor reads the outcome afterwards, so
+/// the two fields live behind a lock.
+final class TOFUHostKeyValidator: NIOSSHClientServerAuthenticationDelegate, @unchecked Sendable {
+    private let host: String
+    private let port: Int
+    private let knownHosts: SSHKnownHosts
+    private let stored: SSHHostKeyRecord?
+
+    private let lock = NSLock()
+    private var firstUse: (algorithm: String, keyBase64: String)?
+    private var mismatch: SSHHostKeyMismatchError?
+
+    /// Set when the host was unknown and its key should be recorded on success.
+    var currentFirstUse: (algorithm: String, keyBase64: String)? { lock.withLock { firstUse } }
+    /// Set when the presented key contradicted the trusted one.
+    var currentMismatch: SSHHostKeyMismatchError? { lock.withLock { mismatch } }
+
+    init(host: String, port: Int, knownHosts: SSHKnownHosts, stored: SSHHostKeyRecord?) {
+        self.host = host
+        self.port = port
+        self.knownHosts = knownHosts
+        self.stored = stored
+    }
+
+    func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
+        var buffer = ByteBufferAllocator().buffer(capacity: 1024)
+        hostKey.write(to: &buffer)
+        let blob = Data(buffer.readableBytesView)
+        let keyBase64 = blob.base64EncodedString()
+        let algorithm = SSHHostKeys.algorithm(ofBlob: blob) ?? "unknown"
+
+        func fail(expected: String) {
+            let error = SSHHostKeyMismatchError(
+                host: host, port: port,
+                expectedFingerprint: expected,
+                presentedFingerprint: SSHHostKeys.fingerprint(ofBlob: blob),
+                presentedAlgorithm: algorithm,
+                presentedKeyBase64: keyBase64)
+            lock.withLock { mismatch = error }
+            validationCompletePromise.fail(error)
+        }
+
+        // The user's own known_hosts outranks the app store in both directions:
+        // a key it vouches for passes, one it contradicts fails.
+        switch knownHosts.evaluate(host: host, port: port,
+                                   algorithm: algorithm, keyBase64: keyBase64) {
+        case .trusted:
+            validationCompletePromise.succeed(())
+        case .mismatch(let expectedFingerprint):
+            fail(expected: expectedFingerprint)
+        case .unknown:
+            if let stored {
+                if stored.keyBase64 == keyBase64 {
+                    validationCompletePromise.succeed(())
+                } else {
+                    fail(expected: stored.fingerprint)
+                }
+            } else {
+                // First use: accept and let the tunnel record it after the
+                // connect actually succeeds.
+                lock.withLock { firstUse = (algorithm, keyBase64) }
+                validationCompletePromise.succeed(())
+            }
+        }
     }
 }

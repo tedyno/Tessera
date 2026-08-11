@@ -5684,6 +5684,50 @@
           }
         }
       }
+    },
+    "SSH host key changed": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH klíč serveru se změnil"
+          }
+        }
+      }
+    },
+    "Trust New Key and Reconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Důvěřovat novému klíči a připojit znovu"
+          }
+        }
+      }
+    },
+    "The server %@ now identifies with a different %@ key.\n\nExpected: %@\nPresented: %@\n\nThis can mean the server was reinstalled — or that someone is intercepting the connection. Only trust the new key if you know the server's key really changed.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server %1$@ se nyní prokazuje jiným klíčem (%2$@).\n\nOčekáváno: %3$@\nPředloženo: %4$@\n\nMůže to znamenat, že server byl přeinstalován — nebo že někdo spojení odposlouchává. Novému klíči důvěřujte, jen pokud víte, že se klíč serveru opravdu změnil."
+          }
+        }
+      }
+    },
+    "SSH host key for %@ changed — possible man-in-the-middle attack. Expected %@, got %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH klíč serveru %1$@ se změnil — možný man-in-the-middle útok. Očekáváno %2$@, předloženo %3$@."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

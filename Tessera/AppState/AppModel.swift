@@ -3,6 +3,7 @@ import AppKit
 import DBKit
 import DBMCPServer
 import DBPersistence
+import DBTunnel
 import UniformTypeIdentifiers
 
 /// Scene-level state so menu-bar commands (keyboard shortcuts) can act on the
@@ -691,6 +692,34 @@ final class AppModel {
         }
         await session.open(profile: profile, secrets: secrets)
         if let schema = session.schema { cacheSchema(schema, for: profile.id) }
+        // A contradicted SSH host key needs a decision, not just an error line —
+        // surface the blocking dialog with the "trust the new key" way out.
+        if let mismatch = session.hostKeyMismatch {
+            hostKeyPrompt = HostKeyPrompt(profileID: profile.id, mismatch: mismatch)
+        }
+    }
+
+    // MARK: SSH host keys
+
+    /// A pending "the server's SSH host key changed" decision.
+    struct HostKeyPrompt: Identifiable {
+        let profileID: UUID
+        let mismatch: SSHHostKeyMismatchError
+        var id: String { "\(mismatch.host):\(mismatch.port)" }
+    }
+
+    var hostKeyPrompt: HostKeyPrompt?
+
+    /// The dialog's "Trust New Key": records the presented key as the trusted
+    /// one for the host and reconnects.
+    func trustPresentedHostKey(_ prompt: HostKeyPrompt) {
+        let mismatch = prompt.mismatch
+        SSHHostKeyStore.standard().replace(
+            host: mismatch.host, port: mismatch.port,
+            algorithm: mismatch.presentedAlgorithm,
+            keyBase64: mismatch.presentedKeyBase64)
+        hostKeyPrompt = nil
+        Task { _ = await ensureSessionReady(profileID: prompt.profileID) }
     }
 
     // MARK: Spotlight

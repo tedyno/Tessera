@@ -99,6 +99,10 @@ final class ConnectionSession: Identifiable {
     /// Resets the idle-disconnect timer — call whenever the session runs a query.
     func touch() { lastActivityAt = Date() }
 
+    /// The SSH server presented a key contradicting the trusted one on the last
+    /// connect — kept structured so the UI can offer "trust the new key".
+    private(set) var hostKeyMismatch: SSHHostKeyMismatchError?
+
     /// Opens (or reopens) the connection, building an SSH tunnel first when configured.
     func open(profile: ConnectionProfile, secrets: Secrets) async {
         await close()
@@ -106,6 +110,7 @@ final class ConnectionSession: Identifiable {
         colorName = profile.color
         serverVersion = nil
         schema = nil
+        hostKeyMismatch = nil
         status = .connecting
         do {
             let endpoint: NetworkEndpoint
@@ -161,6 +166,7 @@ final class ConnectionSession: Identifiable {
             }
             databases = await fetchDatabases()
         } catch {
+            if let mismatch = error as? SSHHostKeyMismatchError { hostKeyMismatch = mismatch }
             status = .failed(Self.message(for: error))
             // The status bar gets one line; the log gets everything.
             log?.record(profile.name, .connect, Self.message(for: error), isError: true,
@@ -260,6 +266,9 @@ final class ConnectionSession: Identifiable {
     static func message(for error: Error) -> String {
         if error is OperationTimeout {
             return String(localized: "Timed out while connecting. Use “Test connection” in the connection’s settings to see whether the tunnel or the database is at fault.")
+        }
+        if let mismatch = error as? SSHHostKeyMismatchError {
+            return String(localized: "SSH host key for \(mismatch.host) changed — possible man-in-the-middle attack. Expected \(mismatch.expectedFingerprint), got \(mismatch.presentedFingerprint).")
         }
         guard let dbError = error as? DatabaseError else { return String(describing: error) }
         switch dbError {

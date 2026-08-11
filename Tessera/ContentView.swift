@@ -119,6 +119,31 @@ struct ContentView: View {
             MCPAuditView(app: app)
                 .tesseraModalBackground()
         }
+        // A changed SSH host key blocks the connect; trusting the new key must be
+        // an explicit decision, so it gets a real dialog, not just an error line.
+        .alert(Text("SSH host key changed"),
+               isPresented: Binding(get: { app.hostKeyPrompt != nil },
+                                    set: { if !$0 { app.hostKeyPrompt = nil } }),
+               presenting: app.hostKeyPrompt) { prompt in
+            Button(role: .destructive) {
+                app.trustPresentedHostKey(prompt)
+            } label: {
+                Text("Trust New Key and Reconnect")
+            }
+            Button(role: .cancel) { app.hostKeyPrompt = nil } label: { Text("Cancel") }
+        } message: { prompt in
+            Text("""
+            The server \(prompt.mismatch.host) now identifies with a different \
+            \(prompt.mismatch.presentedAlgorithm) key.
+
+            Expected: \(prompt.mismatch.expectedFingerprint)
+            Presented: \(prompt.mismatch.presentedFingerprint)
+
+            This can mean the server was reinstalled — or that someone is \
+            intercepting the connection. Only trust the new key if you know the \
+            server's key really changed.
+            """)
+        }
         .sheet(isPresented: $app.showingSpotlight) {
             SpotlightView(app: app)
                 .tesseraModalBackground()
