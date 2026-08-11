@@ -1372,7 +1372,11 @@ final class AppModel {
     func runSQLFile() {
         guard let (url, text) = pickSQLFile() else { return }
         guard let tab = loadFileIntoTab(url: url, text: text) else { return }
-        let warnings = SQLSafety.warnings(in: text)
+        // Through the engine's pipeline, not the SQL scan directly: a file of
+        // Redis commands must get the FLUSH confirmation too.
+        let pipeline = consolePipeline(for: tab)
+        let warnings = pipeline.scriptStatements(in: text)
+            .flatMap { pipeline.safetyWarnings(in: $0) }
         guard warnings.isEmpty else {
             destructiveWarnings = warnings
             pendingScriptTab = tab
