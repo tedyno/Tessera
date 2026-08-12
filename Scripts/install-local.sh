@@ -31,7 +31,9 @@ echo "Installing to ${DEST}/${APP_NAME} ..."
 # Quit a running instance so we can overwrite it.
 osascript -e 'tell application "Tessera" to quit' 2>/dev/null || true
 rm -rf "$DEST/$APP_NAME"
-cp -R "$SRC" "$DEST/$APP_NAME"
+# ditto, not cp -R: cp leaves a com.apple.FinderInfo xattr on the bundle, which
+# invalidates the signature ("detritus not allowed") and breaks Sparkle's check.
+ditto "$SRC" "$DEST/$APP_NAME"
 
 echo "Installed ${DEST}/${APP_NAME}"
 echo "  Launch it from Spotlight/Dock like any other app."
