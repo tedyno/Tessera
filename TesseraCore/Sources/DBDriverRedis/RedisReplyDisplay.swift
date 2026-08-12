@@ -32,10 +32,14 @@ public enum RedisReplyDisplay {
         }
     }
 
+    /// A non-array reply: one value, flagged as such so the UI can render it as a
+    /// document instead of a one-row table (a one-element array reply must not
+    /// pass for the same thing).
     private static func scalar(name: String, text: String?) -> QueryResult {
         QueryResult(columns: [ColumnDescriptor(name: name, typeName: "string")],
                     rows: [[Cell(text)]],
-                    returnsRows: true)
+                    returnsRows: true,
+                    isSingleValue: true)
     }
 
     private static func arrayResult(command: [String], name: String,

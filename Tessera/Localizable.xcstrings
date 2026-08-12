@@ -1,6 +1,39 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Find…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najít…"
+          }
+        }
+      }
+    },
+    "Show the value formatted or exactly as it is stored": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zobrazit hodnotu naformátovanou, nebo přesně tak, jak je uložená"
+          }
+        }
+      }
+    },
+    "Formatted": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formátovaně"
+          }
+        }
+      }
+    },
     "Searching…": {
       "extractionState": "manual",
       "localizations": {

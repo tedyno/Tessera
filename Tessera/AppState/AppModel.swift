@@ -1125,12 +1125,46 @@ final class AppModel {
         console.addInsertRow(tab)
     }
 
-    var canFindInResults: Bool { console.activeTab?.result != nil }
+    /// ⌘F does something in every tab — either the text find bar or the grid's row
+    /// filter — so the item stays enabled whenever a tab is open and
+    /// `performFind` picks the target.
+    var canFind: Bool { console.activeTab != nil }
 
-    /// ⌘F — reveals the find bar over the active tab's results grid. A plan
-    /// tree has no grid; flip it to the raw view so the bar has somewhere to be.
+    /// Whether the grid's row filter is what ⌘F should reach for. A result shown
+    /// as a single JSON document has no grid, and the find bar lives on the grid.
+    private var canFilterRows: Bool {
+        guard let tab = console.activeTab, tab.result != nil else { return false }
+        return tab.jsonDocument() == nil
+    }
+
+    /// ⌘F — targeted like every other macOS find: whatever text view has focus
+    /// (the query editor, a value being viewed) gets the standard find bar, and
+    /// only outside one does the command mean "filter the rows of the result".
+    /// The two aren't interchangeable: the bar finds *inside a text*, the filter
+    /// hides non-matching *rows of the fetched result*.
+    func performFind() {
+        if let textView = focusedFindableTextView() {
+            let sender = NSMenuItem()
+            sender.tag = NSTextFinder.Action.showFindInterface.rawValue
+            textView.performTextFinderAction(sender)
+            return
+        }
+        findInResults()
+    }
+
+    /// The first responder when it is one of our own find-capable text views. A
+    /// cell being edited in the grid is excluded — that's the window's shared
+    /// field editor, where ⌘F must still mean the row filter.
+    private func focusedFindableTextView() -> NSTextView? {
+        guard let textView = NSApp.keyWindow?.firstResponder as? NSTextView,
+              textView.usesFindBar, !textView.isFieldEditor else { return nil }
+        return textView
+    }
+
+    /// Reveals the find bar over the active tab's results grid. A plan tree has no
+    /// grid; flip it to the raw view so the bar has somewhere to be.
     func findInResults() {
-        guard let tab = console.activeTab else { return }
+        guard canFilterRows, let tab = console.activeTab else { return }
         if tab.currentPlan != nil { tab.showRawPlan = true }
         let wasVisible = tab.isSearchBarVisible
         tab.isSearchBarVisible = true
@@ -1349,8 +1383,8 @@ final class AppModel {
             enabled: isConnected) { self.runSQLFile() }
         add("add-row", String(localized: "Add Row"), "⌘N", "plus.rectangle",
             enabled: canEditRows) { self.addRowToActiveTab() }
-        add("find-in-results", String(localized: "Find in Results"), "⌘F", "magnifyingglass",
-            enabled: canFindInResults) { self.findInResults() }
+        add("find", String(localized: "Find…"), "⌘F", "magnifyingglass",
+            enabled: canFind) { self.performFind() }
         add("discard", String(localized: "Discard Pending Changes"), nil, "arrow.uturn.backward",
             enabled: hasPendingChanges) { self.discardPendingChanges() }
         add("export-csv", String(localized: "Export Result as CSV…"), nil, "tablecells",

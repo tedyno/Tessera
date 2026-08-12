@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import DBKit
 
 /// The value inspector below the results grid: shows the selected cell's full
 /// value, pretty-printing JSON when it parses.
@@ -48,7 +49,13 @@ struct ValueInspectorPanel: View {
     }
 
     /// Pretty-prints a value that is valid JSON; otherwise returns it unchanged.
+    /// The whitespace-only formatter first, so key order and number spelling stay
+    /// as stored. It declines above `JSONText.sizeLimit` — and so does the tree —
+    /// which is exactly where an unformatted single line is least readable, so a
+    /// huge document still falls back to `JSONSerialization` (reordered keys, but
+    /// indented) rather than to one endless line.
     private func inspectorText(_ raw: String) -> String {
+        if let pretty = JSONText.prettyPrinted(raw) { return pretty }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "{" || trimmed.first == "[",
               let data = trimmed.data(using: .utf8),

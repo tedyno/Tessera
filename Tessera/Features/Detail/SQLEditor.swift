@@ -43,6 +43,10 @@ struct SQLEditor: NSViewRepresentable {
         textView.isContinuousSpellCheckingEnabled = false
         textView.isAutomaticTextCompletionEnabled = false
         textView.allowsUndo = true
+        // ⌘F in the editor is the standard text find bar (⌘G, replace, and all),
+        // not the grid's row filter — `AppModel.performFind` routes by focus.
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(width: 4, height: 6)
         textView.onFocus = onFocus

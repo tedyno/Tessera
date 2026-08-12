@@ -145,6 +145,21 @@ public enum JSONText {
         !text.unicodeScalars.contains { $0 == "\n" || $0 == "\r" }
     }
 
+    /// The display text for a result that is a single value (`isSingleValue`)
+    /// holding a complete JSON object/array — what a key-value GET returns for a
+    /// JSON-valued key. Always the canonical layout, even for a value stored
+    /// across lines: the viewer pairs this with the stored text behind a
+    /// Formatted/Raw switch, so "formatted" has to mean one predictable thing.
+    /// (The value *editor* is the opposite — there an author's own layout must
+    /// survive a round trip.) Nil for anything else — a table-shaped result, a
+    /// one-element collection, NULL, a JSON scalar, non-JSON text, or a document
+    /// too large to tokenize — which is the caller's signal to keep its grid.
+    public static func loneDocument(in result: QueryResult) -> String? {
+        guard result.isSingleValue, result.columns.count == 1, result.rows.count == 1,
+              let text = result.rows[0].first?.text else { return nil }
+        return prettyPrinted(text)   // nil unless the text is a whole JSON container
+    }
+
     // MARK: - Formatting helpers
 
     private static func matchingClose(of open: String) -> String {

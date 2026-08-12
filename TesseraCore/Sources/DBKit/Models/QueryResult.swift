@@ -46,6 +46,12 @@ public struct QueryResult: Sendable {
     /// columns of a zero-row SELECT, so this flag carries the intent even when
     /// `columns` is empty.
     public var returnsRows: Bool
+    /// True when the reply *is* one value rather than a table that happens to be
+    /// one cell wide — a key-value GET, not a one-element LRANGE. Only a driver
+    /// whose protocol distinguishes the two sets it (Redis does: a bulk string is
+    /// a different reply type than an array), so the UI can render such a value as
+    /// a document without mistaking a one-row collection for it.
+    public var isSingleValue: Bool
 
     public init(
         columns: [ColumnDescriptor] = [],
@@ -53,7 +59,8 @@ public struct QueryResult: Sendable {
         rowsAffected: Int? = nil,
         elapsed: Duration? = nil,
         isTruncated: Bool = false,
-        returnsRows: Bool = false
+        returnsRows: Bool = false,
+        isSingleValue: Bool = false
     ) {
         self.columns = columns
         self.rows = rows
@@ -61,5 +68,6 @@ public struct QueryResult: Sendable {
         self.elapsed = elapsed
         self.isTruncated = isTruncated
         self.returnsRows = returnsRows
+        self.isSingleValue = isSingleValue
     }
 }

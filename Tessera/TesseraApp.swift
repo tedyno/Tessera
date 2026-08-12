@@ -116,9 +116,9 @@ struct TesseraCommands: Commands {
             Button("Add Row") { app.addRowToActiveTab() }
                 .keyboardShortcut("n", modifiers: .command)
                 .disabled(!app.canEditRows)
-            Button("Find in Results") { app.findInResults() }
+            Button("Find…") { app.performFind() }
                 .keyboardShortcut("f", modifiers: .command)
-                .disabled(!app.canFindInResults)
+                .disabled(!app.canFind)
 
             Divider()
 

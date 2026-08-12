@@ -38,6 +38,9 @@ struct ValueTextEditor: NSViewRepresentable {
         textView.isContinuousSpellCheckingEnabled = false
         textView.isAutomaticTextCompletionEnabled = false
         textView.allowsUndo = true
+        // Searching inside one long value is what the grid's row filter can't do.
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(width: 4, height: 6)
         // An editable NSTextView accepts string drags by default; the sheet has no

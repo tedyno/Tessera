@@ -29,7 +29,15 @@ struct DetailResultsArea: View {
                     Divider()
                 }
                 if let result = tab.result, !result.columns.isEmpty {
-                    if tab.currentPlan != nil, let session = tab.session {
+                    if let document = tab.jsonDocument() {
+                        JSONValueView(column: result.columns[0],
+                                      raw: document.raw, formatted: document.formatted)
+                            // The grid owns `inspected`; with no grid on screen the
+                            // panel below would keep showing a cell from whatever
+                            // command ran before this one.
+                            .onAppear { tab.inspected = nil }
+                            .onChange(of: tab.resultVersion) { _, _ in tab.inspected = nil }
+                    } else if tab.currentPlan != nil, let session = tab.session {
                         PlanResultView(tab: tab, engine: session.engine) {
                             resultsGrid(tab, result: result)
                         }

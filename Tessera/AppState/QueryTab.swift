@@ -252,6 +252,28 @@ final class QueryTab: Identifiable {
         isSearchBarVisible = false
     }
 
+    /// Memoizes the JSON-document rendering. Formatting tokenizes the whole value
+    /// and builds a second copy of it, and the answer is read from `body` on every
+    /// render (a dragged resize handle, a running query, the inspector opening),
+    /// so it is computed once per result. Keyed on `resultVersion` only — the
+    /// document view is read-only, so pending `edits` can't drift underneath it.
+    @ObservationIgnored private var jsonDocumentCache: (version: Int, value: (raw: String, formatted: String)?)?
+
+    /// The result as one JSON value — its stored text and its canonical layout —
+    /// or nil when the result is a table and belongs in the grid.
+    func jsonDocument() -> (raw: String, formatted: String)? {
+        guard let result else { return nil }
+        if let cache = jsonDocumentCache, cache.version == resultVersion { return cache.value }
+        let value: (raw: String, formatted: String)?
+        if let formatted = JSONText.loneDocument(in: result), let raw = result.rows.first?.first?.text {
+            value = (raw, formatted)
+        } else {
+            value = nil
+        }
+        jsonDocumentCache = (resultVersion, value)
+        return value
+    }
+
     /// The explain request a result should be interpreted against. Armed by
     /// `explainActiveQuery` before dispatching; `run()` promotes it to
     /// `currentPlan` only when the executed SQL matches exactly, so a cancelled

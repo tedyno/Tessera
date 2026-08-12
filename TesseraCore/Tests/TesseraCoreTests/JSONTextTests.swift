@@ -197,4 +197,63 @@ final class JSONTextTests: XCTestCase {
         XCTAssertFalse(JSONText.isInline("{\r\n}")) // CRLF is one grapheme — must still count
         XCTAssertTrue(JSONText.isInline(#"{"a":"x\ny"}"#)) // escaped newline is content
     }
+
+    // MARK: loneDocument
+
+    /// A single-value reply (the Redis GET shape) unless told otherwise.
+    private func result(_ texts: [String?], columns: Int = 1,
+                        isSingleValue: Bool = true) -> QueryResult {
+        QueryResult(columns: (0..<columns).map { ColumnDescriptor(name: "c\($0)", typeName: "string") },
+                    rows: texts.map { text in
+                        (0..<columns).map { _ in Cell(text) }
+                    },
+                    returnsRows: true,
+                    isSingleValue: isSingleValue)
+    }
+
+    func testLoneDocumentPrettyPrintsInlineJSON() {
+        let document = JSONText.loneDocument(in: result([#"{"a":1,"b":[2,3]}"#]))
+        XCTAssertEqual(document, "{\n  \"a\": 1,\n  \"b\": [\n    2,\n    3\n  ]\n}")
+    }
+
+    func testLoneDocumentReindentsAlreadyFormattedText() {
+        // A stored layout of its own still renders canonically — Raw is where the
+        // viewer shows the stored bytes, so the two must be able to differ.
+        let stored = "{\n    \"a\": 1,\n    \"b\": [1, 2]\n}"   // four-space indent, inline array
+        XCTAssertEqual(JSONText.loneDocument(in: result([stored])),
+                       "{\n  \"a\": 1,\n  \"b\": [\n    1,\n    2\n  ]\n}")
+    }
+
+    func testLoneDocumentOfCanonicalTextEqualsItsInput() {
+        // Nothing to switch between — the viewer hides its Formatted/Raw picker.
+        let stored = "{\n  \"a\": 1\n}"
+        XCTAssertEqual(JSONText.loneDocument(in: result([stored])), stored)
+    }
+
+    func testLoneDocumentIgnoresNonDocuments() {
+        XCTAssertNil(JSONText.loneDocument(in: result(["Ahoj světe"])))
+        XCTAssertNil(JSONText.loneDocument(in: result(["42"])))          // scalar, not a container
+        XCTAssertNil(JSONText.loneDocument(in: result([#""text""#])))    // scalar string
+        XCTAssertNil(JSONText.loneDocument(in: result([#"{"a":1"#])))    // truncated
+        XCTAssertNil(JSONText.loneDocument(in: result([nil])))           // NULL
+        XCTAssertNil(JSONText.loneDocument(in: result([#"{"a":1}"#, #"{"b":2}"#])))   // two rows
+        XCTAssertNil(JSONText.loneDocument(in: result([#"{"a":1}"#], columns: 2)))    // two columns
+        XCTAssertNil(JSONText.loneDocument(in: result([])))              // no rows
+    }
+
+    func testLoneDocumentIgnoresOneElementCollections() {
+        // A list holding one JSON element is a one-row *table*, not a value —
+        // rendering it as a bare document would hide that it is a collection.
+        XCTAssertNil(JSONText.loneDocument(in: result([#"{"a":1}"#], isSingleValue: false)))
+    }
+
+    func testLoneDocumentIgnoresOversizedDocument() {
+        let huge = "[" + Array(repeating: "1", count: JSONText.sizeLimit / 2).joined(separator: ",") + "]"
+        XCTAssertNil(JSONText.loneDocument(in: result([huge])))
+    }
+
+    func testLoneDocumentPreservesNumberSpellingAndKeyOrder() {
+        let document = JSONText.loneDocument(in: result([#"{"z":1.00,"a":2}"#]))
+        XCTAssertEqual(document, "{\n  \"z\": 1.00,\n  \"a\": 2\n}")
+    }
 }
