@@ -12,6 +12,8 @@ struct ImportTarget: Identifiable {
 struct ImportView: View {
     let context: ExportContext          // same connection details as export
     let service: DumpService
+    /// Where the running restore reports itself, and where it can be stopped.
+    let jobs: BackgroundJobsModel
     var onClose: () -> Void
 
     @State private var fileURL: URL?
@@ -186,17 +188,32 @@ struct ImportView: View {
                                      dropBeforeCreate: dropBeforeCreate)
         let targetDatabase = database
         let detected = input
+        // Like the dump: it outlives the sheet, so it goes in the task list, which is
+        // also the only place it can be stopped from.
+        let cancellation = DumpService.Cancellation()
+        let job = jobs.start(title: String(localized: "Importing \(fileURL.lastPathComponent)"),
+                             detail: String(localized: "Restoring into \(targetDatabase)"),
+                             fileURL: fileURL,
+                             onCancel: { cancellation.cancel() })
         Task {
             let result = await service.restore(
                 engine: context.kind, binaryPath: binaryPath,
                 host: context.host, port: context.port, user: context.user,
                 database: targetDatabase, password: context.password,
-                input: detected, fileURL: fileURL, options: options)
+                input: detected, fileURL: fileURL, options: options,
+                cancellation: cancellation)
             running = false
-            resultSuccess = result.success
+            resultSuccess = result.cancelled ? nil : result.success
             resultMessage = result.success
-                ? "Imported \(fileURL.lastPathComponent)"
+                ? String(localized: "Imported \(fileURL.lastPathComponent)")
                 : result.message
+            if result.cancelled {
+                jobs.finish(job, state: .cancelled)
+            } else if result.success {
+                jobs.finish(job, state: .succeeded)
+            } else {
+                jobs.finish(job, state: .failed(result.message))
+            }
         }
     }
 }

@@ -119,6 +119,11 @@ final class QueryTab: Identifiable {
     /// Summary after running a multi-statement script (e.g. "Executed 12 statements").
     var scriptSummary: String?
 
+    /// The running export of this tab's result, so the background-task list's Stop
+    /// can reach it. The exporter discards its partial file when cancelled, leaving
+    /// the destination as it was.
+    @ObservationIgnored var exportTask: Task<Void, Never>?
+
     /// Set when the result maps to a single table with a primary key; enables
     /// editing. `edits` holds pending, unsaved cell changes: row → column → value,
     /// where an inner `nil` value means "set to SQL NULL" (distinct from removing

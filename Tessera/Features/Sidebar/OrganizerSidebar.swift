@@ -7,7 +7,10 @@ import DBPersistence
 /// adds the bottom "+" menu and the name-entry alerts.
 struct OrganizerSidebar: View {
     let model: ConnectionsModel
-    @Binding var selection: UUID?
+    /// The highlighted node, in as a value and out through `onSelect` — see
+    /// `OrganizerOutlineView.selection` for why this isn't a `Binding`.
+    var selection: UUID?
+    var onSelect: (UUID) -> Void
     /// Opens the New Connection sheet targeting the given parent container.
     var onNewConnection: (UUID?) -> Void
     /// Opens the editor for the connection at the given tree node id.
@@ -41,7 +44,8 @@ struct OrganizerSidebar: View {
     var body: some View {
         OrganizerOutlineView(
             model: model,
-            selection: $selection,
+            selection: selection,
+            onSelect: onSelect,
             onNewConnection: onNewConnection,
             onNewFolder: { startNewFolder(parent: $0) },
             onNewProject: { startNewProject(workspace: $0) },

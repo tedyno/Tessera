@@ -6,6 +6,7 @@ import DBKit
 /// inspector / export / log affordances.
 struct DetailStatusBar: View {
     @Bindable var model: QueryConsoleModel
+    let jobs: BackgroundJobsModel
     var isReadOnly: Bool
     /// Grid row density; compact matches a terminal, comfortable breathes. Shared
     /// via the `tessera.gridDensity` key with the results grid and the Appearance
@@ -114,6 +115,10 @@ struct DetailStatusBar: View {
                 }
             }
             Spacer()
+            // Work that outlives the click that started it — exports, dumps,
+            // restores — lives here rather than in whichever tab happened to start
+            // it, because it keeps running after you switch away.
+            BackgroundJobsIndicator(jobs: jobs)
             if model.activeTab?.result != nil {
                 Button { gridComfortable.toggle() } label: {
                     Label("Row Density",

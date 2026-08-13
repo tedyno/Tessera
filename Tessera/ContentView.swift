@@ -14,6 +14,7 @@ struct ContentView: View {
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
             DetailView(model: app.console,
+                       jobs: app.backgroundJobs,
                        showingHistory: $app.showingHistory,
                        focusTrigger: app.editorFocusRequests,
                        cursor: cursorBinding,
@@ -78,14 +79,15 @@ struct ContentView: View {
         .sheet(item: $app.ddlOperation) { operation in
             DDLEditorView(operation: operation,
                           engine: app.currentEngine,
-                          onRun: { await app.runDDL($0) },
+                          onRun: { await app.runDDL($0, for: operation) },
                           onClose: { app.ddlOperation = nil })
                 .tesseraModalBackground()
         }
         .sheet(item: $app.importTarget) { target in
             Group {
                 if let context = app.importContext(for: target) {
-                    ImportView(context: context, service: app.dumpService) { app.importTarget = nil }
+                    ImportView(context: context, service: app.dumpService,
+                               jobs: app.backgroundJobs) { app.importTarget = nil }
                 } else {
                     VStack(spacing: 12) {
                         Text("Cannot import into this connection.")
@@ -98,7 +100,8 @@ struct ContentView: View {
         .sheet(item: $app.exportTarget) { target in
             Group {
                 if let context = app.exportContext(for: target) {
-                    ExportView(context: context, service: app.dumpService) { app.exportTarget = nil }
+                    ExportView(context: context, service: app.dumpService,
+                               jobs: app.backgroundJobs) { app.exportTarget = nil }
                 } else {
                     VStack(spacing: 12) {
                         Text("Cannot export this connection.")
@@ -317,7 +320,11 @@ private struct OrganizerSidebarColumn: View {
     var body: some View {
         OrganizerSidebar(
                 model: app.connections,
-                selection: $app.selection,
+                // Read as a value, not handed over as a binding: this is what makes
+                // the column re-render (and the highlight follow) when the selection
+                // moves from elsewhere — activating a tab on another connection, say.
+                selection: app.selection,
+                onSelect: { app.selection = $0 },
                 onNewConnection: { parent in
                     app.newConnectionParent = parent
                     app.showingNewConnection = true

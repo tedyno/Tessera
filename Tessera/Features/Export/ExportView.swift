@@ -32,6 +32,8 @@ struct ExportContext {
 struct ExportView: View {
     let context: ExportContext
     let service: DumpService
+    /// Where the running dump reports itself, and where it can be stopped.
+    let jobs: BackgroundJobsModel
     var onClose: () -> Void
 
     @State private var database = ""
@@ -55,6 +57,8 @@ struct ExportView: View {
     @State private var running = false
     @State private var resultSuccess: Bool?
     @State private var resultMessage = ""
+    /// Size of the output file while the dump runs — see `watchOutputSize`.
+    @State private var writtenBytes: Int64 = 0
 
     private var binaryName: String { DumpTool.binaryName(for: context.kind) }
     private var defaultsKey: String { "tessera.dumpPath.\(context.kind.rawValue)" }
@@ -172,7 +176,22 @@ struct ExportView: View {
             }
 
             HStack {
-                if running { ProgressView().controlSize(.small); Text("Exporting…").foregroundStyle(.secondary) }
+                if running {
+                    ProgressView().controlSize(.small)
+                    Text("Exporting…").foregroundStyle(.secondary)
+                    if writtenBytes > 0 {
+                        // ByteCountFormatter localizes the unit itself; monospaced
+                        // digits in a fixed slot keep the growing number from
+                        // twitching on every update.
+                        Text(verbatim: ByteCountFormatter.string(fromByteCount: writtenBytes,
+                                                                 countStyle: .file))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                            .animation(.snappy(duration: 0.25), value: writtenBytes)
+                            .frame(minWidth: 80, alignment: .leading)
+                    }
+                }
                 Spacer()
                 Button("Close") { onClose() }
                 Button("Export") { runExport() }
@@ -375,18 +394,50 @@ struct ExportView: View {
             format: isPostgres ? format : .plain,
             gzip: gzip)
         let targetDatabase = database
+        writtenBytes = 0
+        // The dump keeps running if the sheet is closed, so it belongs in the
+        // background-task list — that's also where it can be stopped from.
+        let cancellation = DumpService.Cancellation()
+        let job = jobs.start(title: String(localized: "Dumping \(outputURL.lastPathComponent)"),
+                             fileURL: outputURL,
+                             onCancel: { cancellation.cancel() })
         Task {
+            let watcher = Task { await watchOutputSize(outputURL, job: job) }
             let result = await service.dump(
                 kind: context.kind, binaryPath: binaryPath,
                 host: context.host, port: context.port, user: context.user,
                 database: targetDatabase, password: context.password,
-                options: options, outputURL: outputURL)
+                options: options, outputURL: outputURL, cancellation: cancellation)
+            watcher.cancel()
             running = false
-            resultSuccess = result.success
+            resultSuccess = result.cancelled ? nil : result.success
             resultMessage = result.success ? String(localized: "Saved to \(outputURL.path)") : result.message
+            if result.cancelled {
+                jobs.finish(job, state: .cancelled)
+            } else if result.success {
+                jobs.finish(job, state: .succeeded)
+            } else {
+                jobs.finish(job, state: .failed(result.message))
+            }
             if result.success, ExportSettings.revealAfterExport {
                 NSWorkspace.shared.activateFileViewerSelecting([outputURL])
             }
+        }
+    }
+
+    /// Reports how far the dump has got by watching the output file grow. pg_dump and
+    /// mysqldump say nothing about their progress, but the file is honest — and it is
+    /// the difference between "still working" and an apparent freeze on a big database.
+    /// Runs until cancelled, which the caller does as soon as the dump returns.
+    private func watchOutputSize(_ url: URL, job: UUID) async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            writtenBytes = (attributes?[.size] as? NSNumber)?.int64Value ?? writtenBytes
+            guard writtenBytes > 0 else { continue }
+            jobs.update(job, detail: ByteCountFormatter.string(fromByteCount: writtenBytes,
+                                                               countStyle: .file))
         }
     }
 }

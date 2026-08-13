@@ -62,6 +62,21 @@ enum DDLOperation: Identifiable {
         }
     }
 
+    /// True when the table itself is gone afterwards, so its open grids have nothing
+    /// left to reload.
+    var removesTable: Bool {
+        if case .dropTable = self { true } else { false }
+    }
+
+    /// What the sheet says while the statement runs.
+    var progressTitle: LocalizedStringKey {
+        switch self {
+        case .truncateTable: "Truncating…"
+        case .dropTable, .dropColumn, .dropIndex: "Dropping…"
+        default: "Applying…"
+        }
+    }
+
     /// Destructive operations get a red confirm button and a warning.
     var isDestructive: Bool {
         switch self {
@@ -124,9 +139,16 @@ struct DDLEditorView: View {
             }
 
             HStack {
-                if running { ProgressView().controlSize(.small) }
+                // A TRUNCATE on a big table takes a while and the sheet otherwise
+                // looks idle, so it says what it is doing — and Cancel stops being
+                // offered, since closing wouldn't stop the statement anyway.
+                if running {
+                    ProgressView().controlSize(.small)
+                    Text(operation.progressTitle).foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button("Cancel") { onClose() }
+                    .disabled(running)
                 Button(operation.isDestructive ? "Drop" : "Apply", role: operation.isDestructive ? .destructive : nil) {
                     apply()
                 }

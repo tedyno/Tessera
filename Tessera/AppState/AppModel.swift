@@ -14,6 +14,8 @@ import UniformTypeIdentifiers
 final class AppModel {
     let connections = ConnectionsModel()
     let console = QueryConsoleModel()
+    /// Exports, dumps and restores, surfaced together in the status bar.
+    let backgroundJobs = BackgroundJobsModel()
 
     // MARK: MCP
 
@@ -38,11 +40,29 @@ final class AppModel {
             guard let self, let profile = self.connections.profile(id: session.id) else { return }
             await self.openSession(session, profile: profile)
         }
+        console.jobs = backgroundJobs
         schemaCache = schemaCacheStore.load()
         // Disconnected connections still browse (and diagram) their last
         // introspected schema straight from the persisted cache.
         console.cachedSchemaProvider = { [weak self] profileID in
             self?.schemaCache[profileID]?.tree
+        }
+
+        // The schema tree follows whichever connection is in focus, and focus moves
+        // on tab/pane activation too — not just on an organizer click. Without
+        // mirroring it back into the highlight the two drift apart, and then
+        // clicking the highlighted row changes no value at all, so `.onChange`
+        // never fires and the tree stays on the other connection.
+        console.onFocusSession = { [weak self] session in
+            guard let self else { return }
+            if let selection {
+                // A highlighted folder means the user is organizing, not browsing —
+                // the highlight only ever moves off another connection.
+                guard let highlighted = connections.profileID(forNode: selection) else { return }
+                guard highlighted != session.id else { return }
+            }
+            guard let nodeID = connections.firstNodeID(forProfile: session.id) else { return }
+            selection = nodeID
         }
 
         // Recoloring or renaming a connection must show up in the open tabs'
@@ -1057,11 +1077,12 @@ final class AppModel {
     }
 
     func refreshSchema() {
+        // Captured up front, not re-read after the await: switching connection during
+        // the refresh would otherwise cache one session's tree under the other's id.
+        guard let session = console.activeSession else { return }
         Task {
-            await console.refreshSchema()
-            if let session = console.activeSession, let schema = session.schema {
-                cacheSchema(schema, for: session.id)
-            }
+            await session.refreshSchema()
+            if let schema = session.schema { cacheSchema(schema, for: session.id) }
         }
     }
     func showHistory() { showingHistory = true }
@@ -1209,7 +1230,8 @@ final class AppModel {
             }
         }
         if let streamFormat {
-            Task {
+            // Held on the tab so the status bar's Stop can cancel it.
+            tab.exportTask = Task {
                 if await console.streamExport(tab, format: streamFormat, table: table, to: url),
                    ExportSettings.revealAfterExport {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
@@ -1221,16 +1243,23 @@ final class AppModel {
         // beachballed the UI. `result` is an immutable Sendable snapshot here.
         let snapshot = result
         Task {
+            // One indivisible encode: it can be watched but not measured, and not
+            // stopped either — hence no progress and no Stop on this one.
+            let job = backgroundJobs.start(title: String(localized: "Exporting \(url.lastPathComponent)"),
+                                           detail: String(localized: "Encoding…"),
+                                           fileURL: url)
             do {
                 try await Task.detached(priority: .userInitiated) {
                     let data = try ResultExport.data(from: snapshot, format: format, table: table)
                     try data.write(to: url, options: .atomic)
                 }.value
+                backgroundJobs.finish(job, state: .succeeded)
                 if ExportSettings.revealAfterExport {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
             } catch {
-                console.activeTab?.errorMessage = String(
+                backgroundJobs.finish(job, state: .failed(error.localizedDescription))
+                tab.errorMessage = String(
                     localized: "Could not write \(url.lastPathComponent): \(error.localizedDescription)")
             }
         }
@@ -1250,7 +1279,15 @@ final class AppModel {
 
     func startDDL(_ operation: DDLOperation) { ddlOperation = operation }
 
-    func runDDL(_ sql: String) async -> String? { await console.runDDL(sql) }
+    /// Applies a schema change and refreshes what it invalidated. A dropped table is
+    /// deliberately not reloaded: there is nothing left to read, and an error where
+    /// the stale grid used to be helps nobody.
+    func runDDL(_ sql: String, for operation: DDLOperation) async -> String? {
+        let affected = operation.removesTable
+            ? nil
+            : operation.table.map { (schema: operation.schema, name: $0) }
+        return await console.runDDL(sql, affecting: affected)
+    }
 
     func importConnection(profileID: UUID) {
         importTarget = ImportTarget(profileID: profileID)

@@ -20,6 +20,18 @@ public final class StreamingResultExport: RowSink, @unchecked Sendable {
     private var wroteFirstRow = false
     /// Number of data rows written, for callers that report an export summary.
     public private(set) var rowCount = 0
+    /// Bytes handed to the sink so far. Counted here rather than read back off the
+    /// sink so progress works for any `ByteSink`, not just the file one.
+    public private(set) var byteCount = 0
+    /// Called after each batch reaches the sink, so a caller can show how far a long
+    /// export has got. Runs on whatever executor the driver streams from — a UI
+    /// observer has to hop to its own actor.
+    public var onProgress: (@Sendable (Summary) -> Void)?
+    /// Consulted before each batch is formatted; returning true aborts the export
+    /// with `CancellationError`. Checked here rather than left to the driver so a
+    /// stopped export unwinds the same way on every engine — and `export` then
+    /// removes the partial file on its way out.
+    public var shouldCancel: (@Sendable () -> Bool)?
 
     /// `table` names the target of generated `INSERT` statements (ignored for CSV).
     public init(format: Format, into sink: ByteSink, table: String = "table") {
@@ -43,6 +55,7 @@ public final class StreamingResultExport: RowSink, @unchecked Sendable {
     }
 
     public func write(_ rows: [[Cell]]) throws {
+        if shouldCancel?() == true { throw CancellationError() }
         guard !skip else { return }
         rowCount += rows.count
         for row in rows {
@@ -63,12 +76,15 @@ public final class StreamingResultExport: RowSink, @unchecked Sendable {
                 wroteFirstRow = true
             }
         }
+        onProgress?(Summary(rows: rowCount, bytes: byteCount))
     }
 
     public func finish() throws {}
 
     private func emit(_ text: String) throws {
-        try sink.write(Data(text.utf8))
+        let data = Data(text.utf8)
+        byteCount += data.count
+        try sink.write(data)
     }
 }
 
@@ -80,14 +96,21 @@ public extension StreamingResultExport {
     /// so an arbitrarily large result never has to be held in memory. Writes to a
     /// sibling temp file and atomically replaces `url` on success, so a failed or
     /// cancelled export never leaves a truncated file behind.
+    /// `onProgress` fires once per batch with the running totals, so a caller can
+    /// report how far a long export has got; `shouldCancel` is polled just as often
+    /// and aborts the export, leaving the destination file untouched.
     static func export(_ sql: String, from driver: DatabaseDriver, format: Format,
                        table: String = "table", to url: URL,
-                       batchSize: Int = 1000) async throws -> Summary {
+                       batchSize: Int = 1000,
+                       onProgress: (@Sendable (Summary) -> Void)? = nil,
+                       shouldCancel: (@Sendable () -> Bool)? = nil) async throws -> Summary {
         let temp = url.deletingLastPathComponent()
             .appendingPathComponent(".\(url.lastPathComponent).partial")
         try? FileManager.default.removeItem(at: temp)   // clear a stale partial
         let sink = try FileByteSink(creatingAt: temp)
         let exporter = StreamingResultExport(format: format, into: sink, table: table)
+        exporter.onProgress = onProgress
+        exporter.shouldCancel = shouldCancel
         do {
             try await driver.stream(sql, batchSize: batchSize, into: exporter)
             try sink.close()

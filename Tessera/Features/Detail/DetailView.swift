@@ -17,6 +17,8 @@ struct ConnectionOption: Identifiable, Hashable {
 /// UI lives in `PaneView`/`PaneTreeView`; this is the thin shell around them.
 struct DetailView: View {
     @Bindable var model: QueryConsoleModel
+    /// Exports/dumps/restores, shown in the status bar's task indicator.
+    let jobs: BackgroundJobsModel
     @Binding var showingHistory: Bool
     var focusTrigger: Int
     var cursor: Binding<Int>
@@ -59,6 +61,7 @@ struct DetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             DetailStatusBar(model: model,
+                            jobs: jobs,
                             isReadOnly: isReadOnly,
                             showingConnectionLog: $showingConnectionLog,
                             onExportResult: onExportResult)

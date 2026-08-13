@@ -149,7 +149,13 @@ final class ContextualOutlineView: NSOutlineView {
 /// The connection organizer backed by NSOutlineView for reliable drag & drop.
 struct OrganizerOutlineView: NSViewRepresentable {
     let model: ConnectionsModel
-    @Binding var selection: UUID?
+    /// The row to highlight, as a plain value read fresh on every update. Passing a
+    /// `Binding` here used to double as the read-back channel, but a binding's getter
+    /// reports the value from the last SwiftUI update pass: right after a click it
+    /// still answered with the previously selected row, and the highlight got dragged
+    /// back onto it. Selections travel outward through `onSelect` instead.
+    var selection: UUID?
+    var onSelect: (UUID) -> Void
     var onNewConnection: (UUID?) -> Void
     var onNewFolder: (UUID) -> Void
     var onNewProject: (UUID) -> Void
@@ -283,6 +289,8 @@ struct OrganizerOutlineView: NSViewRepresentable {
     }
 
     private func applyClosures(to coordinator: Coordinator) {
+        coordinator.onSelect = onSelect
+        coordinator.receive(selection: selection)
         coordinator.onSpeedSearch = onSpeedSearch
         coordinator.connectionDot = connectionDot
         coordinator.onDuplicateConnection = onDuplicateConnection
@@ -296,7 +304,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(model: model, selection: $selection,
+        Coordinator(model: model, onSelect: onSelect,
                     onNewConnection: onNewConnection, onNewFolder: onNewFolder,
                     onNewProject: onNewProject, onNewWorkspace: onNewWorkspace,
                     onRename: onRename, onSetColor: onSetColor,
@@ -308,7 +316,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         let model: ConnectionsModel
-        let selection: Binding<UUID?>
+        var onSelect: (UUID) -> Void
         let onNewConnection: (UUID?) -> Void
         let onNewFolder: (UUID) -> Void
         let onNewProject: (UUID) -> Void
@@ -335,10 +343,14 @@ struct OrganizerOutlineView: NSViewRepresentable {
         private var isSyncingSelection = false
 
         var onSpeedSearch: (String, Int, Int) -> Void = { _, _, _ in }
-        /// Binding value applySelection last honored — a user-driven selection
-        /// change (including ⌘-deselecting to empty) marks the current binding
-        /// as applied so the periodic sync can't fight the user.
-        private var lastAppliedSelection: UUID?
+        /// The row that ought to be highlighted — the coordinator's own record, set
+        /// both by the user's clicks and by the value coming down from SwiftUI. It is
+        /// `nil` while the user holds an empty or multi-row selection, so re-asserting
+        /// can never undo a ⌘-deselect.
+        private var desiredSelection: UUID?
+        /// Last value handed down by the representable, so an unchanged one on a
+        /// routine update pass doesn't resurrect a selection the user just cleared.
+        private var lastGivenSelection: UUID?
         private(set) var speedTerm = ""
         private var speedMatches: [OrganizerItem] = []
         private var speedIndex = 0
@@ -348,13 +360,13 @@ struct OrganizerOutlineView: NSViewRepresentable {
         var lastStepToken = 0
         var lastCommitToken = 0
 
-        init(model: ConnectionsModel, selection: Binding<UUID?>,
+        init(model: ConnectionsModel, onSelect: @escaping (UUID) -> Void,
              onNewConnection: @escaping (UUID?) -> Void, onNewFolder: @escaping (UUID) -> Void,
              onNewProject: @escaping (UUID) -> Void, onNewWorkspace: @escaping () -> Void,
              onRename: @escaping (UUID, String) -> Void, onSetColor: @escaping (UUID, String?) -> Void,
              onSetConnectionColor: @escaping (UUID, String?) -> Void, onEditConnection: @escaping (UUID) -> Void) {
             self.model = model
-            self.selection = selection
+            self.onSelect = onSelect
             self.onNewConnection = onNewConnection
             self.onNewFolder = onNewFolder
             self.onNewProject = onNewProject
@@ -566,13 +578,21 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         // MARK: Selection
 
+        /// Takes the selection handed down by SwiftUI. A value that hasn't changed
+        /// since the last update is ignored: `selection` still holds the last row the
+        /// user picked even after they ⌘-deselected it, and honoring it again on the
+        /// next status tick would put the highlight back.
+        func receive(selection id: UUID?) {
+            guard id != lastGivenSelection else { return }
+            lastGivenSelection = id
+            desiredSelection = id
+        }
+
         private func applySelection() {
-            guard let outlineView, let id = selection.wrappedValue,
-                  id != lastAppliedSelection else { return }
+            guard let outlineView, let id = desiredSelection else { return }
             // Never touch a live multi-selection: `sync()` calls this on every
-            // organizer/status tick, and the binding only tracks the single "primary"
-            // row — it may even point at a row the user has since ⌘-deselected, so
-            // any forced re-select here would stomp what they're building.
+            // organizer/status tick, and the desired row is only the single "primary"
+            // one, so any forced re-select here would stomp what the user is building.
             guard outlineView.selectedRowIndexes.count <= 1 else { return }
             guard let item = find(id, in: roots) else { return }
             let row = outlineView.row(forItem: item)
@@ -580,7 +600,6 @@ struct OrganizerOutlineView: NSViewRepresentable {
             isSyncingSelection = true
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             isSyncingSelection = false
-            lastAppliedSelection = id
         }
 
         private func find(_ id: UUID, in items: [OrganizerItem]) -> OrganizerItem? {
@@ -593,17 +612,18 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !isSyncingSelection, let outlineView else { return }
-            // Whatever the user just did wins: mark the binding as applied even
-            // when this change doesn't get mirrored into it (empty / multi).
-            defer { lastAppliedSelection = selection.wrappedValue }
-            // Only mirror a single selected row into the "primary" binding — that
-            // binding drives auto-connect (see the outer view's `onChange(of: selection)`),
-            // so extending a multi-selection with ⌘/⇧-click must not auto-connect
-            // every row added to it.
+            // Whatever the user just did wins: an empty or multi-row selection leaves
+            // nothing to re-assert, so the periodic sync can't fight them.
+            desiredSelection = nil
+            // Only report a single selected row outward — that value makes the schema
+            // sidebar follow (see the outer view's `onChange(of: selection)`), so
+            // extending a multi-selection with ⌘/⇧-click must not retarget it.
             guard outlineView.selectedRowIndexes.count == 1 else { return }
             let row = outlineView.selectedRow
             guard row >= 0, let item = outlineView.item(atRow: row) as? OrganizerItem else { return }
-            selection.wrappedValue = item.id
+            desiredSelection = item.id
+            lastGivenSelection = item.id
+            onSelect(item.id)
         }
 
         // MARK: DataSource
@@ -1081,7 +1101,9 @@ struct OrganizerOutlineView: NSViewRepresentable {
 
         @objc private func actionConnect(_ sender: NSMenuItem) {
             guard let item = sender.representedObject as? OrganizerItem else { return }
-            selection.wrappedValue = item.id
+            desiredSelection = item.id
+            lastGivenSelection = item.id
+            onSelect(item.id)
             if let profileID = model.organizer.profileID(forNode: item.id) { onConnectProfile(profileID) }
         }
         @objc private func actionDisconnect(_ sender: NSMenuItem) {

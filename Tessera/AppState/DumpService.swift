@@ -7,6 +7,37 @@ import DBKit
 @MainActor
 final class DumpService {
 
+    /// Handle for stopping a dump or restore that is already under way. The service
+    /// registers each process it spawns; cancelling terminates them, and cancelling
+    /// before they start stops them from starting at all — otherwise a Stop pressed
+    /// in the split second before `run()` would be silently ignored.
+    final class Cancellation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var processes: [Process] = []
+        private var cancelled = false
+
+        init() {}
+
+        var isCancelled: Bool { lock.withLock { cancelled } }
+
+        func cancel() {
+            let running: [Process] = lock.withLock {
+                cancelled = true
+                return processes
+            }
+            for process in running where process.isRunning { process.terminate() }
+        }
+
+        /// False means "already cancelled, don't start this".
+        func register(_ process: Process) -> Bool {
+            lock.withLock {
+                guard !cancelled else { return false }
+                processes.append(process)
+                return true
+            }
+        }
+    }
+
     /// Resolves the binary path: an explicit override if it's executable, otherwise
     /// the first match on `$PATH` and the known install locations.
     func locate(kind: DatabaseKind, override: String?) -> String? {
@@ -107,12 +138,18 @@ final class DumpService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    struct DumpResult: Sendable { let success: Bool; let message: String }
+    struct DumpResult: Sendable {
+        let success: Bool
+        let message: String
+        /// The user stopped it — an outcome to report as such, not a failure.
+        var cancelled = false
+    }
 
     /// Streams a dump to `outputURL`, optionally piped through gzip. Returns success
     /// plus any stderr on failure.
     func dump(kind: DatabaseKind, binaryPath: String, host: String, port: Int, user: String,
-              database: String, password: String?, options: DumpOptions, outputURL: URL) async -> DumpResult {
+              database: String, password: String?, options: DumpOptions, outputURL: URL,
+              cancellation: Cancellation? = nil) async -> DumpResult {
         let arguments = DumpTool.arguments(kind: kind, host: host, port: port, user: user,
                                            database: database, options: options)
         let extraEnvironment = DumpTool.environment(kind: kind, password: password)
@@ -154,6 +191,16 @@ final class DumpService {
                     dumpProcess.standardOutput = outputHandle
                 }
 
+                // Registered before starting: a Stop that lands in the gap between
+                // these two lines must still take effect.
+                let registered = [dumpProcess, gzipProcess].compactMap { $0 }
+                    .allSatisfy { cancellation?.register($0) ?? true }
+                guard registered else {
+                    try? outputHandle.close()
+                    continuation.resume(returning: DumpResult(
+                        success: false, message: "", cancelled: true))
+                    return
+                }
                 do {
                     try gzipProcess?.run()
                     try dumpProcess.run()
@@ -173,7 +220,12 @@ final class DumpService {
 
                 let stderr = String(data: errorData, encoding: .utf8) ?? ""
                 let gzipStatus = gzipProcess?.terminationStatus ?? 0
-                if dumpProcess.terminationStatus == 0, gzipStatus == 0 {
+                if cancellation?.isCancelled == true {
+                    // Terminated on purpose; the half-written file is the caller's to
+                    // clean up, and the tool's dying words are not an error report.
+                    continuation.resume(returning: DumpResult(
+                        success: false, message: "", cancelled: true))
+                } else if dumpProcess.terminationStatus == 0, gzipStatus == 0 {
                     continuation.resume(returning: DumpResult(success: true, message: stderr))
                 } else {
                     let message = stderr.isEmpty
@@ -189,7 +241,7 @@ final class DumpService {
     /// piped on stdin (mysql); gzipped files stream through `gzip -dc`.
     func restore(engine: DatabaseKind, binaryPath: String, host: String, port: Int, user: String,
                  database: String, password: String?, input: RestoreInput, fileURL: URL,
-                 options: RestoreOptions) async -> DumpResult {
+                 options: RestoreOptions, cancellation: Cancellation? = nil) async -> DumpResult {
         let arguments = RestoreTool.arguments(engine: engine, host: host, port: port, user: user,
                                               database: database, input: input,
                                               filePath: fileURL.path, options: options)
@@ -236,6 +288,15 @@ final class DumpService {
                     }
                 }
 
+                // See `dump`: registered before starting, so a Stop can't slip through.
+                let registered = [restoreProcess, gunzipProcess].compactMap { $0 }
+                    .allSatisfy { cancellation?.register($0) ?? true }
+                guard registered else {
+                    try? inputHandle?.close()
+                    continuation.resume(returning: DumpResult(
+                        success: false, message: "", cancelled: true))
+                    return
+                }
                 do {
                     try gunzipProcess?.run()
                     try restoreProcess.run()
@@ -252,7 +313,12 @@ final class DumpService {
                 try? inputHandle?.close()
 
                 let stderr = String(data: errorData, encoding: .utf8) ?? ""
-                if restoreProcess.terminationStatus == 0 {
+                if cancellation?.isCancelled == true {
+                    // Stopped on purpose. Note the database keeps whatever the restore
+                    // managed to apply — the caller says so, this only reports the fact.
+                    continuation.resume(returning: DumpResult(
+                        success: false, message: "", cancelled: true))
+                } else if restoreProcess.terminationStatus == 0 {
                     continuation.resume(returning: DumpResult(success: true, message: stderr))
                 } else {
                     continuation.resume(returning: DumpResult(

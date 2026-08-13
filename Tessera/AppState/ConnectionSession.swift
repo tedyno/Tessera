@@ -71,6 +71,11 @@ final class ConnectionSession: Identifiable {
 
     private(set) var driver: (any DatabaseDriver)?
     private var tunnel: SSHTunnel?
+    /// Bumped by every open and close. Introspection started against one connection
+    /// compares it before writing back, so a `fetchSchema()` that only lands after a
+    /// disconnect or a database switch can't stamp the previous connection's tree
+    /// onto the new one.
+    private var connectionEpoch = 0
     /// Last time a query actually ran against this session — the auto-disconnect
     /// idle sweep compares against this, not against when a tab merely sits open.
     private(set) var lastActivityAt = Date()
@@ -107,6 +112,8 @@ final class ConnectionSession: Identifiable {
     /// Opens (or reopens) the connection, building an SSH tunnel first when configured.
     func open(profile: ConnectionProfile, secrets: Secrets) async {
         await close()
+        connectionEpoch &+= 1
+        let epoch = connectionEpoch
         name = profile.name
         colorName = profile.color
         serverVersion = nil
@@ -157,16 +164,27 @@ final class ConnectionSession: Identifiable {
             try await withTimeout(Self.stageTimeout) {
                 try await driver.connect(profile: effective, secrets: secrets, endpoint: endpoint)
             }
+            // A close (or another open) that landed while we were connecting owns
+            // the session now — this connection is stale before it ever showed
+            // anything, so tear it down rather than write it back.
+            guard epoch == connectionEpoch else {
+                await driver.close()
+                return
+            }
             status = .ready
             lastActivityAt = Date()
             serverVersion = try? await driver.serverVersion()
             log?.record(profile.name, .connect,
                         "Connected\(serverVersion.map { " — \($0)" } ?? "")")
-            schema = try? await driver.fetchSchema()
+            let tree = try? await driver.fetchSchema()
+            guard epoch == connectionEpoch else { return }
+            schema = tree
             if schema == nil {
                 log?.record(profile.name, .introspect, "Could not read the schema", isError: true)
             }
-            databases = await fetchDatabases()
+            let available = await fetchDatabases()
+            guard epoch == connectionEpoch else { return }
+            databases = available
         } catch {
             if let mismatch = error as? SSHHostKeyMismatchError { hostKeyMismatch = mismatch }
             status = .failed(Self.message(for: error))
@@ -199,13 +217,19 @@ final class ConnectionSession: Identifiable {
         databases = []
         status = .idle
         isDisconnecting = false
+        connectionEpoch &+= 1
         log?.record(name, .disconnect, reason)
     }
 
     /// Re-introspects the schema of a live connection.
     func refreshSchema() async {
         guard let driver else { return }
-        schema = try? await driver.fetchSchema()
+        let epoch = connectionEpoch
+        let tree = try? await driver.fetchSchema()
+        // Disconnected or switched database mid-fetch: dropping the result keeps the
+        // old database's tree from reappearing under the new connection.
+        guard epoch == connectionEpoch else { return }
+        schema = tree
     }
 
     /// Lists the databases on the server (excluding templates/system schemas).

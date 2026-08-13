@@ -85,8 +85,20 @@ final class QueryConsoleModel {
     /// tree even while a tab from another one is open.
     var activeSession: ConnectionSession? { currentSession ?? activeTab?.session }
 
+    /// Reports the connection that just took focus. `AppModel` moves the organizer
+    /// highlight onto it, so the highlighted row and the schema tree can never
+    /// disagree — see `focus(_:)`.
+    @ObservationIgnored var onFocusSession: ((ConnectionSession) -> Void)?
+
     /// Makes a connection current without opening anything.
-    func selectSession(_ session: ConnectionSession) { currentSession = session }
+    func selectSession(_ session: ConnectionSession) { focus(session) }
+
+    /// The single place `currentSession` moves, so every path that changes which
+    /// connection the schema tree shows also tells the organizer about it.
+    private func focus(_ session: ConnectionSession) {
+        currentSession = session
+        onFocusSession?(session)
+    }
 
     /// Switches to a tab and moves the connection focus with it, so the schema tree
     /// always belongs to what you are looking at. Set explicitly rather than through
@@ -97,7 +109,7 @@ final class QueryConsoleModel {
         // open on a background tab would re-present a stale target on return.
         if activeTabID != tab.id { activeTab?.valueEditor = nil }
         activeTabID = tab.id
-        if let session = tab.session { currentSession = session }
+        if let session = tab.session { focus(session) }
         // Keep the tiling layout in step: the tab's pane takes focus and shows it,
         // and a tab that isn't in any group yet (freshly opened) joins the focused
         // one. Every open/create path funnels through here, so this is the single
@@ -131,6 +143,8 @@ final class QueryConsoleModel {
     /// Fallback for sessions with no live schema: the persisted per-profile
     /// schema cache (the one search already uses). Set by AppModel.
     @ObservationIgnored var cachedSchemaProvider: ((UUID) -> DatabaseTree?)?
+    /// Where a long export reports itself. Set by AppModel.
+    @ObservationIgnored var jobs: BackgroundJobsModel?
     /// The live schema when connected, else the last introspected one from the
     /// cache — the sidebar and diagrams work without a connection.
     var schema: DatabaseTree? {
@@ -774,14 +788,67 @@ final class QueryConsoleModel {
             tab.errorMessage = session.errorMessage ?? String(localized: "Not connected")
             return false
         }
+        let job = jobs?.start(title: String(localized: "Exporting \(url.lastPathComponent)"),
+                              fileURL: url,
+                              onCancel: { [weak tab] in tab?.exportTask?.cancel() })
+        // Only a data view knows how many rows are coming, and only then can the bar
+        // be a fraction rather than a spinner.
+        let expectedRows = tab.kind == .data ? tab.totalRows : nil
+        let gate = ProgressGate()
         do {
-            _ = try await StreamingResultExport.export(exportSQL(tab), from: driver,
-                                                       format: format, table: table ?? "table", to: url)
+            _ = try await StreamingResultExport.export(
+                exportSQL(tab), from: driver, format: format,
+                table: table ?? "table", to: url,
+                onProgress: { [weak self] summary in
+                    // The driver streams off the main actor; the model is main-actor state.
+                    Task { @MainActor in
+                        guard let self, let job, gate.allow() else { return }
+                        self.jobs?.update(job, detail: Self.exportDetail(summary),
+                                          progress: expectedRows.map {
+                                              $0 > 0 ? Double(summary.rows) / Double($0) : 1
+                                          })
+                    }
+                },
+                // Polled inside the exporting task, so Stop cancelling that task is
+                // what this reads.
+                shouldCancel: { Task.isCancelled })
+            if let job { jobs?.finish(job, state: .succeeded) }
             return true
-        } catch {
-            tab.errorMessage = String(localized:
-                "Could not write \(url.lastPathComponent): \(ConnectionSession.message(for: error))")
+        } catch is CancellationError {
+            // The user pressed Stop; the destination file was left untouched, so this
+            // is an outcome, not an error.
+            if let job { jobs?.finish(job, state: .cancelled) }
             return false
+        } catch {
+            let message = ConnectionSession.message(for: error)
+            if let job { jobs?.finish(job, state: .failed(message)) }
+            tab.errorMessage = String(localized:
+                "Could not write \(url.lastPathComponent): \(message)")
+            return false
+        }
+    }
+
+    /// "1 240 000 rows · 84 MB" — the line under an export's title.
+    static func exportDetail(_ summary: StreamingResultExport.Summary) -> String {
+        let bytes = ByteCountFormatter.string(fromByteCount: Int64(summary.bytes), countStyle: .file)
+        return String(localized: "^[\(summary.rows) row](inflect: true) · \(bytes)")
+    }
+
+    /// Lets progress through about ten times a second. Batches land every few
+    /// milliseconds on a fast table, and redrawing the status bar per batch is both
+    /// wasted work and unreadable.
+    @MainActor
+    final class ProgressGate {
+        private var last = Date.distantPast
+        private let interval: TimeInterval
+
+        init(interval: TimeInterval = 0.1) { self.interval = interval }
+
+        func allow() -> Bool {
+            let now = Date()
+            guard now.timeIntervalSince(last) >= interval else { return false }
+            last = now
+            return true
         }
     }
 
@@ -1067,11 +1134,6 @@ final class QueryConsoleModel {
         }
     }
 
-    /// Re-introspects the active connection's schema (⌘R).
-    func refreshSchema() async {
-        await activeSession?.refreshSchema()
-    }
-
     /// ⌘R on a diagram tab: reconnect a dropped session, re-introspect the schema,
     /// and rebuild the diagram from the fresh snapshot (positions re-layout, like
     /// reopening it). Mirrors how a query/table view refreshes.
@@ -1095,7 +1157,10 @@ final class QueryConsoleModel {
 
     /// Applies a schema change on the active connection and re-introspects, so the
     /// tree reflects it right away. Returns an error message on failure.
-    func runDDL(_ sql: String) async -> String? {
+    /// Runs a schema change. `affecting` names the table it changes, whose open data
+    /// views are reloaded afterwards — without that, a TRUNCATE leaves every grid on
+    /// that table showing rows that no longer exist.
+    func runDDL(_ sql: String, affecting table: (schema: String?, name: String)? = nil) async -> String? {
         guard let session = activeSession else { return String(localized: "Not connected") }
         guard await ensureReady(session), let driver = session.driver else {
             return session.errorMessage ?? String(localized: "Not connected")
@@ -1104,9 +1169,28 @@ final class QueryConsoleModel {
             _ = try await driver.execute(sql)
             recordHistory(sql: sql, session: session, rowCount: 0, elapsedMS: nil)
             await session.refreshSchema()
+            if let table {
+                await reloadDataViews(schema: table.schema, table: table.name, on: session)
+            }
             return nil
         } catch {
             return ConnectionSession.message(for: error)
+        }
+    }
+
+    /// Re-runs every open data view of one table on one connection. Tabs with unsaved
+    /// edits are left alone, the same rule auto-refresh follows: the rows behind those
+    /// edits may be gone, but discarding what the user typed without asking is worse
+    /// than a grid they can refresh themselves.
+    private func reloadDataViews(schema: String?, table: String,
+                                 on session: ConnectionSession) async {
+        let affected = tabs.filter {
+            $0.kind == .data && $0.session === session && $0.dataTable == table
+                && (schema == nil || $0.dataSchema == nil || $0.dataSchema == schema)
+                && !$0.hasEdits && !$0.isRunning
+        }
+        for tab in affected {
+            await reloadData(tab, refreshCount: true)
         }
     }
 

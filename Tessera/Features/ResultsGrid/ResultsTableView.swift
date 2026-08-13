@@ -43,6 +43,11 @@ final class GridTextField: NSTextField {
 /// Vertically centres single-line text when the cell is taller than the text
 /// (comfortable row density) — the default cell pins it to the top.
 final class CenteredTextFieldCell: NSTextFieldCell {
+    /// Breathing room between one column's text and the next. The table's intercell
+    /// spacing is zero (so a selected block has no slits in it), which leaves keeping
+    /// the columns apart to the cells themselves.
+    static let horizontalInset: CGFloat = 3
+
     override func drawingRect(forBounds rect: NSRect) -> NSRect {
         var inset = super.drawingRect(forBounds: rect)
         let height = cellSize(forBounds: rect).height
@@ -50,6 +55,8 @@ final class CenteredTextFieldCell: NSTextFieldCell {
             inset.origin.y += (inset.height - height) / 2
             inset.size.height = height
         }
+        inset.origin.x += Self.horizontalInset
+        inset.size.width = max(inset.width - 2 * Self.horizontalInset, 0)
         return inset
     }
 
@@ -271,6 +278,8 @@ final class GridTableView: NSTableView {
     var onTypeToEdit: ((String) -> Bool)?
     /// ⇧↩ — opens the multiline value editor for the single selected cell.
     var onOpenValueEditor: (() -> Bool)?
+    /// ⌘A — selects every cell of every loaded row; false when there's nothing to select.
+    var onSelectAll: (() -> Bool)?
     /// Context menu: opens the value editor for a clicked cell; the title callback
     /// says "Edit Value…" or "View Value…" (nil = result rows can't be inspected).
     var onOpenValueEditorAt: ((Int, Int) -> Void)?
@@ -317,12 +326,23 @@ final class GridTableView: NSTableView {
 
     /// ⌘D duplicates the selected row(s) — only when the grid is focused so it doesn't
     /// steal the shortcut from a focused text field elsewhere.
+    /// Cell selection is ours, not NSTableView's row selection, so Select All has to
+    /// be too — this is what Edit ▸ Select All reaches when the grid has focus.
+    override func selectAll(_ sender: Any?) {
+        if onSelectAll?() != true { super.selectAll(sender) }
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // Compare only the modifiers a shortcut is spelled with: arrow keys also carry
         // .function and .numericPad, which would never match a plain `== .command`.
         let modifiers = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let isFocused = window?.firstResponder === self
 
+        // ⌘A when no menu item claims it (the app defines no Select All).
+        if modifiers == .command, event.charactersIgnoringModifiers == "a", isFocused,
+           onSelectAll?() == true {
+            return true
+        }
         if canEditRows, modifiers == .command,
            event.charactersIgnoringModifiers == "d", isFocused {
             onDuplicateSelected?()
@@ -602,6 +622,11 @@ struct ResultsTableView: NSViewRepresentable {
         tableView.allowsColumnReordering = false
         tableView.rowHeight = rowHeight
         tableView.selectionHighlightStyle = .none
+        // The default (3, 2) gap belongs to no cell, so a selected block was drawn
+        // with slits between its cells. Zero it and let the cell inset its own text
+        // (see `CenteredTextFieldCell`), so neighbouring selected cells join up into
+        // one block the way a spreadsheet's does.
+        tableView.intercellSpacing = .zero
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         tableView.onFocus = onFocus
@@ -616,6 +641,7 @@ struct ResultsTableView: NSViewRepresentable {
         tableView.onDuplicateSelected = { [c = context.coordinator] in c.duplicateSelectedRows() }
         tableView.onRevertRow = { [c = context.coordinator] row in c.revertRow(row) }
         tableView.isRowPending = { [c = context.coordinator] row in c.rowState(row) != .none }
+        tableView.onSelectAll = { [c = context.coordinator] in c.selectAllCells() }
         tableView.onPaste = { [c = context.coordinator] in c.pasteIntoSelection() }
         tableView.onCopy = { [c = context.coordinator] in c.copySelection() }
         tableView.onCopyAs = { [c = context.coordinator] format in c.copySelection(as: format) }
@@ -799,6 +825,25 @@ struct ResultsTableView: NSViewRepresentable {
             focus = cell
             reload(rows: old.union(selectionRows))
             updateInspector()
+        }
+
+        /// ⌘A — every cell of every loaded row, so the grid can be copied whole.
+        /// "Loaded" is the honest scope: rows past the page limit aren't in the
+        /// result yet, and selecting what isn't there would copy blanks.
+        @discardableResult
+        func selectAllCells() -> Bool {
+            guard let result = tab.result, !result.columns.isEmpty else { return false }
+            let rowCount = visibleRowMap?.count ?? (result.rows.count + tab.pendingInserts.count)
+            guard rowCount > 0 else { return false }
+            let old = selectionRows
+            let first = CellPos(row: 0, col: 0)
+            let last = CellPos(row: rowCount - 1, col: result.columns.count - 1)
+            selected = Self.rectangle(from: first, to: last)
+            anchor = first
+            focus = last
+            reload(rows: old.union(selectionRows))
+            updateInspector()
+            return true
         }
 
         /// Arrow keys / Tab — steps the selection by (dRow, dCol), clamped to the
