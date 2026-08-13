@@ -232,7 +232,7 @@
 					"@executable_path/../Frameworks",
 				);
 				INFOPLIST_KEY_CFBundleDisplayName = "Tessera Dev";
-				MARKETING_VERSION = 0.26.0;
+				MARKETING_VERSION = 0.27.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.tedyno.tessera.dev;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -256,7 +256,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.26.0;
+				MARKETING_VERSION = 0.27.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.tedyno.tessera;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
