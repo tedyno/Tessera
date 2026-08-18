@@ -362,6 +362,37 @@ final class ConnectionsModel {
         onProfileChanged(profiles[index])
     }
 
+    /// Flips the read-only guard on every listed connection (the organizer's
+    /// context menu, one row or a whole selection).
+    func setReadOnly(_ readOnly: Bool, profileIDs: [UUID]) {
+        applyToProfiles(profileIDs) { $0.settingReadOnly(readOnly) }
+    }
+
+    /// Grants exactly `level` to every listed connection (the organizer's MCP
+    /// submenu, which also serves a whole multi-selection). Profiles already at that
+    /// level are skipped so the MCP server isn't nudged for nothing.
+    func setMCPAccess(_ level: MCPAccessLevel, profileIDs: [UUID]) {
+        applyToProfiles(profileIDs) { level.applied(to: $0) }
+    }
+
+    /// Rewrites the listed profiles, saving and notifying once for the batch.
+    /// Profiles the transform leaves untouched are skipped, so a menu choice that
+    /// changes nothing doesn't churn the store or the open tabs.
+    private func applyToProfiles(_ profileIDs: [UUID],
+                                 _ transform: (ConnectionProfile) -> ConnectionProfile) {
+        var changed: [ConnectionProfile] = []
+        for profileID in profileIDs {
+            guard let index = profiles.firstIndex(where: { $0.id == profileID }) else { continue }
+            let updated = transform(profiles[index])
+            guard updated != profiles[index] else { continue }
+            profiles[index] = updated
+            changed.append(updated)
+        }
+        guard !changed.isEmpty else { return }
+        saveProfiles()
+        for profile in changed { onProfileChanged(profile) }
+    }
+
     /// Updates an existing profile in place (parameters + secrets).
     func updateConnection(_ profile: ConnectionProfile, secrets: Secrets) {
         try? secretsStore.save(for: profile, secrets: secrets)

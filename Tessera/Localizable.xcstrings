@@ -678,6 +678,28 @@
         }
       }
     },
+    "Allow reading (let a connected AI client query this connection)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povolit čtení (připojený AI klient smí dotazovat toto připojení)"
+          }
+        }
+      }
+    },
+    "Allow writing (asks you first)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povolit zápis (vždy se nejdřív zeptá)"
+          }
+        }
+      }
+    },
     "An MCP client": {
       "extractionState": "manual",
       "localizations": {
@@ -2652,6 +2674,17 @@
         }
       }
     },
+    "MCP Access": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Přístup přes MCP"
+          }
+        }
+      }
+    },
     "MCP access is off on the copy; turn it on in Tessera if you want it.": {
       "extractionState": "manual",
       "localizations": {
@@ -2659,6 +2692,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kopie má MCP přístup vypnutý; pokud ho chcete, zapněte ho v Tesseře."
+          }
+        }
+      }
+    },
+    "MCP server is off — open Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP server je vypnutý — otevřít Nastavení"
           }
         }
       }
@@ -2674,35 +2718,13 @@
         }
       }
     },
-    "MCP: allow reading (let a connected AI client query this connection)": {
+    "MCP access": {
       "extractionState": "manual",
       "localizations": {
         "cs": {
           "stringUnit": {
             "state": "translated",
-            "value": "MCP: povolit čtení (připojený AI klient smí dotazovat toto připojení)"
-          }
-        }
-      }
-    },
-    "MCP: allow writing (asks you first)": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "MCP: povolit zápis (vždy se nejdřív zeptá)"
-          }
-        }
-      }
-    },
-    "MCP: writes don't need my approval": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "MCP: zápisy nevyžadují mé schválení"
+            "value": "Přístup přes MCP"
           }
         }
       }
@@ -2868,6 +2890,28 @@
           "stringUnit": {
             "state": "translated",
             "value": "Žádná aktivita MCP"
+          }
+        }
+      }
+    },
+    "No MCP client can see this connection.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Žádný MCP klient toto připojení nevidí."
+          }
+        }
+      }
+    },
+    "No Access": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bez přístupu"
           }
         }
       }
@@ -3303,6 +3347,39 @@
         }
       }
     },
+    "Read & Write (Ask Me First)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čtení i zápis (vždy se zeptat)"
+          }
+        }
+      }
+    },
+    "Read & Write (No Approval)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čtení i zápis (bez schvalování)"
+          }
+        }
+      }
+    },
+    "Read Only": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jen pro čtení"
+          }
+        }
+      }
+    },
     "Read-only": {
       "extractionState": "manual",
       "localizations": {
@@ -3321,17 +3398,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Jen pro čtení (varovat před zápisem)"
-          }
-        }
-      }
-    },
-    "Read-only connections can never grant MCP write access.": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Připojení jen pro čtení nemůže MCP nikdy dát právo zápisu."
           }
         }
       }
@@ -4121,6 +4187,17 @@
         }
       }
     },
+    "The MCP server is off, so nothing is served yet. Turn it on in Settings › MCP.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP server je vypnutý, takže se zatím nic nenabízí. Zapněte ho v Nastavení › MCP."
+          }
+        }
+      }
+    },
     "The client may only read from this connection.": {
       "extractionState": "manual",
       "localizations": {
@@ -4447,6 +4524,17 @@
           "stringUnit": {
             "state": "translated",
             "value": "Čeká…"
+          }
+        }
+      }
+    },
+    "Writes don't need my approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zápisy nevyžadují mé schválení"
           }
         }
       }

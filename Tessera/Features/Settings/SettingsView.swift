@@ -12,17 +12,51 @@ import AppKit
 /// no seam between a solid header and a gradient body. The toolbar still reserves
 /// its safe-area height, so form rows scroll up to just under the tabs, not behind
 /// them.
+/// Which tab the Settings window shows. `pending` lets a caller elsewhere in the
+/// app aim the window before opening it (see `SettingsTab.open(_:)`).
+enum SettingsTab: Hashable {
+    case general, appearance, export, mcp
+
+    @MainActor private(set) static var pending: SettingsTab?
+
+    /// Asks for Settings to show `tab`. The pending value covers a window that is
+    /// about to be created; the notification retargets one that is already open.
+    @MainActor static func request(_ tab: SettingsTab) {
+        pending = tab
+        NotificationCenter.default.post(name: .openSettingsTab, object: nil)
+    }
+
+    @MainActor static func takePending() -> SettingsTab? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
+extension Notification.Name {
+    static let openSettingsTab = Notification.Name("tessera.settings.openTab")
+}
+
 struct SettingsView: View {
+    @State private var tab: SettingsTab = .general
+
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             GeneralSettingsTab()
                 .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(SettingsTab.general)
             AppearanceSettingsTab()
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }
+                .tag(SettingsTab.appearance)
             ExportSettingsTab()
                 .tabItem { Label("Export", systemImage: "square.and.arrow.up") }
+                .tag(SettingsTab.export)
             MCPSettingsTab()
                 .tabItem { Label("MCP", systemImage: "network") }
+                .tag(SettingsTab.mcp)
+        }
+        .onAppear { if let requested = SettingsTab.takePending() { tab = requested } }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettingsTab)) { _ in
+            if let requested = SettingsTab.takePending() { tab = requested }
         }
         // Fixed size: the tallest tab (Appearance, with the backdrop grid) drives
         // the height. Native Settings windows keep a stable width per tab.

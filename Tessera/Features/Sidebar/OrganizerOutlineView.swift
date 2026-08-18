@@ -175,6 +175,13 @@ struct OrganizerOutlineView: NSViewRepresentable {
     var onImport: (UUID) -> Void = { _ in }
     /// Opens a query tab bound to a connection (⌘T from its context menu).
     var onNewQueryTab: (UUID) -> Void = { _ in }
+    /// Sets the MCP access level of the given profiles (one connection, a whole
+    /// container's contents, or a multi-selection).
+    var onSetMCPAccess: ([UUID], MCPAccessLevel) -> Void = { _, _ in }
+    /// Sets the read-only guard on the same kinds of target.
+    var onSetReadOnly: ([UUID], Bool) -> Void = { _, _ in }
+    /// Opens Settings at the MCP tab (offered when the server is off).
+    var onOpenMCPSettings: () -> Void = { }
     /// Live status of a connection (profile id → dot), for the green indicator.
     var connectionDot: (UUID) -> ConnectionDot = { _ in .none }
     /// A value that changes with the organizer/profiles so SwiftUI re-invokes
@@ -301,6 +308,9 @@ struct OrganizerOutlineView: NSViewRepresentable {
         coordinator.onExport = onExport
         coordinator.onImport = onImport
         coordinator.onNewQueryTab = onNewQueryTab
+        coordinator.onSetMCPAccess = onSetMCPAccess
+        coordinator.onSetReadOnly = onSetReadOnly
+        coordinator.onOpenMCPSettings = onOpenMCPSettings
     }
 
     func makeCoordinator() -> Coordinator {
@@ -333,6 +343,9 @@ struct OrganizerOutlineView: NSViewRepresentable {
         var onExport: (UUID) -> Void = { _ in }
         var onImport: (UUID) -> Void = { _ in }
         var onNewQueryTab: (UUID) -> Void = { _ in }
+        var onSetMCPAccess: ([UUID], MCPAccessLevel) -> Void = { _, _ in }
+        var onSetReadOnly: ([UUID], Bool) -> Void = { _, _ in }
+        var onOpenMCPSettings: () -> Void = { }
         var connectionDot: (UUID) -> ConnectionDot = { _ in .none }
         var statusVersion = 0
 
@@ -656,6 +669,12 @@ struct OrganizerOutlineView: NSViewRepresentable {
             let statusDot = cell.subviews.first { $0.identifier?.rawValue == "statusDot" }
             let statusSpinner = cell.subviews.first { $0.identifier?.rawValue == "statusSpinner" }
                 as? NSProgressIndicator
+            // A padlock next to the name marks a read-only connection, so flipping
+            // the guard from the context menu (or having MCP writes lift it) is
+            // visible in the list rather than buried in the editor.
+            let lock = cell.subviews.first { $0.identifier?.rawValue == "readOnlyLock" } as? NSImageView
+            let profile = model.organizer.profileID(forNode: orgItem.id).flatMap { model.profile(id: $0) }
+            Self.setLock(lock, visible: profile?.isReadOnly == true)
             if orgItem.category == .connection, let profileID = model.organizer.profileID(forNode: orgItem.id) {
                 let dotStatus = connectionDot(profileID)
                 let isBusy = dotStatus == .connecting || dotStatus == .disconnecting
@@ -688,6 +707,16 @@ struct OrganizerOutlineView: NSViewRepresentable {
             cell.imageView?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
             cell.imageView?.contentTintColor = color
             return cell
+        }
+
+        /// Shows or hides the padlock, collapsing its width (plus the gap before the
+        /// status dot) so a hidden badge costs the name no room.
+        private static func setLock(_ lock: NSImageView?, visible: Bool) {
+            guard let lock else { return }
+            lock.isHidden = !visible
+            lock.superview?.constraints
+                .first { $0.identifier == "readOnlyLockWidth" }?
+                .constant = visible ? 14 : 0
         }
 
         /// The color the user assigned to this item (folder color, or profile color).
@@ -725,8 +754,22 @@ struct OrganizerOutlineView: NSViewRepresentable {
             spinner.controlSize = .mini
             spinner.isIndeterminate = true
             spinner.isHidden = true
+            // Read-only badge. Its width collapses to zero when hidden so the name
+            // keeps the full row on every other connection.
+            let lock = NSImageView()
+            lock.identifier = NSUserInterfaceItemIdentifier("readOnlyLock")
+            lock.translatesAutoresizingMaskIntoConstraints = false
+            lock.image = NSImage(systemSymbolName: "lock.fill",
+                                 accessibilityDescription: String(localized: "Read-only"))
+            lock.symbolConfiguration = .init(pointSize: 9, weight: .semibold)
+            lock.contentTintColor = .secondaryLabelColor
+            lock.toolTip = String(localized: "Read-only")
+            lock.isHidden = true
+            let lockWidth = lock.widthAnchor.constraint(equalToConstant: 0)
+            lockWidth.identifier = "readOnlyLockWidth"
             cell.addSubview(imageView)
             cell.addSubview(textField)
+            cell.addSubview(lock)
             cell.addSubview(dot)
             cell.addSubview(spinner)
             cell.imageView = imageView
@@ -737,7 +780,10 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 imageView.widthAnchor.constraint(equalToConstant: 16),
                 imageView.heightAnchor.constraint(equalToConstant: 16),
                 textField.leadingAnchor.constraint(equalTo: imageView.trailingAnchor, constant: 6),
-                textField.trailingAnchor.constraint(equalTo: dot.leadingAnchor, constant: -4),
+                textField.trailingAnchor.constraint(equalTo: lock.leadingAnchor),
+                lock.trailingAnchor.constraint(equalTo: dot.leadingAnchor, constant: -4),
+                lock.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                lockWidth,
                 textField.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
                 dot.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
                 dot.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
@@ -876,6 +922,11 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 if item.category == .folder {
                     menu.addItem(colorMenuItem(for: item))
                 }
+                // A container edits the access of everything nested inside it,
+                // the same reach the colour submenu has.
+                let nested = profileIDs(under: item)
+                if let readOnly = readOnlyMenuItem(for: nested) { menu.addItem(readOnly) }
+                if let mcp = mcpMenuItem(for: nested) { menu.addItem(mcp) }
                 add(menu, String(localized: "Rename"), #selector(actionRename), item)
             } else {
                 let status = (model.organizer.profileID(forNode: item.id)).map { connectionDot($0) } ?? .none
@@ -910,14 +961,22 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 duplicate.keyEquivalent = "d"
                 duplicate.keyEquivalentModifierMask = .command
                 menu.addItem(colorMenuItem(for: item))
+                let profiles = profileIDs(under: item)
+                if let readOnly = readOnlyMenuItem(for: profiles) { menu.addItem(readOnly) }
+                if let mcp = mcpMenuItem(for: profiles) { menu.addItem(mcp) }
             }
             add(menu, String(localized: "Delete"), #selector(actionDelete), item)
             return menu
         }
 
         private func batchMenu(for rows: IndexSet) -> NSMenu {
+            guard let outlineView else { return NSMenu() }
             let menu = NSMenu()
             menu.addItem(batchColorMenuItem())
+            let selected = rows.compactMap { outlineView.item(atRow: $0) as? OrganizerItem }
+            let profiles = selected.flatMap { profileIDs(under: $0) }
+            if let readOnly = readOnlyMenuItem(for: profiles) { menu.addItem(readOnly) }
+            if let mcp = mcpMenuItem(for: profiles) { menu.addItem(mcp) }
             menu.addItem(.separator())
             let item = NSMenuItem(title: String(localized: "Delete \(rows.count) Items"),
                                   action: #selector(actionDeleteSelection), keyEquivalent: "")
@@ -974,6 +1033,112 @@ struct OrganizerOutlineView: NSViewRepresentable {
             let children = model.organizer.workspaces.first { $0.id == id }?.children
                 ?? model.organizer.node(id: id)?.children ?? []
             for child in children { applyColor(color, to: child.id) }
+        }
+
+        // MARK: Access submenus
+
+        private final class ReadOnlyChoice: NSObject {
+            let profileIDs: [UUID]
+            let readOnly: Bool
+            init(profileIDs: [UUID], readOnly: Bool) {
+                self.profileIDs = profileIDs
+                self.readOnly = readOnly
+            }
+        }
+
+        /// The read-only checkbox for a set of connections. A mixed selection shows a
+        /// dash and the first click makes every one of them read-only.
+        private func readOnlyMenuItem(for profileIDs: [UUID]) -> NSMenuItem? {
+            let ids = Self.deduplicated(profileIDs)
+            guard !ids.isEmpty else { return nil }
+            let states = Set(ids.compactMap { model.profile(id: $0)?.isReadOnly })
+            let item = NSMenuItem(title: String(localized: "Read-only"),
+                                  action: #selector(actionToggleReadOnly(_:)), keyEquivalent: "")
+            item.target = self
+            item.state = states == [true] ? .on : (states == [false] ? .off : .mixed)
+            item.representedObject = ReadOnlyChoice(profileIDs: ids, readOnly: states != [true])
+            return item
+        }
+
+        @objc private func actionToggleReadOnly(_ sender: NSMenuItem) {
+            guard let choice = sender.representedObject as? ReadOnlyChoice else { return }
+            onSetReadOnly(choice.profileIDs, choice.readOnly)
+            rebuild(expandingAll: false)
+        }
+
+        private final class MCPChoice: NSObject {
+            let profileIDs: [UUID]
+            let level: MCPAccessLevel
+            init(profileIDs: [UUID], level: MCPAccessLevel) {
+                self.profileIDs = profileIDs
+                self.level = level
+            }
+        }
+
+        /// Every connection the row stands for: itself, or — for a folder, project or
+        /// workspace — everything nested inside it.
+        private func profileIDs(under item: OrganizerItem) -> [UUID] {
+            if let profileID = model.organizer.profileID(forNode: item.id) { return [profileID] }
+            return model.organizer.profileIDs(inSubtreeOf: item.id)
+        }
+
+        /// The "MCP Access" submenu for a set of connections, or `nil` when the rows
+        /// hold none. A level is ticked only when every connection is already at it,
+        /// so a mixed selection shows no checkmark rather than a misleading one.
+        private func mcpMenuItem(for profileIDs: [UUID]) -> NSMenuItem? {
+            let ids = Self.deduplicated(profileIDs)
+            guard !ids.isEmpty else { return nil }
+            let levels = Set(ids.compactMap { model.profile(id: $0) }.map(MCPAccessLevel.init(profile:)))
+            let current = levels.count == 1 ? levels.first : nil
+
+            let parent = NSMenuItem(title: String(localized: "MCP Access"), action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            // Granting access while the server is off silently does nothing, so the
+            // submenu says so and offers the fix rather than leaving the user to
+            // wonder why the client still can't see the connection.
+            if !MCPSettings.isEnabled {
+                let notice = NSMenuItem(title: String(localized: "MCP server is off — open Settings"),
+                                        action: #selector(actionOpenMCPSettings), keyEquivalent: "")
+                notice.target = self
+                notice.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill",
+                                       accessibilityDescription: nil)
+                submenu.addItem(notice)
+                submenu.addItem(.separator())
+            }
+            for level in MCPAccessLevel.allCases {
+                let entry = NSMenuItem(title: Self.mcpTitle(level),
+                                       action: #selector(actionSetMCPAccess(_:)), keyEquivalent: "")
+                entry.target = self
+                entry.representedObject = MCPChoice(profileIDs: ids, level: level)
+                entry.state = current == level ? .on : .off
+                submenu.addItem(entry)
+            }
+            parent.submenu = submenu
+            return parent
+        }
+
+        private static func mcpTitle(_ level: MCPAccessLevel) -> String {
+            switch level {
+            case .none: String(localized: "No Access")
+            case .read: String(localized: "Read Only")
+            case .write: String(localized: "Read & Write (Ask Me First)")
+            case .writeWithoutApproval: String(localized: "Read & Write (No Approval)")
+            }
+        }
+
+        @objc private func actionSetMCPAccess(_ sender: NSMenuItem) {
+            guard let choice = sender.representedObject as? MCPChoice else { return }
+            onSetMCPAccess(choice.profileIDs, choice.level)
+            rebuild(expandingAll: false)
+        }
+
+        @objc private func actionOpenMCPSettings() {
+            onOpenMCPSettings()
+        }
+
+        private static func deduplicated(_ ids: [UUID]) -> [UUID] {
+            var seen = Set<UUID>()
+            return ids.filter { seen.insert($0).inserted }
         }
 
         @discardableResult

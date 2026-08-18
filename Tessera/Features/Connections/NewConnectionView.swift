@@ -169,15 +169,41 @@ struct NewConnectionView: View {
                         }
                     }
                     LabeledContent("Colour") { colorPicker }
+                    // Read-only and MCP writes are mutually exclusive, so rather than
+                    // disabling one another each toggle turns the other one off.
                     Toggle("Read-only (warn before writing)", isOn: $readOnly)
-                    Toggle("MCP: allow reading (let a connected AI client query this connection)", isOn: $mcpRead)
-                    Toggle("MCP: allow writing (asks you first)", isOn: $mcpWrite)
-                        .disabled(!mcpRead || readOnly)
+                        .onChange(of: readOnly) { _, newValue in
+                            if newValue { mcpWrite = false }
+                        }
+                }
+
+                // No toggle here is ever disabled: each one pulls in what it needs
+                // (write implies read) and drops what it rules out (turning reading
+                // off also revokes writing).
+                Section("MCP access") {
+                    Toggle("Allow reading (let a connected AI client query this connection)", isOn: $mcpRead)
+                        .onChange(of: mcpRead) { _, newValue in
+                            if !newValue { mcpWrite = false }
+                        }
+                    Toggle("Allow writing (asks you first)", isOn: $mcpWrite)
                         .padding(.leading, 16)
-                    Toggle("MCP: writes don't need my approval", isOn: $mcpWriteNoApproval)
-                        .disabled(!mcpRead || !mcpWrite || readOnly)
+                        .onChange(of: mcpWrite) { _, newValue in
+                            if newValue {
+                                mcpRead = true
+                                readOnly = false
+                            } else {
+                                mcpWriteNoApproval = false
+                            }
+                        }
+                    Toggle("Writes don't need my approval", isOn: $mcpWriteNoApproval)
                         .padding(.leading, 32)
-                    if mcpWriteNoApproval, mcpWrite, mcpRead, !readOnly {
+                        .onChange(of: mcpWriteNoApproval) { _, newValue in
+                            if newValue {
+                                mcpWrite = true
+                                readOnly = false
+                            }
+                        }
+                    if mcpWriteNoApproval, mcpWrite, mcpRead {
                         Label("The client can INSERT, UPDATE, DELETE and run DDL on this "
                               + "connection with no prompt. Only do this on a database you "
                               + "can afford to lose, such as a local or test one.",
@@ -187,11 +213,20 @@ struct NewConnectionView: View {
                             .padding(.leading, 32)
                     }
                     if mcpRead {
-                        Text(readOnly
-                             ? "Read-only connections can never grant MCP write access."
-                             : (mcpWrite
-                                ? "The client may read, and may write or import after you approve each time."
-                                : "The client may only read from this connection."))
+                        Text(mcpWrite
+                             ? "The client may read, and may write or import after you approve each time."
+                             : "The client may only read from this connection.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Text("No MCP client can see this connection.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    // Per-connection access means nothing while the server is off, so
+                    // say so here rather than let the setting look like it took effect.
+                    if mcpRead, !MCPSettings.isEnabled {
+                        Label("The MCP server is off, so nothing is served yet. "
+                              + "Turn it on in Settings › MCP.",
+                              systemImage: "exclamationmark.circle")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }

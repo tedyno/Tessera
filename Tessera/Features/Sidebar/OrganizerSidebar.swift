@@ -35,6 +35,7 @@ struct OrganizerSidebar: View {
         case newProject(workspace: UUID)
         case newWorkspace
     }
+    @Environment(\.openSettings) private var openSettings
     @State private var pending: PendingEdit?
     @State private var editText = ""
     /// The unified search: the bottom field and tree-typed characters drive
@@ -62,6 +63,12 @@ struct OrganizerSidebar: View {
             onExport: onExport,
             onImport: onImport,
             onNewQueryTab: onNewQueryTab,
+            onSetMCPAccess: { profileIDs, level in model.setMCPAccess(level, profileIDs: profileIDs) },
+            onSetReadOnly: { profileIDs, readOnly in model.setReadOnly(readOnly, profileIDs: profileIDs) },
+            onOpenMCPSettings: {
+                SettingsTab.request(.mcp)
+                openSettings()
+            },
             connectionDot: connectionDot,
             version: model.stateVersion,
             onSpeedSearch: { term, position, count in
