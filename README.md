@@ -164,7 +164,40 @@ carrying an `Origin` header, so a web page cannot drive it. Passwords are never 
 MCP, and MCP cannot choose where an export is written. **Query ▸ MCP Activity** shows a live
 log of everything a client has done.
 
-Settings ▸ MCP generates the client configuration snippet for you.
+### Letting the safe tools run without a prompt
+
+Granting a connection read access in Tessera does not stop your assistant asking before
+every call — that decision belongs to the client, which knows nothing about Tessera's own
+permissions. Settings ▸ MCP therefore generates the snippet for the client you pick: a
+`config.toml` block for Codex, plain `mcpServers` JSON for anything else, and for Claude
+Code the `claude mcp add` command — after which you allow the rule `mcp__tessera` in
+`/permissions`.
+
+To make that safe, the tools describe themselves:
+
+- Reads, and exports into your export folder, are annotated `readOnlyHint` — Codex's
+  `writes` approval mode and editors such as VS Code run these unattended.
+- Anything that can overwrite data is annotated `destructiveHint`, and additionally
+  carries Anthropic's `requiresUserInteraction`, which makes Claude Code prompt for it on
+  **every** call — even in auto and bypass modes, and even if you allowed the whole
+  `tessera` server. That covers `import_dump`, `delete_connection` and
+  `update_connection`.
+- `run_query` is not marked that way, because it is also how an assistant runs an ordinary
+  `SELECT`. Its writes are gated by Tessera's own approval sheet instead.
+
+Annotations are hints, not guarantees — the real limits are the ones enforced above, and
+they hold whatever a client makes of the hints.
+
+None of that is obvious to the assistant, which sees only that its calls keep being
+refused. Settings ▸ MCP therefore has a second Copy button, **Assistant notes**: a short
+briefing you paste into the conversation when it gets stuck. It says that the client
+gates tool calls separately from Tessera, that a hidden connection is hidden on purpose,
+and that the fix is the `mcp__tessera` rule — so the assistant stops sending you back to
+re-check permissions you already granted.
+
+It is a button rather than the protocol's `instructions` field on purpose. Clients re-send
+that field as context on *every* turn, and this is a first-run problem most sessions never
+hit — pasted by hand it costs nothing until it helps.
 
 ## Architecture
 

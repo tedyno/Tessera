@@ -1,3 +1,4 @@
+import DBKit
 import Foundation
 import Security
 
@@ -53,18 +54,9 @@ enum MCPSettings {
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
-    /// A ready-to-paste MCP client entry (Claude Code, Codex, and other MCP clients).
-    static var clientConfigSnippet: String {
-        """
-        {
-          "mcpServers": {
-            "tessera": {
-              "type": "http",
-              "url": "http://127.0.0.1:\(port)",
-              "headers": { "Authorization": "Bearer \(token)" }
-            }
-          }
-        }
-        """
+    /// A ready-to-paste client entry, including whatever that client needs in order
+    /// to run the safe tools without asking. Built in `TesseraCore`.
+    static func clientConfigSnippet(for client: MCPClientConfig.Client) -> String {
+        MCPClientConfig.snippet(for: client, port: port, token: token)
     }
 }

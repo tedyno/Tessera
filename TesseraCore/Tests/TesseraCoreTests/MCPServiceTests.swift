@@ -94,6 +94,35 @@ final class MCPServiceTests: XCTestCase {
         XCTAssertNotNil((result["capabilities"] as? [String: Any])?["tools"])
     }
 
+    /// The spec asks a server to answer with the revision the client requested when
+    /// it can serve it — bumping ours must not push an older client off a version it
+    /// already speaks.
+    func testInitializeEchoesARevisionWeSupport() async throws {
+        let service = MCPService(source: FakeSource(connections: [writable]))
+        for asked in MCPService.supportedProtocolVersions {
+            let data = try JSONSerialization.data(withJSONObject: [
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": ["protocolVersion": asked]])
+            let handled = await service.handle(data)
+            let response = try XCTUnwrap(handled)
+            let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: response) as? [String: Any])
+            let result = try XCTUnwrap(json["result"] as? [String: Any])
+            XCTAssertEqual(result["protocolVersion"] as? String, asked)
+        }
+    }
+
+    func testInitializeFallsBackToOurNewestForAnUnknownRevision() async throws {
+        let service = MCPService(source: FakeSource(connections: [writable]))
+        let data = try JSONSerialization.data(withJSONObject: [
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": ["protocolVersion": "1999-01-01"]])
+        let handled = await service.handle(data)
+        let response = try XCTUnwrap(handled)
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: response) as? [String: Any])
+        let result = try XCTUnwrap(json["result"] as? [String: Any])
+        XCTAssertEqual(result["protocolVersion"] as? String, MCPService.protocolVersion)
+    }
+
     func testNotificationsGetNoReply() async throws {
         let service = MCPService(source: FakeSource(connections: [writable]))
         let data = try JSONSerialization.data(withJSONObject: [

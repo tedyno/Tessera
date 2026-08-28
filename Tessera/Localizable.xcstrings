@@ -236,17 +236,6 @@
         }
       }
     },
-    "Paste the copied JSON into your MCP client. Generating a new token invalidates the old one.": {
-      "extractionState": "manual",
-      "localizations": {
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vlož zkopírovaný JSON do svého MCP klienta. Vygenerování nového tokenu zneplatní ten starý."
-          }
-        }
-      }
-    },
     "Appearance": {
       "extractionState": "manual",
       "localizations": {
@@ -6241,6 +6230,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "Zobrazit ve Finderu"
+          }
+        }
+      }
+    },
+    "Adds the server in approval mode “writes”: reads and exports run unattended, anything that can change data asks first.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Přidá server v režimu schvalování „writes“: čtení a exporty běží bez dozoru, cokoli, co může změnit data, se nejdřív zeptá."
+          }
+        }
+      }
+    },
+    "The server entry only. Your client decides for itself which tools it runs without asking.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jen záznam serveru. Tvůj klient si sám rozhodne, které nástroje spustí bez dotazu."
+          }
+        }
+      }
+    },
+    "Generating a new token invalidates the old one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vygenerování nového tokenu zneplatní ten starý."
+          }
+        }
+      }
+    },
+    "Copies the command that adds the server. Then allow the rule “mcp__tessera” in /permissions, so the safe tools run without a prompt — importing a dump, deleting or editing a connection still asks every time.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zkopíruje příkaz, který přidá server. Pak povol pravidlo „mcp__tessera“ v /permissions, ať bezpečné nástroje běží bez dotazu — import dumpu, smazání nebo úprava připojení se zeptají pokaždé."
+          }
+        }
+      }
+    },
+    "Assistant notes": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poznámky pro asistenta"
+          }
+        }
+      }
+    },
+    "Paste these to your assistant if it keeps asking for approval, or thinks a hidden connection is broken. They explain that its own client gates tool calls separately from Tessera, and what to change.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vlož je asistentovi, když si pořád říká o schválení nebo si myslí, že skryté připojení je rozbité. Vysvětlují, že jeho vlastní klient hlídá volání nástrojů odděleně od Tessery, a co s tím."
           }
         }
       }

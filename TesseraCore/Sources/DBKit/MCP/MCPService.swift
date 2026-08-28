@@ -9,7 +9,14 @@ import Foundation
 /// * reads run directly; writes need approval and are refused on read-only
 ///   connections.
 public struct MCPService: Sendable {
-    public static let protocolVersion = "2024-11-05"
+    /// Newest MCP revision we speak. Tool annotations arrived in `2025-03-26`, so a
+    /// client pinned below that simply won't see them — the tools still work.
+    public static let protocolVersion = "2025-06-18"
+
+    /// Revisions we can serve, newest first. A client asking for one of these gets it
+    /// back verbatim, per the spec; anything else is answered with our newest and the
+    /// client decides whether it can live with that.
+    public static let supportedProtocolVersions = ["2025-06-18", "2025-03-26", "2024-11-05"]
     public static let serverName = "tessera"
 
     private let source: any MCPDataSource
@@ -38,7 +45,8 @@ public struct MCPService: Sendable {
                let name = info["name"]?.stringValue, !name.isEmpty {
                 await source.clientIdentified(name: name, version: info["version"]?.stringValue)
             }
-            response = JSONRPCResponse(id: request.id, result: initializeResult)
+            let asked = request.params?.objectValue?["protocolVersion"]?.stringValue
+            response = JSONRPCResponse(id: request.id, result: initializeResult(asked))
         case "ping":
             response = JSONRPCResponse(id: request.id, result: .object([:]))
         case "tools/list":
@@ -51,9 +59,11 @@ public struct MCPService: Sendable {
         return encode(response)
     }
 
-    private var initializeResult: JSONValue {
-        .object([
-            "protocolVersion": .string(Self.protocolVersion),
+    private func initializeResult(_ requested: String?) -> JSONValue {
+        let version = Self.supportedProtocolVersions.contains(requested ?? "")
+            ? (requested ?? Self.protocolVersion) : Self.protocolVersion
+        return .object([
+            "protocolVersion": .string(version),
             "capabilities": .object(["tools": .object([:])]),
             "serverInfo": .object([
                 "name": .string(Self.serverName),
