@@ -137,9 +137,13 @@ final class PersistenceTests: XCTestCase {
                               database: "d\($0)", username: "u")
         }
         try store.save(real)
+        // Deliberately shrinking the list: the implicit form of this write is now
+        // refused outright (see ProfileStoreGuardTests), but a real deletion still
+        // has to leave the earlier content recoverable.
         try store.save([ConnectionProfile(name: "Local (Docker)", kind: .postgres,
                                           host: "127.0.0.1", port: 5432,
-                                          database: "shop", username: "tessera")])
+                                          database: "shop", username: "tessera")],
+                       allowingRemovals: true)
 
         XCTAssertEqual(try store.load().count, 1)
         let previous = store.backups.directory.appendingPathComponent("profiles.previous.json")

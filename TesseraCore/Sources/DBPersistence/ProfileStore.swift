@@ -47,7 +47,19 @@ public struct ProfileStore: Sendable {
         return try JSONDecoder().decode([ConnectionProfile].self, from: data)
     }
 
-    public func save(_ profiles: [ConnectionProfile]) throws {
+    /// Refuses a write that would drop connections the file already holds, unless
+    /// the caller says removals are expected.
+    ///
+    /// Connection parameters exist nowhere else, so the dangerous write is not a bad
+    /// value but a *short list*: a decode that silently yielded nothing, a seed that
+    /// thought this was a first run, a migration that dropped what it did not
+    /// recognise. All of those look like an ordinary save. Making deletion something
+    /// a caller has to ask for turns that class of bug into a refused write and a
+    /// thrown error instead of a file the user cannot get back.
+    public func save(_ profiles: [ConnectionProfile], allowingRemovals: Bool = false) throws {
+        if !allowingRemovals {
+            try refuseSilentRemovals(in: profiles)
+        }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(profiles)
@@ -55,5 +67,41 @@ public struct ProfileStore: Sendable {
         // is about to write a shorter list than the file holds.
         backups.capture(fileURL)
         try PrivateFile.write(data, to: fileURL)
+    }
+
+    /// Throws when `profiles` is missing an id the stored file still has.
+    private func refuseSilentRemovals(in profiles: [ConnectionProfile]) throws {
+        guard fileExists else { return }
+        let stored: [ConnectionProfile]
+        do {
+            stored = try load()
+        } catch {
+            // The file cannot be read, so there is no way to tell what this write
+            // would destroy. Refusing is the only safe answer — and the app already
+            // stops and reports an unreadable store rather than carrying on.
+            throw ProfileStoreError.unreadableStore(underlying: String(describing: error))
+        }
+        let keeping = Set(profiles.map(\.id))
+        let dropped = stored.filter { !keeping.contains($0.id) }
+        guard dropped.isEmpty else {
+            throw ProfileStoreError.wouldRemoveProfiles(names: dropped.map(\.name))
+        }
+    }
+}
+
+public enum ProfileStoreError: Error, Equatable, CustomStringConvertible {
+    /// A save would have dropped stored connections without being asked to.
+    case wouldRemoveProfiles(names: [String])
+    /// A save was attempted over a file that could not be read first.
+    case unreadableStore(underlying: String)
+
+    public var description: String {
+        switch self {
+        case .wouldRemoveProfiles(let names):
+            "Refused to save: this would have removed \(names.count) saved "
+                + "connection(s) that nothing asked to delete — \(names.joined(separator: ", "))."
+        case .unreadableStore(let underlying):
+            "Refused to save over a connections file that could not be read: \(underlying)"
+        }
     }
 }

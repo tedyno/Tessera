@@ -116,9 +116,20 @@ final class ConnectionsModel {
 
     /// Writes the profile list, unless the stored file failed to load — in that
     /// case the in-memory list is empty and saving would erase the real one.
-    private func saveProfiles() {
+    ///
+    /// - Parameter removingProfiles: pass true from the paths where the user really
+    ///   did delete a connection. Every other save is refused by the store if it
+    ///   would drop something, which is what stops a bad load from erasing the list.
+    private func saveProfiles(removingProfiles: Bool = false) {
         guard profileStoreFailure == nil else { return }
-        try? profileStore.save(profiles)
+        do {
+            try profileStore.save(profiles, allowingRemovals: removingProfiles)
+        } catch {
+            // A refused save means the in-memory list disagrees with the file in a
+            // way nothing asked for. The file is left alone; say so rather than
+            // letting the app look as though it saved.
+            profileStoreFailure = String(describing: error)
+        }
     }
 
     /// Dev convenience: a connection to the local Docker Postgres on first run.
@@ -250,7 +261,7 @@ final class ConnectionsModel {
             removed.append(profileID)
         }
         guard !removed.isEmpty else { return }
-        saveProfiles()
+        saveProfiles(removingProfiles: true)
         // A live session (and any tab on it) would otherwise outlive the connection.
         onProfilesRemoved(removed)
     }
@@ -417,7 +428,7 @@ final class ConnectionsModel {
     func removeProfileKeepingSecrets(_ profileID: UUID) {
         for ref in organizer.refs(toProfile: profileID) { organizer.remove(ref.id) }
         profiles.removeAll { $0.id == profileID }
-        saveProfiles()
+        saveProfiles(removingProfiles: true)
         saveOrganizer()
     }
 
