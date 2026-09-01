@@ -5,6 +5,7 @@ struct GeneralSettingsTab: View {
     @State private var language = AppLanguage.current
     @State private var languageChanged = false
     @State private var maxRows = ExportSettings.maxRows
+    @State private var confirmsBatch = BatchRunSettings.confirms
 
     var body: some View {
         Form {
@@ -36,10 +37,17 @@ struct GeneralSettingsTab: View {
                         Text("0 = unlimited").font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                Toggle("Confirm before running a multi-statement selection",
+                       isOn: $confirmsBatch)
+                    .onChange(of: confirmsBatch) { _, newValue in
+                        BatchRunSettings.confirms = newValue
+                    }
             } header: {
                 Text("Results")
             } footer: {
                 Text("Caps console query results and is the starting Limit for a table view — table views then load more as you scroll. 0 removes the console cap.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("Selecting several statements and pressing ⌘↩ runs them in order. A statement that can destroy data always asks, whatever this is set to.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

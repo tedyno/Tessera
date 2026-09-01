@@ -390,8 +390,10 @@ final class QueryConsoleModel {
     }
 
     func run(_ tab: QueryTab, sqlToRun: String? = nil, preserveSort: Bool = false,
-             preserveSearch: Bool = false) async {
+             preserveSearch: Bool = false, partOfBatch: Bool = false) async {
         guard let session = tab.session, !tab.isRunning else { return }
+        // A step must not clear the list it is part of; any other run replaces it.
+        if !partOfBatch { tab.clearBatch() }
         var sql = sqlToRun ?? tab.sql
         let clock = ContinuousClock()
         let started = clock.now
@@ -518,6 +520,52 @@ final class QueryConsoleModel {
         if executed > 0 { persistHistory() }
         tab.isRunning = false
         Self.bounceDockIfLong(started, clock: clock)
+    }
+
+    /// Runs each statement of a selection in turn, stopping at the first failure.
+    ///
+    /// Every step goes through `run`, so each one gets the same treatment a
+    /// hand-typed query would — the engine's rewrite, the empty-column recovery,
+    /// history. The grid follows along live, which also means a long batch shows its
+    /// progress instead of freezing on the first statement.
+    func runBatch(_ tab: QueryTab, steps: [SQLBatchStep]) async {
+        guard tab.session != nil, !tab.isRunning else { return }
+        tab.batch = steps
+        tab.batchSelection = nil
+        for index in tab.batch.indices {
+            await run(tab, sqlToRun: tab.batch[index].sql, partOfBatch: true)
+            tab.batch[index].didRun = true
+            tab.batchSelection = tab.batch[index].number
+            if let failure = tab.errorMessage {
+                // Stop here: the statements after this one never ran, and the list
+                // leaves them `pending` so that is visible rather than assumed.
+                tab.batch[index].errorMessage = failure
+                return
+            }
+            tab.batch[index].result = tab.result
+            tab.batch[index].elapsedMS = tab.elapsedMS
+        }
+    }
+
+    /// Puts one finished step back on the grid.
+    ///
+    /// The result is shown read-only. In-place editing needs the row indices to match
+    /// a live query it can write back to, and a step the user clicked back to may be
+    /// several statements stale — offering an editable grid there would build UPDATEs
+    /// against rows that have since moved.
+    func showBatchStep(_ tab: QueryTab, number: Int) {
+        guard let step = tab.batch.first(where: { $0.number == number }), step.didRun else { return }
+        tab.batchSelection = number
+        tab.result = step.result
+        tab.elapsedMS = step.elapsedMS
+        tab.errorMessage = step.errorMessage
+        tab.resultVersion &+= 1
+        tab.editSource = nil
+        tab.edits = [:]
+        tab.pendingDeletes = []
+        tab.pendingInserts = []
+        tab.clearEditHistory()
+        tab.clearSearch()
     }
 
     /// Writes pending edits/deletes/inserts, then re-runs the query to show saved data.

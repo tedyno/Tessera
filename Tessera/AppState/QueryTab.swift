@@ -119,6 +119,27 @@ final class QueryTab: Identifiable {
     /// Summary after running a multi-statement script (e.g. "Executed 12 statements").
     var scriptSummary: String?
 
+    /// Steps of the last selection run, in order. Empty for an ordinary single-query
+    /// run, which is what keeps the grid unchanged for everyone not using this.
+    var batch: [SQLBatchStep] = []
+    /// Which step the grid is currently showing. Kept as a number rather than an
+    /// index so it survives the list being rebuilt mid-run.
+    var batchSelection: Int?
+
+    var isBatch: Bool { batch.count > 1 }
+
+    var selectedBatchStep: SQLBatchStep? {
+        guard let batchSelection else { return nil }
+        return batch.first { $0.number == batchSelection }
+    }
+
+    /// Clears any batch state. Called wherever a single result replaces the list, so
+    /// a stale step list can never sit above an unrelated grid.
+    func clearBatch() {
+        batch = []
+        batchSelection = nil
+    }
+
     /// The running export of this tab's result, so the background-task list's Stop
     /// can reach it. The exporter discards its partial file when cancelled, leaving
     /// the destination as it was.
@@ -296,6 +317,12 @@ final class QueryTab: Identifiable {
 
     /// Caret offset in the editor, used to run the statement under the cursor.
     var cursorPosition = 0
+    /// Length of the editor selection at `cursorPosition`, in UTF-16 units. Zero
+    /// means a plain caret, and ⌘↩ falls back to the statement under it.
+    var selectionLength = 0
+
+    /// What the user highlighted, as the editor counts it.
+    var selectedRange: NSRange { NSRange(location: cursorPosition, length: selectionLength) }
     /// Set to scroll the results grid to a column by name after a query runs.
     var scrollToColumn: String?
 
@@ -335,6 +362,7 @@ final class QueryTab: Identifiable {
         copy.session = session
         copy.kind = kind
         copy.cursorPosition = cursorPosition
+        copy.selectionLength = selectionLength
         copy.result = result
         copy.resultVersion = resultVersion
         copy.elapsedMS = elapsedMS

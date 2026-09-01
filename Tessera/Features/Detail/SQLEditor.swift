@@ -13,6 +13,9 @@ struct SQLEditor: NSViewRepresentable {
     var completion: SQLCompletionEngine?
     var focusTrigger: Int
     var cursor: Binding<Int>?
+    /// Length of the selection at `cursor`, so ⌘↩ can run everything the user
+    /// highlighted rather than just the statement the caret happens to sit in.
+    var selectionLength: Binding<Int>?
     /// Read-only mode: shows highlighted, selectable SQL that can't be edited
     /// (used to display a data view's generated query).
     var readOnly: Bool = false
@@ -80,6 +83,7 @@ struct SQLEditor: NSViewRepresentable {
         // typing lands in the old tab and the next update wipes the visible editor.
         context.coordinator.text = $text
         context.coordinator.cursor = cursor
+        context.coordinator.selectionLength = selectionLength
         if textView.string != text {
             textView.string = text
             context.coordinator.previousLength = (text as NSString).length
@@ -91,13 +95,16 @@ struct SQLEditor: NSViewRepresentable {
         }
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text, cursor: cursor) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, cursor: cursor, selectionLength: selectionLength)
+    }
 
     static let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         fileprivate var text: Binding<String>
         fileprivate var cursor: Binding<Int>?
+        fileprivate var selectionLength: Binding<Int>?
         weak var textView: NSTextView?
         var lastFocusTrigger = 0
         var previousLength = 0
@@ -107,9 +114,10 @@ struct SQLEditor: NSViewRepresentable {
         /// no session/schema exists.
         var completionEngine: SQLCompletionEngine?
 
-        init(text: Binding<String>, cursor: Binding<Int>?) {
+        init(text: Binding<String>, cursor: Binding<Int>?, selectionLength: Binding<Int>?) {
             self.text = text
             self.cursor = cursor
+            self.selectionLength = selectionLength
         }
 
         func textDidChange(_ notification: Notification) {
@@ -149,7 +157,9 @@ struct SQLEditor: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView else { return }
-            cursor?.wrappedValue = textView.selectedRange().location
+            let selection = textView.selectedRange()
+            cursor?.wrappedValue = selection.location
+            selectionLength?.wrappedValue = selection.length
             updateStatementHighlight()
         }
 

@@ -99,6 +99,13 @@ struct PaneView: View {
                     } else {
                         editorResizeHandle
                     }
+                    // Only a selection run of several statements shows a list; a
+                    // single query keeps the results area exactly as it was.
+                    if tab.isBatch {
+                        BatchStepList(steps: tab.batch, selection: tab.batchSelection,
+                                      onSelect: { model.showBatchStep(tab, number: $0) })
+                        Divider()
+                    }
                     DetailResultsArea(model: model, tab: tab)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if group.showInspector, tab.result != nil {
@@ -273,6 +280,8 @@ struct PaneView: View {
                   completion: tab.session?.completionEngine,
                   focusTrigger: isFocused ? focusTrigger : 0,
                   cursor: Binding(get: { tab.cursorPosition }, set: { tab.cursorPosition = $0 }),
+                  selectionLength: Binding(get: { tab.selectionLength },
+                                           set: { tab.selectionLength = $0 }),
                   onFocus: { model.activate(tab) })
             .frame(height: currentEditorHeight)
     }

@@ -4614,22 +4614,22 @@
         "cs": {
           "variations": {
             "plural": {
-              "few": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld řádky ovlivněny"
-                }
-              },
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld řádek ovlivněn"
+                  "value": "%lld řádek změněn"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld řádky změněny"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld řádků ovlivněno"
+                  "value": "%lld řádků změněno"
                 }
               }
             }
@@ -6296,6 +6296,141 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vlož je asistentovi, když si pořád říká o schválení nebo si myslí, že skryté připojení je rozbité. Vysvětlují, že jeho vlastní klient hlídá volání nástrojů odděleně od Tessery, a co s tím."
+          }
+        }
+      }
+    },
+    "They run in order and stop at the first error.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spustí se v pořadí a zastaví se na první chybě."
+          }
+        }
+      }
+    },
+    "Don't ask again": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Příště se neptat"
+          }
+        }
+      }
+    },
+    "not run": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "neproběhlo"
+          }
+        }
+      }
+    },
+    "done": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hotovo"
+          }
+        }
+      }
+    },
+    "failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "selhalo"
+          }
+        }
+      }
+    },
+    "Confirm before running a multi-statement selection": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potvrdit před spuštěním výběru s více příkazy"
+          }
+        }
+      }
+    },
+    "Selecting several statements and pressing ⌘↩ runs them in order. A statement that can destroy data always asks, whatever this is set to.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Označením několika příkazů a stiskem ⌘↩ se spustí v pořadí. Příkaz, který může zničit data, se ptá vždy, ať je tohle nastavené jakkoli."
+          }
+        }
+      }
+    },
+    "^[Run %lld statement](inflect: true)?": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Spustit %lld příkaz?"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Spustit %lld příkazy?"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Spustit %lld příkazů?"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "^[%lld row](inflect: true)": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld řádek"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld řádky"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld řádků"
+                }
+              }
+            }
           }
         }
       }

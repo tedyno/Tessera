@@ -224,6 +224,16 @@ final class AppModel {
     var pendingRun: RunChoice?
     var showingRunChoice = false
 
+    /// A multi-statement selection waiting for the user to confirm it.
+    struct PendingBatch {
+        let steps: [SQLBatchStep]
+        /// Safety warnings across the whole selection (DELETE without WHERE, …).
+        let warnings: [SQLSafety.Warning]
+        let tab: QueryTab
+    }
+    var pendingBatch: PendingBatch?
+    var showingBatchConfirm = false
+
     /// Confirmation before writing to a read-only connection.
     var showingReadOnlyConfirm = false
     @ObservationIgnored private var pendingCommitTab: QueryTab?
@@ -965,6 +975,14 @@ final class AppModel {
             tab.task = Task { await console.reloadRedisKeys(tab) }
             return
         }
+        // A selection spanning several statements runs all of them. One statement —
+        // or a fragment of one — falls through to the ordinary path, so highlighting
+        // a bit of a query and running it behaves exactly as it always has.
+        let steps = SQLBatch.steps(in: tab.sql, selectedUTF16Range: tab.selectedRange)
+        if steps.count > 1 {
+            startBatch(steps, on: tab)
+            return
+        }
         switch console.resolveRunTarget(tab) {
         case .statement(let sql):
             runChecked(sql.isEmpty ? tab.sql : sql, on: tab)
@@ -973,6 +991,30 @@ final class AppModel {
             showingRunChoice = true
         }
     }
+
+    /// Confirms a multi-statement selection, unless the user has turned that off.
+    private func startBatch(_ steps: [SQLBatchStep], on tab: QueryTab) {
+        let pipeline = consolePipeline(for: tab)
+        let warnings = steps.flatMap { pipeline.safetyWarnings(in: $0.sql) }
+        // "Don't ask again" silences the reminder that a selection holds several
+        // statements — never a destructive-statement warning. A convenience checkbox
+        // must not be able to switch off the guard against an unqualified DELETE.
+        guard BatchRunSettings.confirms || !warnings.isEmpty else {
+            tab.task = Task { await console.runBatch(tab, steps: steps) }
+            return
+        }
+        pendingBatch = PendingBatch(steps: steps, warnings: warnings, tab: tab)
+        showingBatchConfirm = true
+    }
+
+    func confirmBatchRun() {
+        guard let pending = pendingBatch else { return }
+        pendingBatch = nil
+        pending.tab.task = Task { await console.runBatch(pending.tab, steps: pending.steps) }
+    }
+
+    func cancelBatchRun() { pendingBatch = nil }
+
 
     /// ⌘R: refresh whatever the active tab shows — re-run a console query, reload a
     /// table view, or rebuild a diagram — reconnecting a dropped session first
