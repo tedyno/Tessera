@@ -260,6 +260,9 @@ final class AppModel {
         var checkSQL: String?
         var names: [String]
         var tab: QueryTab
+        /// Set when the prompt interrupted a multi-statement selection run: the
+        /// values are substituted into every step, not just `sql`.
+        var steps: [SQLBatchStep]?
     }
     var pendingParameterRun: PendingParameterRun?
     /// Last values by parameter name, pre-filled on the next prompt.
@@ -271,6 +274,14 @@ final class AppModel {
         pendingParameterRun = nil
         lastParameterValues.merge(values) { _, new in new }
         let pipeline = consolePipeline(for: pending.tab)
+        if let steps = pending.steps {
+            let filled = steps.map {
+                SQLBatchStep(number: $0.number,
+                             sql: pipeline.substituteParameters(in: $0.sql, values: values))
+            }
+            startBatch(filled, on: pending.tab)
+            return
+        }
         let sql = pipeline.substituteParameters(in: pending.sql, values: values)
         let checkSQL = pending.checkSQL.map {
             pipeline.substituteParameters(in: $0, values: values)
@@ -993,8 +1004,23 @@ final class AppModel {
     }
 
     /// Confirms a multi-statement selection, unless the user has turned that off.
+    ///
+    /// Placeholders pause it first, like any single run: the whole selection is
+    /// scanned at once, so one prompt covers every step and a `:name` shared
+    /// between statements is asked about only once.
     private func startBatch(_ steps: [SQLBatchStep], on tab: QueryTab) {
         let pipeline = consolePipeline(for: tab)
+        var parameterNames: [String] = []
+        for step in steps {
+            for name in pipeline.parameterNames(in: step.sql) where !parameterNames.contains(name) {
+                parameterNames.append(name)
+            }
+        }
+        guard parameterNames.isEmpty else {
+            pendingParameterRun = PendingParameterRun(sql: "", checkSQL: nil,
+                                                     names: parameterNames, tab: tab, steps: steps)
+            return
+        }
         let warnings = steps.flatMap { pipeline.safetyWarnings(in: $0.sql) }
         // "Don't ask again" silences the reminder that a selection holds several
         // statements — never a destructive-statement warning. A convenience checkbox
