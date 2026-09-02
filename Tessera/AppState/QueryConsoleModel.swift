@@ -126,13 +126,7 @@ final class QueryConsoleModel {
     /// clears it as the current one so nothing keeps pointing at a deleted profile.
     func forgetSession(profileID: UUID) {
         guard let session = session(for: profileID) else { return }
-        let doomed = tabs.filter { $0.session === session }
-        for tab in doomed { tab.task?.cancel() }
-        tabs.removeAll { $0.session === session }
-        for tab in doomed { workspace.remove(tabID: tab.id) }
-        if !tabs.contains(where: { $0.id == activeTabID }) {
-            activeTabID = workspace.focusedGroup?.activeID ?? tabs.last?.id
-        }
+        closeTabs(Set(tabs.filter { $0.session === session }.map(\.id)))
         if currentSession === session { currentSession = nil }
         sessions.removeAll { $0 === session }
         Task { await session.close() }
@@ -227,25 +221,35 @@ final class QueryConsoleModel {
     }
 
     func closeTab(_ id: UUID) {
-        guard let tab = tabs.first(where: { $0.id == id }) else { return }
-        tab.task?.cancel()
-        tab.autoRefreshTask?.cancel()
-        tabs.removeAll { $0.id == id }
-        workspace.remove(tabID: id)   // drops it from its pane, collapsing an empty one
-        if activeTabID == id { activeTabID = workspace.focusedGroup?.activeID ?? tabs.last?.id }
+        closeTabs([id])
     }
 
     /// Closes every tab whose id is in `ids`, cancelling anything they were running.
     private func closeTabs(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
+        var buffers: [QueryTab.Buffers] = []
         for tab in tabs where ids.contains(tab.id) {
             tab.task?.cancel()
             tab.autoRefreshTask?.cancel()
+            buffers.append(tab.takeBuffers())
         }
         tabs.removeAll { ids.contains($0.id) }
         for id in ids { workspace.remove(tabID: id) }
         if let active = activeTabID, ids.contains(active) {
             activeTabID = workspace.focusedGroup?.activeID ?? tabs.last?.id
+        }
+        release(buffers)
+    }
+
+    /// Frees closed tabs' row buffers off the main actor. A single grid can hold
+    /// hundreds of thousands of cells and releasing them takes hundreds of
+    /// milliseconds; done inline, closing several tabs at once visibly stalls the
+    /// UI before the tab bar even updates.
+    private func release(_ buffers: [QueryTab.Buffers]) {
+        guard !buffers.isEmpty else { return }
+        Task.detached(priority: .background) {
+            var doomed = buffers
+            doomed.removeAll()
         }
     }
 
@@ -534,6 +538,9 @@ final class QueryConsoleModel {
         tab.batchSelection = nil
         for index in tab.batch.indices {
             await run(tab, sqlToRun: tab.batch[index].sql, partOfBatch: true)
+            // Closing the tab mid-batch cancels the run and takes its steps away,
+            // so the indices this loop started with may no longer be there.
+            guard tab.batch.indices.contains(index) else { return }
             tab.batch[index].didRun = true
             tab.batchSelection = tab.batch[index].number
             if let failure = tab.errorMessage {

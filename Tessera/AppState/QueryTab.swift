@@ -347,6 +347,30 @@ final class QueryTab: Identifiable {
     /// The in-flight run, so a Stop button can cancel it.
     @ObservationIgnored var task: Task<Void, Never>?
 
+    /// Everything memory-heavy a tab holds: the fetched rows and the buffers
+    /// derived from them. Freeing a grid's worth of cells costs hundreds of
+    /// milliseconds, so it is handed over as a `Sendable` value and released off
+    /// the main actor rather than inside the close.
+    struct Buffers: Sendable {
+        fileprivate var result: QueryResult?
+        fileprivate var batch: [SQLBatchStep]
+        fileprivate var json: (raw: String, formatted: String)?
+        fileprivate var matches: [Int]?
+    }
+
+    /// Takes the fetched rows out of the tab, leaving it empty. Only for a tab
+    /// being closed — releasing the returned value is what actually frees the
+    /// memory, and the caller does that off the main actor.
+    func takeBuffers() -> Buffers {
+        let buffers = Buffers(result: result, batch: batch,
+                              json: jsonDocumentCache?.value, matches: matchingRowsCache?.rows)
+        result = nil
+        batch = []
+        jsonDocumentCache = nil
+        matchingRowsCache = nil
+        return buffers
+    }
+
     init(title: String, sql: String = "") {
         self.title = title
         self.sql = sql
