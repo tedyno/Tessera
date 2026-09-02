@@ -6434,6 +6434,91 @@
           }
         }
       }
+    },
+    "Connections could not be saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Připojení se nepodařilo uložit"
+          }
+        }
+      }
+    },
+    "Your connections were not saved, and the file on disk is unchanged.\n\n%@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaše připojení nebyla uložena a soubor na disku zůstal beze změny.\n\n%@"
+          }
+        }
+      }
+    },
+    "It would have removed connections that nothing asked to delete: %@.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odstranilo by to připojení, o jejichž smazání nikdo nepožádal: %@."
+          }
+        }
+      }
+    },
+    "The connections file could not be read first: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soubor s připojeními se nejprve nepodařilo přečíst: %@"
+          }
+        }
+      }
+    },
+    "Close this pane and its tabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zavřít tento panel i s jeho taby"
+          }
+        }
+      }
+    },
+    "Query history": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historie dotazů"
+          }
+        }
+      }
+    },
+    "Saved queries": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uložené dotazy"
+          }
+        }
+      }
+    },
+    "%lld. %@": {
+      "extractionState": "manual",
+      "shouldTranslate": false
+    },
+    " ": {
+      "extractionState": "manual",
+      "shouldTranslate": false
     }
   },
   "version": "1.0"

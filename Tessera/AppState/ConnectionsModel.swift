@@ -15,6 +15,10 @@ final class ConnectionsModel {
     /// nothing is written to that file — an empty in-memory list must never be
     /// saved over connections that are merely unreadable.
     private(set) var profileStoreFailure: String?
+    /// Set when a *write* was refused. Unlike a failed load this is recoverable —
+    /// the file on disk is untouched and the in-memory list is intact — so it is
+    /// reported once and dismissed, never by the fatal load alert.
+    private(set) var profileSaveFailure: String?
     /// Schema names the user has hidden in the tree, per profile.
     private(set) var hiddenSchemasByProfile: [UUID: Set<String>] = [:]
 
@@ -124,12 +128,39 @@ final class ConnectionsModel {
         guard profileStoreFailure == nil else { return }
         do {
             try profileStore.save(profiles, allowingRemovals: removingProfiles)
+            profileSaveFailure = nil
         } catch {
             // A refused save means the in-memory list disagrees with the file in a
             // way nothing asked for. The file is left alone; say so rather than
-            // letting the app look as though it saved.
-            profileStoreFailure = String(describing: error)
+            // letting the app look as though it saved. Later saves are still
+            // attempted — the next one may well be the one that agrees again.
+            profileSaveFailure = Self.saveMessage(for: error)
         }
+    }
+
+    /// Dismisses the save warning. The user has read it; the next save decides
+    /// whether it comes back.
+    func dismissSaveFailure() { profileSaveFailure = nil }
+
+    /// Why a write was refused, in the user's language — `ProfileStoreError`'s own
+    /// `description` lives in the core package and is English-only.
+    private static func saveMessage(for error: Error) -> String {
+        let detail: String
+        switch error as? ProfileStoreError {
+        case .wouldRemoveProfiles(let names):
+            detail = String(localized: """
+                It would have removed connections that nothing asked to delete: \(names.joined(separator: ", ")).
+                """)
+        case .unreadableStore(let underlying):
+            detail = String(localized: "The connections file could not be read first: \(underlying)")
+        case nil:
+            detail = String(describing: error)
+        }
+        return String(localized: """
+            Your connections were not saved, and the file on disk is unchanged.
+
+            \(detail)
+            """)
     }
 
     /// Dev convenience: a connection to the local Docker Postgres on first run.

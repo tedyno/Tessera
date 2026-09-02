@@ -116,6 +116,17 @@ private struct ContentModals: ViewModifier {
         } message: { failure in
             Text(verbatim: failure)
         }
+        // A refused *write*, by contrast, is recoverable: the connections are still
+        // there and the file is untouched. It gets its own dismissable alert — the
+        // load alert above can only quit, which would be wrong here.
+        .alert(Text("Connections could not be saved"),
+               isPresented: Binding(get: { app.connections.profileSaveFailure != nil },
+                                    set: { if !$0 { app.connections.dismissSaveFailure() } }),
+               presenting: app.connections.profileSaveFailure) { _ in
+            Button { app.connections.dismissSaveFailure() } label: { Text("OK") }
+        } message: { failure in
+            Text(verbatim: failure)
+        }
         // A changed SSH host key blocks the connect; trusting the new key must be
         // an explicit decision, so it gets a real dialog, not just an error line.
         .alert(Text("SSH host key changed"),
