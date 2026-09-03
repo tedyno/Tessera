@@ -836,19 +836,7 @@ final class AppModel {
     /// these — built once per schema/connection change so each keystroke is a plain
     /// `contains` over the flat list, not a re-walk of every schema tree with a
     /// fresh `.lowercased()` per name.
-    private struct SpotlightItem {
-        let kind: SpotlightResult.Kind
-        let profileID: UUID
-        let connectionName: String
-        let path: [String]
-        let schema: String?
-        let table: String?
-        let column: String?
-        let indexName: String?
-        let lowerTitle: String
-    }
-
-    @ObservationIgnored private var spotlightIndex: [SpotlightItem] = []
+    @ObservationIgnored private var spotlightIndex: [SpotlightEntry] = []
     /// Signature of the inputs the index was built from; when it changes (a schema
     /// is (re)introspected, or a connection is added/renamed/moved) the index is
     /// rebuilt. Stable order (over `profiles`) so an unchanged set hashes equal.
@@ -866,33 +854,33 @@ final class AppModel {
     }
 
     private func rebuildSpotlightIndex() {
-        var items: [SpotlightItem] = []
+        var items: [SpotlightEntry] = []
         for profile in connections.profiles {
             let path = connections.path(forProfile: profile.id)
-            items.append(SpotlightItem(kind: .connection, profileID: profile.id,
+            items.append(SpotlightEntry(kind: .connection, profileID: profile.id,
                                        connectionName: profile.name, path: path,
                                        schema: nil, table: nil, column: nil, indexName: nil,
                                        lowerTitle: profile.name.lowercased()))
             guard let tree = schemaCache[profile.id]?.tree else { continue }
             for namespace in tree.schemas {
-                items.append(SpotlightItem(kind: .schema, profileID: profile.id,
+                items.append(SpotlightEntry(kind: .schema, profileID: profile.id,
                                            connectionName: profile.name, path: path,
                                            schema: namespace.name, table: nil, column: nil,
                                            indexName: nil, lowerTitle: namespace.name.lowercased()))
                 for table in namespace.tables {
-                    items.append(SpotlightItem(kind: .table, profileID: profile.id,
+                    items.append(SpotlightEntry(kind: .table, profileID: profile.id,
                                                connectionName: profile.name, path: path,
                                                schema: namespace.name, table: table.name, column: nil,
                                                indexName: nil, lowerTitle: table.name.lowercased()))
                     for column in table.columns {
-                        items.append(SpotlightItem(kind: .column, profileID: profile.id,
+                        items.append(SpotlightEntry(kind: .column, profileID: profile.id,
                                                    connectionName: profile.name, path: path,
                                                    schema: namespace.name, table: table.name,
                                                    column: column.name, indexName: nil,
                                                    lowerTitle: column.name.lowercased()))
                     }
                     for index in table.indexes {
-                        items.append(SpotlightItem(kind: .index, profileID: profile.id,
+                        items.append(SpotlightEntry(kind: .index, profileID: profile.id,
                                                    connectionName: profile.name, path: path,
                                                    schema: namespace.name, table: table.name,
                                                    column: nil, indexName: index.name,
@@ -904,8 +892,14 @@ final class AppModel {
         spotlightIndex = items
     }
 
-    func spotlightResults(query: String) -> [SpotlightResult] {
-        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+    /// Matches for the ⌘K palette.
+    ///
+    /// The index is (re)built here, where the schema trees live; the scan itself
+    /// runs on a background task over a snapshot of it, because a machine with a
+    /// few large schemas cached indexes hundreds of thousands of names and going
+    /// through them takes hundreds of milliseconds.
+    func spotlightResults(query: String) async -> [SpotlightResult] {
+        let needle = SpotlightSearch.normalize(query)
         guard !needle.isEmpty else { return [] }
 
         let signature = spotlightSignature()
@@ -913,48 +907,19 @@ final class AppModel {
             rebuildSpotlightIndex()
             spotlightIndexSignature = signature
         }
+        let entries = spotlightIndex
+        let matches = await Task.detached(priority: .userInitiated) {
+            SpotlightSearch.matches(in: entries, needle: needle)
+        }.value
+
         // Live/cached badge is runtime state (session readiness), so it's resolved
-        // per query rather than baked into the index — a handful of profiles.
-        let cachedByProfile = Dictionary(uniqueKeysWithValues: connections.profiles.map {
-            ($0.id, !(console.session(for: $0.id)?.isReady ?? false))
-        })
-
-        var results: [SpotlightResult] = []
-        for item in spotlightIndex where item.lowerTitle.contains(needle) {
-            results.append(SpotlightResult(kind: item.kind, profileID: item.profileID,
-                                           connectionName: item.connectionName, path: item.path,
-                                           schema: item.schema, table: item.table, column: item.column,
-                                           indexName: item.indexName,
-                                           isCached: cachedByProfile[item.profileID] ?? true))
-        }
-        return Array(Self.ranked(results, needle: needle).prefix(80))
-    }
-
-    /// Exact matches first, then names that start with the term, then the rest —
-    /// typing a full table name should not bury it under columns that merely
-    /// contain it. Ties keep a stable kind order and sort by name.
-    private static func ranked(_ results: [SpotlightResult], needle: String) -> [SpotlightResult] {
-        func rank(_ title: String) -> Int {
-            let name = title.lowercased()
-            if name == needle { return 0 }
-            if name.hasPrefix(needle) { return 1 }
-            return 2
-        }
-        func kindOrder(_ kind: SpotlightResult.Kind) -> Int {
-            switch kind {
-            case .connection: 0
-            case .schema: 1
-            case .table: 2
-            case .column: 3
-            case .index: 4
-            }
-        }
-        return results.sorted { left, right in
-            let (l, r) = (rank(left.title), rank(right.title))
-            if l != r { return l < r }
-            let (lk, rk) = (kindOrder(left.kind), kindOrder(right.kind))
-            if lk != rk { return lk < rk }
-            return left.title.localizedCaseInsensitiveCompare(right.title) == .orderedAscending
+        // here rather than baked into the index — and only for what is shown.
+        return matches.map { entry in
+            SpotlightResult(kind: entry.kind, profileID: entry.profileID,
+                            connectionName: entry.connectionName, path: entry.path,
+                            schema: entry.schema, table: entry.table, column: entry.column,
+                            indexName: entry.indexName,
+                            isCached: !(console.session(for: entry.profileID)?.isReady ?? false))
         }
     }
 

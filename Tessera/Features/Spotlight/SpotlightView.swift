@@ -1,4 +1,5 @@
 import SwiftUI
+import DBKit
 
 /// A search hit across all visited connections' schemas.
 /// What the search is restricted to. `all` is the default; Tab moves to the next.
@@ -31,7 +32,8 @@ enum SpotlightCategory: String, CaseIterable, Identifiable {
 }
 
 struct SpotlightResult: Identifiable, Hashable {
-    enum Kind { case connection, schema, table, column, index }
+    /// The same cases the Core index uses, so a match maps straight across.
+    typealias Kind = SpotlightEntry.Kind
 
     let id = UUID()
     let kind: Kind
@@ -117,8 +119,12 @@ struct SpotlightView: View {
         return counts
     }
 
-    private func refresh() {
-        allResults = app.spotlightResults(query: query)
+    private func refresh() async {
+        let query = query
+        let results = await app.spotlightResults(query: query)
+        // The palette may have moved on while the scan ran in the background.
+        guard query == self.query else { return }
+        allResults = results
         searchedQuery = query
     }
 
@@ -157,12 +163,12 @@ struct SpotlightView: View {
                 // not on every keystroke (which read as flicker).
                 try? await Task.sleep(for: .milliseconds(200))
                 guard !Task.isCancelled else { return }
-                refresh()
+                await refresh()
             }
         }
         .onAppear {
             focused = true
-            refresh()
+            searchTask = Task { await refresh() }
         }
         .onDisappear { searchTask?.cancel() }
     }
