@@ -69,7 +69,9 @@ struct SQLEditor: NSViewRepresentable {
         }
         textView.string = text
         context.coordinator.previousLength = (text as NSString).length
+        context.coordinator.observeScrolling(of: scrollView)
         context.coordinator.highlight()
+        context.coordinator.scheduleDeferredWork()
         return scrollView
     }
 
@@ -87,7 +89,9 @@ struct SQLEditor: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
             context.coordinator.previousLength = (text as NSString).length
+            context.coordinator.textVersion &+= 1
             context.coordinator.highlight()
+            context.coordinator.scheduleDeferredWork()
         }
         if focusTrigger != context.coordinator.lastFocusTrigger {
             context.coordinator.lastFocusTrigger = focusTrigger
@@ -101,6 +105,7 @@ struct SQLEditor: NSViewRepresentable {
 
     static let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         fileprivate var text: Binding<String>
         fileprivate var cursor: Binding<Int>?
@@ -120,12 +125,28 @@ struct SQLEditor: NSViewRepresentable {
             self.selectionLength = selectionLength
         }
 
+        /// Highlighting covers the viewport, so text that scrolls into it has to be
+        /// coloured as it arrives. Cheap: the pass is bounded by the viewport, and
+        /// `rehighlightVisible` returns immediately while the new viewport is still
+        /// inside what was already coloured. (A selector observer rather than a
+        /// block one: the observer is released with the coordinator, and the block
+        /// form would have to be `@Sendable`.)
+        func observeScrolling(of scrollView: NSScrollView) {
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(viewportDidChange),
+                name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        }
+
+        @objc private func viewportDidChange() { rehighlightVisible() }
+
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
             previousLength = (textView.string as NSString).length
             text.wrappedValue = textView.string
+            textVersion &+= 1
             highlight()
-            applyAliasRewrites()
+            scheduleDeferredWork()
             // The completion popup is driven by CompletingTextView (Tab-only commit).
         }
 
@@ -160,7 +181,7 @@ struct SQLEditor: NSViewRepresentable {
             let selection = textView.selectedRange()
             cursor?.wrappedValue = selection.location
             selectionLength?.wrappedValue = selection.length
-            updateStatementHighlight()
+            applyStatementTint()
         }
 
         /// After a JOIN completion aliases a table, rebind existing `from.` qualifiers
@@ -227,46 +248,154 @@ struct SQLEditor: NSViewRepresentable {
         private static let numberRegex = try! NSRegularExpression(pattern: "\\b\\d+(\\.\\d+)?\\b")
         private static let commentRegex = try! NSRegularExpression(pattern: "--[^\\n]*")
 
+        /// Colours what is on screen (plus a screenful of margin), not the whole
+        /// document.
+        ///
+        /// The four regex passes and the attribute writes are both proportional to
+        /// the range they cover, and this used to run over the entire text on every
+        /// keystroke — 38 ms per character in a 112 KB script, which is five dropped
+        /// frames. Scoping it to the viewport makes the cost of typing independent
+        /// of how long the file is; `rehighlightVisible` covers the rest as it
+        /// scrolls into view.
         func highlight() {
-            guard let textView, let storage = textView.textStorage else { return }
-            let string = textView.string
-            let full = NSRange(location: 0, length: (string as NSString).length)
-            storage.beginEditing()
-            storage.setAttributes([.foregroundColor: NSColor.textColor, .font: SQLEditor.font], range: full)
-            color(Self.numberRegex, in: string, range: full, storage: storage, color: .systemBlue)
-            color(Self.keywordRegex, in: string, range: full, storage: storage, color: .systemPink)
-            color(Self.stringRegex, in: string, range: full, storage: storage, color: .systemRed)
-            color(Self.commentRegex, in: string, range: full, storage: storage, color: .secondaryLabelColor)
-            storage.endEditing()
-            updateStatementHighlight()
+            highlightedRange = nil        // a fresh pass, not a scroll: recolour now
+            rehighlightVisible()
         }
 
-        /// Whether the editor holds more than one runnable statement — cached on
-        /// the text, since the caret moves far more often than the text changes.
-        private var multiStatementText: (text: String, isMulti: Bool)?
+        /// The range already coloured, so scrolling within it costs nothing.
+        private var highlightedRange: NSRange?
 
-        private func hasMultipleStatements(_ text: String) -> Bool {
-            if let cached = multiStatementText, cached.text == text { return cached.isMulti }
+        func rehighlightVisible() {
+            guard let textView, let storage = textView.textStorage else { return }
+            let string = textView.string
+            let length = (string as NSString).length
+            let visible = visibleCharacterRange(length: length)
+            if let done = highlightedRange, NSIntersectionRange(done, visible) == visible { return }
+
+            let range = paddedRange(visible, length: length)
+            storage.beginEditing()
+            storage.setAttributes([.foregroundColor: NSColor.textColor, .font: SQLEditor.font], range: range)
+            color(Self.numberRegex, in: string, range: range, storage: storage, color: .systemBlue)
+            color(Self.keywordRegex, in: string, range: range, storage: storage, color: .systemPink)
+            color(Self.stringRegex, in: string, range: range, storage: storage, color: .systemRed)
+            color(Self.commentRegex, in: string, range: range, storage: storage, color: .secondaryLabelColor)
+            storage.endEditing()
+            highlightedRange = range
+            applyStatementTint()
+        }
+
+        /// What the scroll view is showing, in characters. Asked of the text view
+        /// rather than a layout manager so it holds for TextKit 1 and 2 alike.
+        private func visibleCharacterRange(length: Int) -> NSRange {
+            guard let textView, length > 0 else { return NSRange(location: 0, length: 0) }
+            let rect = textView.visibleRect
+            // Before the first layout there is no viewport yet; the top is what
+            // will be shown, and the bounds-change notification corrects it as soon
+            // as the scroll view has a size.
+            guard !rect.isEmpty else { return NSRange(location: 0, length: min(length, 8000)) }
+            let top = textView.characterIndexForInsertion(at: NSPoint(x: rect.minX, y: rect.minY))
+            let bottom = textView.characterIndexForInsertion(at: NSPoint(x: rect.maxX, y: rect.maxY))
+            let lower = min(max(0, min(top, bottom)), length)
+            let upper = min(max(lower, max(top, bottom)), length)
+            return NSRange(location: lower, length: upper - lower)
+        }
+
+        /// The visible range grown by a margin and out to line boundaries.
+        ///
+        /// The margin means a short scroll needs no repaint, and starting at a line
+        /// boundary keeps a comment (`--` to end of line) whole. A string literal
+        /// running past the margin is the one thing this can miscolour — it is
+        /// recoloured the moment its opening quote scrolls into range.
+        private func paddedRange(_ visible: NSRange, length: Int) -> NSRange {
+            guard length > 0 else { return NSRange(location: 0, length: 0) }
+            // Wide enough that ordinary scrolling rarely repaints, small enough
+            // that a repaint stays well inside a frame even in a 450 KB script.
+            let margin = 1500
+            let lower = max(0, visible.location - margin)
+            let upper = min(length, visible.upperBound + margin)
+            let ns = textView?.string as NSString? ?? ""
+            let lineStart = ns.lineRange(for: NSRange(location: lower, length: 0)).location
+            let lineEnd = ns.lineRange(for: NSRange(location: max(lineStart, upper - 1), length: 0)).upperBound
+            return NSRange(location: lineStart, length: min(length, lineEnd) - lineStart)
+        }
+
+        /// The statement split for the text as it was at `version`, computed off
+        /// the main thread. Both the tint and the alias rewrites read it, so a
+        /// caret move is a lookup rather than a rescan of the whole document.
+        private struct StatementSplit {
+            let version: Int
+            let ranges: [NSRange]
+            /// Whether the editor holds more than one *runnable* statement — a
+            /// comment-only chunk ("-- done") is not one.
+            let isMulti: Bool
+        }
+        private var split: StatementSplit?
+        /// Bumped on every edit, so a split computed for older text is ignored.
+        var textVersion = 0
+
+        private var deferredTask: Task<Void, Never>?
+
+        /// Recomputes the statement split shortly after typing stops, and applies
+        /// what depends on it.
+        ///
+        /// Splitting is a pass over the whole document (20 ms for 450 KB) and the
+        /// alias rewrite needs it too, so neither belongs on the keystroke path.
+        /// The delay is only felt by the faint tint under the statement ⌘↩ would
+        /// run and by the alias rebinding, both of which are cosmetic until you
+        /// stop typing. ⌘↩ itself never reads this cache — it resolves the target
+        /// from the live text.
+        func scheduleDeferredWork() {
+            guard let textView else { return }
+            let text = textView.string
+            let version = textVersion
+            deferredTask?.cancel()
+            deferredTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(120))
+                guard !Task.isCancelled else { return }
+                let computed = await Task.detached(priority: .userInitiated) {
+                    (ranges: SQLStatements.statementNSRanges(sql: text),
+                     isMulti: Self.isMultiStatement(text))
+                }.value
+                guard !Task.isCancelled, let self, self.textVersion == version else { return }
+                self.split = StatementSplit(version: version, ranges: computed.ranges,
+                                            isMulti: computed.isMulti)
+                self.applyStatementTint()
+                self.applyAliasRewrites()
+            }
+        }
+
+        /// Comment-only chunks (a trailing "-- done") aren't statements.
+        /// `nonisolated` because it runs on the background task with the split.
+        nonisolated private static func isMultiStatement(_ text: String) -> Bool {
             let real = SQLScript.statements(in: text).filter {
-                // Comment-only chunks (a trailing "-- done") aren't statements.
                 !SQLText.maskLiteralsAndComments($0)
                     .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
-            let isMulti = real.count > 1
-            multiStatementText = (text, isMulti)
-            return isMulti
+            return real.count > 1
         }
 
         /// Faint background under the statement ⌘↩ would run — only shown when
         /// the editor holds more than one statement, where it actually informs.
-        func updateStatementHighlight() {
+        ///
+        /// Reads the cached split, so it costs nothing on a caret move. While the
+        /// split is stale (text edited, recompute pending) the tint is left as it
+        /// is rather than flickering off and back on.
+        func applyStatementTint() {
             guard let textView, let storage = textView.textStorage else { return }
+            guard let split, split.version == textVersion else { return }
             let ns = textView.string as NSString
-            let full = NSRange(location: 0, length: ns.length)
-            storage.removeAttribute(.backgroundColor, range: full)
-            guard hasMultipleStatements(textView.string),
-                  var range = SQLStatements.statementNSRange(
-                sql: textView.string, utf16Cursor: textView.selectedRange().location)
+            // Clear only where the tint actually is: wiping the attribute across
+            // the whole document would put an O(text) step back on the keystroke
+            // path, which is what this pass exists to get rid of.
+            if let previous = tintedRange {
+                let clamped = NSIntersectionRange(previous, NSRange(location: 0, length: ns.length))
+                if clamped.length > 0 { storage.removeAttribute(.backgroundColor, range: clamped) }
+                tintedRange = nil
+            }
+            guard split.isMulti,
+                  var range = SQLStatements.statement(at: textView.selectedRange().location,
+                                                      in: split.ranges),
+                  range.upperBound <= ns.length
             else { return }
             // Trim surrounding whitespace so the tint hugs the SQL, not the gaps.
             while range.length > 0,
@@ -283,7 +412,12 @@ struct SQLEditor: NSViewRepresentable {
             storage.addAttribute(.backgroundColor,
                                  value: NSColor.controlAccentColor.withAlphaComponent(0.07),
                                  range: range)
+            tintedRange = range
         }
+
+        /// Where the statement tint currently sits, so it can be lifted again
+        /// without touching the rest of the document.
+        private var tintedRange: NSRange?
 
         private func color(_ regex: NSRegularExpression, in string: String, range: NSRange,
                            storage: NSTextStorage, color: NSColor) {

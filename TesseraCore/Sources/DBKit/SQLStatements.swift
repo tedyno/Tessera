@@ -39,19 +39,63 @@ public enum SQLStatements {
     /// UTF-16 range of the statement containing the cursor, for editor
     /// highlighting. nil when the text is empty or the cursor lands nowhere.
     public static func statementNSRange(sql: String, utf16Cursor: Int) -> NSRange? {
-        let chars = Array(sql)
-        guard !chars.isEmpty else { return nil }
-        // The bounds walk characters; the editor speaks UTF-16 — convert both ways.
-        let utf16 = sql.utf16
-        let clamped = min(max(utf16Cursor, 0), utf16.count)
-        let cursorIndex = utf16.index(utf16.startIndex, offsetBy: clamped)
-            .samePosition(in: sql) ?? sql.startIndex
-        let cursor = sql.distance(from: sql.startIndex, to: cursorIndex)
-        let (start, end) = statementBounds(chars, cursor: cursor)
-        guard start < end else { return nil }
-        let lower = sql.index(sql.startIndex, offsetBy: start)
-        let upper = sql.index(sql.startIndex, offsetBy: end)
-        return NSRange(lower..<upper, in: sql)
+        statement(at: utf16Cursor, in: statementNSRanges(sql: sql))
+    }
+
+    /// Every top-level statement's range, in the editor's UTF-16 units and in
+    /// document order, from a single pass over the text. Splits on top-level `;`,
+    /// ignoring semicolons inside strings and line comments — the same rule
+    /// `statementNSRange` applies, which is now expressed in terms of this.
+    ///
+    /// Exists so the editor can compute the split once per edit and resolve the
+    /// caret against the result: finding the statement under the caret used to
+    /// rescan the whole document on every arrow key.
+    public static func statementNSRanges(sql: String) -> [NSRange] {
+        var ranges: [NSRange] = []
+        var start = 0            // UTF-16 offset where the current statement begins
+        var offset = 0           // UTF-16 offset of the character being looked at
+        var inString = false
+        var inLineComment = false
+        var previous: Character?
+
+        for character in sql {
+            let width = character.utf16.count
+            defer { offset += width; previous = character }
+            if inLineComment {
+                if character == "\n" { inLineComment = false }
+                continue
+            }
+            if inString {
+                // A doubled '' closes and immediately reopens the literal, which
+                // leaves the state — and so every boundary — exactly where
+                // treating it as one escaped quote would.
+                if character == "'" { inString = false }
+                continue
+            }
+            if character == "'" { inString = true; continue }
+            if character == "-", previous == "-" { inLineComment = true; continue }
+            if character == ";" {
+                ranges.append(NSRange(location: start, length: offset - start))
+                start = offset + width
+            }
+        }
+        ranges.append(NSRange(location: start, length: max(0, offset - start)))
+        return ranges
+    }
+
+    /// The statement `utf16Cursor` sits in, resolved against precomputed ranges.
+    ///
+    /// A cursor sitting just after a `;` belongs to the statement that ended there,
+    /// not the one starting after it — so running from there executes what you just
+    /// finished typing. Returns nil for an empty statement (e.g. the caret past a
+    /// trailing `;`), which is what the caller shows no tint for.
+    public static func statement(at utf16Cursor: Int, in ranges: [NSRange]) -> NSRange? {
+        guard let last = ranges.last else { return nil }
+        let cursor = max(utf16Cursor, 0)
+        for range in ranges.dropLast() where cursor <= range.upperBound + 1 {
+            return range.length > 0 ? range : nil
+        }
+        return last.length > 0 ? last : nil
     }
 
     /// Range of the statement containing `cursor`, splitting on top-level `;`
