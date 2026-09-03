@@ -34,15 +34,15 @@ final class StoreEncodeWriteTests: XCTestCase {
                 .folder(Folder(name: "staging", children: [.connection(ConnectionRef(profileID: UUID()))]))
             ])
         ])
-        store.write(try store.encode(document))
+        try store.write(try store.encode(document))
         XCTAssertEqual(try store.load(), document)
     }
 
     func testOrganizerWriteKeepsABackupOfWhatWasThere() throws {
         let store = OrganizerStore(fileURL: directory.appendingPathComponent("organizer.json"))
         let first = OrganizerDocument(workspaces: [Workspace(name: "first")])
-        store.write(try store.encode(first))
-        store.write(try store.encode(OrganizerDocument(workspaces: [Workspace(name: "second")])))
+        try store.write(try store.encode(first))
+        try store.write(try store.encode(OrganizerDocument(workspaces: [Workspace(name: "second")])))
 
         let previous = store.backups.directory.appendingPathComponent("organizer.previous.json")
         let restored = try JSONDecoder().decode(OrganizerDocument.self, from: Data(contentsOf: previous))
@@ -54,7 +54,7 @@ final class StoreEncodeWriteTests: XCTestCase {
     func testProfileEncodeThenWriteRoundTrips() throws {
         let store = ProfileStore(fileURL: directory.appendingPathComponent("profiles.json"))
         let profiles = [profile("one"), profile("two")]
-        store.write(try store.encode(profiles))
+        try store.write(try store.encode(profiles))
         XCTAssertEqual(try store.load().map(\.name), ["one", "two"])
     }
 
@@ -76,7 +76,30 @@ final class StoreEncodeWriteTests: XCTestCase {
         let store = ProfileStore(fileURL: directory.appendingPathComponent("profiles.json"))
         let kept = profile("one")
         try store.save([kept, profile("two")])
-        store.write(try store.encode([kept], allowingRemovals: true))
+        try store.write(try store.encode([kept], allowingRemovals: true))
         XCTAssertEqual(try store.load().map(\.name), ["one"])
+    }
+}
+
+/// A background write is still a write: if it fails, the caller has to be able to
+/// tell the user, or the app reports a save that never landed.
+final class StoreWriteFailureTests: XCTestCase {
+    func testProfileWriteThrowsWhenItCannotWrite() throws {
+        let missing = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("\(UUID().uuidString)/nested/profiles.json")
+        let store = ProfileStore(fileURL: missing)
+        let profiles = [ConnectionProfile(name: "one", kind: .postgres, host: "127.0.0.1",
+                                          port: 5432, database: "shop", username: "tessera",
+                                          tlsMode: .disable)]
+        let data = try store.encode(profiles)
+        XCTAssertThrowsError(try store.write(data))
+    }
+
+    func testOrganizerWriteThrowsWhenItCannotWrite() throws {
+        let missing = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("\(UUID().uuidString)/nested/organizer.json")
+        let store = OrganizerStore(fileURL: missing)
+        let data = try store.encode(OrganizerDocument(workspaces: [Workspace(name: "one")]))
+        XCTAssertThrowsError(try store.write(data))
     }
 }

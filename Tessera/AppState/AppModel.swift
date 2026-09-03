@@ -379,12 +379,14 @@ final class AppModel {
     }
 
     /// Forgets a connection's cached schema, on disk too.
+    ///
+    /// The delete goes through the same writer as the saves: a refresh's snapshot
+    /// may still be in flight, and a delete that overtook it would leave the file
+    /// recreated behind the connection the user just removed.
     private func discardCachedSchema(for profileID: UUID) {
         schemaCache[profileID] = nil
+        schemaCacheWriter(for: profileID).submitRemoval()
         schemaCacheWriters[profileID] = nil
-        Task.detached(priority: .utility) { [schemaCacheStore] in
-            schemaCacheStore.remove(profileID)
-        }
     }
 
     @ObservationIgnored private var schemaCacheWriters: [UUID: SnapshotWriter] = [:]
@@ -393,6 +395,8 @@ final class AppModel {
         if let writer = schemaCacheWriters[profileID] { return writer }
         let writer = SnapshotWriter { [schemaCacheStore] in
             schemaCacheStore.write($0, for: profileID)
+        } remove: { [schemaCacheStore] in
+            schemaCacheStore.remove(profileID)
         }
         schemaCacheWriters[profileID] = writer
         return writer

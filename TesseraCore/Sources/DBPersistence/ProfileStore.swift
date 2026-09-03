@@ -57,7 +57,7 @@ public struct ProfileStore: Sendable {
     /// a caller has to ask for turns that class of bug into a refused write and a
     /// thrown error instead of a file the user cannot get back.
     public func save(_ profiles: [ConnectionProfile], allowingRemovals: Bool = false) throws {
-        write(try encode(profiles, allowingRemovals: allowingRemovals))
+        try write(try encode(profiles, allowingRemovals: allowingRemovals))
     }
 
     /// Runs the removal guard and encodes the list. Throws exactly what `save`
@@ -76,11 +76,15 @@ public struct ProfileStore: Sendable {
     }
 
     /// Keeps what's there now, then replaces it. Safe to call off the main actor.
-    public func write(_ data: Data) {
+    ///
+    /// Throws what the write throws: a full disk or a permission problem loses the
+    /// user's connections just as surely as a refused save does, so the caller —
+    /// even a background one — has to be able to say so.
+    public func write(_ data: Data) throws {
         // Keep what's there now before replacing it — including when the caller
         // is about to write a shorter list than the file holds.
         backups.capture(fileURL)
-        try? PrivateFile.write(data, to: fileURL)
+        try PrivateFile.write(data, to: fileURL)
     }
 
     /// Throws when `profiles` is missing an id the stored file still has.

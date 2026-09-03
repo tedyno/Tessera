@@ -48,13 +48,14 @@ public struct OrganizerStore: Sendable {
         return try encoder.encode(document)
     }
 
-    /// Backs up what is there and writes the bytes. Safe to call off the main actor.
-    public func write(_ data: Data) {
+    /// Backs up what is there and writes the bytes. Safe to call off the main
+    /// actor; throws what the write throws.
+    public func write(_ data: Data) throws {
         backups.capture(fileURL)
-        try? PrivateFile.write(data, to: fileURL)
+        try PrivateFile.write(data, to: fileURL)
     }
 
     public func save(_ document: OrganizerDocument) throws {
-        write(try encode(document))
+        try write(try encode(document))
     }
 }

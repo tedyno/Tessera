@@ -28,9 +28,21 @@ final class ConnectionsModel {
     /// exclusively owns the value) and hands over only the bytes, so a drag in the
     /// organizer never waits on a backup copy and an atomic replace.
     @ObservationIgnored private lazy var profileWriter =
-        SnapshotWriter { [profileStore] in profileStore.write($0) }
+        SnapshotWriter { [profileStore, weak self] data in
+            // The write is the only place a full disk or a permission problem
+            // shows up, and losing connections that way is as bad as a refused
+            // save — so its outcome comes back here rather than being dropped.
+            do {
+                try profileStore.write(data)
+                Task { @MainActor in self?.profileSaveFailure = nil }
+            } catch {
+                Task { @MainActor in
+                    self?.profileSaveFailure = ConnectionsModel.saveMessage(for: error)
+                }
+            }
+        }
     @ObservationIgnored private lazy var organizerWriter =
-        SnapshotWriter { [organizerStore] in organizerStore.write($0) }
+        SnapshotWriter { [organizerStore] in try? organizerStore.write($0) }
     @ObservationIgnored private lazy var visibilityWriter =
         SnapshotWriter { [visibilityURL] in try? $0.write(to: visibilityURL, options: [.atomic]) }
     private let secretsStore: ProfileSecretsStore
@@ -137,9 +149,9 @@ final class ConnectionsModel {
     private func saveProfiles(removingProfiles: Bool = false) {
         guard profileStoreFailure == nil else { return }
         do {
-            let data = try profileStore.encode(profiles, allowingRemovals: removingProfiles)
-            profileWriter.submit(data)
-            profileSaveFailure = nil
+            // Cleared by the writer once the bytes are actually on disk — saying so
+            // here would report a success the write has not made yet.
+            profileWriter.submit(try profileStore.encode(profiles, allowingRemovals: removingProfiles))
         } catch {
             // A refused save means the in-memory list disagrees with the file in a
             // way nothing asked for. The file is left alone; say so rather than
