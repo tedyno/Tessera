@@ -79,13 +79,11 @@ final class AppModel {
             guard let self else { return }
             for profileID in profileIDs {
                 self.console.forgetSession(profileID: profileID)
-                self.schemaCache[profileID] = nil
+                self.discardCachedSchema(for: profileID)
             }
-            // Filter and persist history and the schema cache once for the whole
-            // batch, not once per profile — deleting many connections shouldn't
-            // re-encode either store N times.
+            // Filter and persist the history once for the whole batch, not once per
+            // profile — deleting many connections shouldn't re-encode it N times.
             self.console.clearHistory(profileIDs: profileIDs)
-            self.persistSchemaCache()
         }
         NotificationCenter.default.addObserver(forName: .mcpSettingsChanged, object: nil,
                                                queue: .main) { [weak self] _ in
@@ -360,26 +358,45 @@ final class AppModel {
         fileURL: (try? SchemaCacheStore.defaultURL())
             ?? FileManager.default.temporaryDirectory.appendingPathComponent("tessera-schema-cache.json"))
 
-    /// Records a freshly introspected schema and writes the cache out.
+    /// Records a freshly introspected schema and writes it out.
     private func cacheSchema(_ tree: DatabaseTree, for profileID: UUID) {
         schemaCache[profileID] = CachedSchema(tree: tree, updatedAt: Date())
-        persistSchemaCache()
+        persistSchema(for: profileID)
     }
 
-    /// Persists the schema cache without ever sharing its value graph across
-    /// threads: the encode runs here on the main actor (which exclusively owns the
-    /// `CachedSchema` COW buffers), and only the resulting flat `Data` is handed to
-    /// a background writer. Sharing the graph via a shallow `Task.detached`
-    /// snapshot instead risked a use-after-free — the crash that surfaced as a
-    /// corrupt `SchemaColumn` dealloc in `cacheSchema`. The writer serializes and
-    /// coalesces, so a burst of saves can't land an older snapshot last.
-    private func persistSchemaCache() {
-        guard let data = schemaCacheStore.encode(schemaCache) else { return }
-        schemaCacheWriter.submit(data)
+    /// Persists one connection's cached schema without ever sharing its value graph
+    /// across threads: the encode runs here on the main actor (which exclusively
+    /// owns the `CachedSchema` COW buffers), and only the resulting flat `Data` is
+    /// handed to a background writer. Sharing the graph via a shallow
+    /// `Task.detached` snapshot instead risked a use-after-free — the crash that
+    /// surfaced as a corrupt `SchemaColumn` dealloc in `cacheSchema`. Each
+    /// connection has its own writer, which serializes and coalesces, so a burst of
+    /// refreshes can't land an older snapshot last.
+    private func persistSchema(for profileID: UUID) {
+        guard let entry = schemaCache[profileID],
+              let data = schemaCacheStore.encode(entry) else { return }
+        schemaCacheWriter(for: profileID).submit(data)
     }
 
-    @ObservationIgnored private lazy var schemaCacheWriter =
-        SnapshotWriter { [schemaCacheStore] in schemaCacheStore.write($0) }
+    /// Forgets a connection's cached schema, on disk too.
+    private func discardCachedSchema(for profileID: UUID) {
+        schemaCache[profileID] = nil
+        schemaCacheWriters[profileID] = nil
+        Task.detached(priority: .utility) { [schemaCacheStore] in
+            schemaCacheStore.remove(profileID)
+        }
+    }
+
+    @ObservationIgnored private var schemaCacheWriters: [UUID: SnapshotWriter] = [:]
+
+    private func schemaCacheWriter(for profileID: UUID) -> SnapshotWriter {
+        if let writer = schemaCacheWriters[profileID] { return writer }
+        let writer = SnapshotWriter { [schemaCacheStore] in
+            schemaCacheStore.write($0, for: profileID)
+        }
+        schemaCacheWriters[profileID] = writer
+        return writer
+    }
 
     /// When a connection's cached schema was last read, for the search UI.
     func cachedSchemaDate(for profileID: UUID) -> Date? { schemaCache[profileID]?.updatedAt }

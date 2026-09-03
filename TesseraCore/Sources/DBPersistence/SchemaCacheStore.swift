@@ -39,36 +39,85 @@ public struct SchemaCacheStore: Sendable {
         return dir.appendingPathComponent("schema-cache.json", isDirectory: false)
     }
 
-    public func load() -> [UUID: CachedSchema] {
-        guard let data = try? Data(contentsOf: fileURL) else { return [:] }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let raw = try? decoder.decode([String: CachedSchema].self, from: data) else { return [:] }
-        return Dictionary(uniqueKeysWithValues: raw.compactMap { key, value in
-            UUID(uuidString: key).map { ($0, value) }
-        })
+    /// One file per connection, next to where the single-file cache used to live.
+    /// A schema refresh then re-encodes and rewrites only the connection that
+    /// changed; with the whole cache in one file, refreshing one connection meant
+    /// re-encoding every schema on the machine — hundreds of milliseconds on the
+    /// main actor for a handful of large databases.
+    public var directoryURL: URL { fileURL.deletingPathExtension() }
+
+    private func entryURL(_ profileID: UUID) -> URL {
+        directoryURL.appendingPathComponent("\(profileID.uuidString).json", isDirectory: false)
     }
 
-    /// Encodes the cache to JSON bytes. Split from `write` so a caller can encode
+    private static func decoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+
+    /// Reads every cached schema, folding in (and retiring) a single-file cache
+    /// left by an earlier version.
+    public func load() -> [UUID: CachedSchema] {
+        var cache = migrateLegacyFile()
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: directoryURL, includingPropertiesForKeys: nil)) ?? []
+        for url in files where url.pathExtension == "json" {
+            guard let id = UUID(uuidString: url.deletingPathExtension().lastPathComponent),
+                  let data = try? Data(contentsOf: url),
+                  let entry = try? Self.decoder().decode(CachedSchema.self, from: data)
+            else { continue }
+            cache[id] = entry
+        }
+        return cache
+    }
+
+    /// Splits a pre-0.31 `schema-cache.json` into per-connection files and removes
+    /// it. Returns what it held, so the first launch after an update still has its
+    /// cache even if writing the new files fails.
+    @discardableResult
+    private func migrateLegacyFile() -> [UUID: CachedSchema] {
+        guard let data = try? Data(contentsOf: fileURL),
+              let raw = try? Self.decoder().decode([String: CachedSchema].self, from: data)
+        else { return [:] }
+        var cache: [UUID: CachedSchema] = [:]
+        for (key, value) in raw {
+            guard let id = UUID(uuidString: key) else { continue }
+            cache[id] = value
+            if let encoded = encode(value) { write(encoded, for: id) }
+        }
+        try? FileManager.default.removeItem(at: fileURL)
+        return cache
+    }
+
+    /// Encodes one connection's schema. Split from `write` so a caller can encode
     /// on its own isolation — reading the value graph while it exclusively owns it —
     /// and hand only the resulting flat `Data` to a background task. The schema
     /// graph (whose COW buffers are shared with live UI state) then never crosses a
     /// thread boundary; only the bytes do.
-    public func encode(_ cache: [UUID: CachedSchema]) -> Data? {
-        let raw = Dictionary(uniqueKeysWithValues: cache.map { ($0.key.uuidString, $0.value) })
+    public func encode(_ schema: CachedSchema) -> Data? {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        return try? encoder.encode(raw)
+        return try? encoder.encode(schema)
     }
 
-    /// Writes pre-encoded bytes to the cache file. Safe to call off the main actor.
-    public func write(_ data: Data) {
-        try? PrivateFile.write(data, to: fileURL)
+    /// Writes pre-encoded bytes as one connection's cache. Safe to call off the
+    /// main actor.
+    public func write(_ data: Data, for profileID: UUID) {
+        try? FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        try? PrivateFile.write(data, to: entryURL(profileID))
+    }
+
+    /// Drops a connection's cached schema. Safe to call off the main actor.
+    public func remove(_ profileID: UUID) {
+        try? FileManager.default.removeItem(at: entryURL(profileID))
     }
 
     /// Convenience for synchronous callers and tests: encode then write in one call.
     public func save(_ cache: [UUID: CachedSchema]) {
-        guard let data = encode(cache) else { return }
-        write(data)
+        for (id, entry) in cache {
+            guard let data = encode(entry) else { continue }
+            write(data, for: id)
+        }
     }
 }
