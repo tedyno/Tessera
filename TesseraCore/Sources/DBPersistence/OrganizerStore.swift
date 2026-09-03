@@ -38,11 +38,23 @@ public struct OrganizerStore: Sendable {
         return try JSONDecoder().decode(OrganizerDocument.self, from: data)
     }
 
-    public func save(_ document: OrganizerDocument) throws {
+    /// Encodes the document to JSON bytes. Split from `write` so a caller can
+    /// encode on its own isolation and hand only the flat `Data` to a background
+    /// writer — the same split the history and schema-cache stores use, and what
+    /// keeps a drag in the organizer from waiting on three file operations.
+    public func encode(_ document: OrganizerDocument) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(document)
+        return try encoder.encode(document)
+    }
+
+    /// Backs up what is there and writes the bytes. Safe to call off the main actor.
+    public func write(_ data: Data) {
         backups.capture(fileURL)
-        try PrivateFile.write(data, to: fileURL)
+        try? PrivateFile.write(data, to: fileURL)
+    }
+
+    public func save(_ document: OrganizerDocument) throws {
+        write(try encode(document))
     }
 }

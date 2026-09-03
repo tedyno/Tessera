@@ -57,16 +57,30 @@ public struct ProfileStore: Sendable {
     /// a caller has to ask for turns that class of bug into a refused write and a
     /// thrown error instead of a file the user cannot get back.
     public func save(_ profiles: [ConnectionProfile], allowingRemovals: Bool = false) throws {
+        write(try encode(profiles, allowingRemovals: allowingRemovals))
+    }
+
+    /// Runs the removal guard and encodes the list. Throws exactly what `save`
+    /// throws, so a caller that writes the bytes later still learns *now* that the
+    /// write was refused — the refusal is the part the user has to be told about.
+    ///
+    /// Split from `write` so the caller can hand the flat `Data` to a background
+    /// writer instead of blocking on the backup and the atomic replace.
+    public func encode(_ profiles: [ConnectionProfile], allowingRemovals: Bool = false) throws -> Data {
         if !allowingRemovals {
             try refuseSilentRemovals(in: profiles)
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(profiles)
+        return try encoder.encode(profiles)
+    }
+
+    /// Keeps what's there now, then replaces it. Safe to call off the main actor.
+    public func write(_ data: Data) {
         // Keep what's there now before replacing it — including when the caller
         // is about to write a shorter list than the file holds.
         backups.capture(fileURL)
-        try PrivateFile.write(data, to: fileURL)
+        try? PrivateFile.write(data, to: fileURL)
     }
 
     /// Throws when `profiles` is missing an id the stored file still has.

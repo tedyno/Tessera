@@ -24,6 +24,15 @@ final class ConnectionsModel {
 
     private let profileStore: ProfileStore
     private let organizerStore: OrganizerStore
+    /// Serialized background writers: every save encodes here (where this model
+    /// exclusively owns the value) and hands over only the bytes, so a drag in the
+    /// organizer never waits on a backup copy and an atomic replace.
+    @ObservationIgnored private lazy var profileWriter =
+        SnapshotWriter { [profileStore] in profileStore.write($0) }
+    @ObservationIgnored private lazy var organizerWriter =
+        SnapshotWriter { [organizerStore] in organizerStore.write($0) }
+    @ObservationIgnored private lazy var visibilityWriter =
+        SnapshotWriter { [visibilityURL] in try? $0.write(to: visibilityURL, options: [.atomic]) }
     private let secretsStore: ProfileSecretsStore
     private let visibilityURL: URL
 
@@ -76,7 +85,8 @@ final class ConnectionsModel {
 
     private func saveVisibility() {
         let raw = Dictionary(uniqueKeysWithValues: hiddenSchemasByProfile.map { ($0.key.uuidString, Array($0.value)) })
-        try? JSONEncoder().encode(raw).write(to: visibilityURL, options: [.atomic])
+        guard let data = try? JSONEncoder().encode(raw) else { return }
+        visibilityWriter.submit(data)
     }
 
     // MARK: Loading / seeding
@@ -127,7 +137,8 @@ final class ConnectionsModel {
     private func saveProfiles(removingProfiles: Bool = false) {
         guard profileStoreFailure == nil else { return }
         do {
-            try profileStore.save(profiles, allowingRemovals: removingProfiles)
+            let data = try profileStore.encode(profiles, allowingRemovals: removingProfiles)
+            profileWriter.submit(data)
             profileSaveFailure = nil
         } catch {
             // A refused save means the in-memory list disagrees with the file in a
@@ -497,6 +508,6 @@ final class ConnectionsModel {
     }
 
     private func saveOrganizer() {
-        try? organizerStore.save(organizer)
+        if let data = try? organizerStore.encode(organizer) { organizerWriter.submit(data) }
     }
 }
