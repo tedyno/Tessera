@@ -386,7 +386,9 @@ final class AppModel {
     private func discardCachedSchema(for profileID: UUID) {
         schemaCache[profileID] = nil
         schemaCacheWriter(for: profileID).submitRemoval()
-        schemaCacheWriters[profileID] = nil
+        // Keep the writer for the lifetime of the model. An undo can restore the
+        // same profile id immediately; reusing this queue prevents the old removal
+        // from overtaking a new cache write on a second writer.
     }
 
     @ObservationIgnored private var schemaCacheWriters: [UUID: SnapshotWriter] = [:]
