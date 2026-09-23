@@ -28,7 +28,12 @@ struct TesseraApp: App {
                 }
                 .onChange(of: themeRaw) { applyAppearance() }
                 .onChange(of: backdropRaw) { ThemeIcon.apply() }
+                .onOpenURL { app.openExternal($0) }
+                // A file opened from Finder goes to the existing window rather than
+                // spawning a second one.
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         }
+        .handlesExternalEvents(matching: ["*"])
         // Frameless chrome: the gradient backdrop and floating cards own the
         // window; the traffic lights float over the top-left card area.
         .windowStyle(.hiddenTitleBar)
@@ -41,7 +46,7 @@ struct TesseraApp: App {
         }
 
         Settings {
-            SettingsView()
+            SettingsView(connections: app.connections)
         }
     }
 }
@@ -61,6 +66,11 @@ struct TesseraCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Connection…") { app.newConnection() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
+        }
+
+        CommandGroup(after: .importExport) {
+            Button("Export Connections…") { app.exportAllConnections() }
+            Button("Import Connections…") { app.importConnectionsFile() }
         }
 
         CommandGroup(replacing: .sidebar) {

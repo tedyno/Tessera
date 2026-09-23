@@ -1328,6 +1328,8 @@ final class AppModel {
     let dumpService = DumpService()
     var exportTarget: ExportTarget?
     var importTarget: ImportTarget?
+    /// Export/import of the connections themselves (`.tessera` files).
+    var connectionTransfer: ConnectionTransfer?
 
     /// Pending structural change from the schema tree.
     var ddlOperation: DDLOperation?
@@ -1343,6 +1345,21 @@ final class AppModel {
             ? nil
             : operation.table.map { (schema: operation.schema, name: $0) }
         return await console.runDDL(sql, affecting: affected)
+    }
+
+    func exportAllConnections() {
+        connectionTransfer = .export
+    }
+
+    func importConnectionsFile() {
+        if let transfer = ConnectionTransfer.pickImportFile() { connectionTransfer = transfer }
+    }
+
+    /// A `.tessera` file opened from Finder (double-click, drop on the Dock icon).
+    func openExternal(_ url: URL) {
+        guard url.isFileURL, url.pathExtension.lowercased() == ConnectionBundleFile.fileExtension
+        else { return }
+        connectionTransfer = .importFile(url)
     }
 
     func importConnection(profileID: UUID) {

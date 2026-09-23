@@ -6519,6 +6519,458 @@
     " ": {
       "extractionState": "manual",
       "shouldTranslate": false
+    },
+    "%lld already exist here and are skipped.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld already exists here and is skipped."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld already exist here and are skipped."
+                }
+              }
+            }
+          }
+        },
+        "cs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld už tu existuje a přeskočí se."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld už tu existují a přeskočí se."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld už tu existuje a přeskočí se."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "%lld connections will be added, with their folders and passwords.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld connection will be added, with its folder and password."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld connections will be added, with their folders and passwords."
+                }
+              }
+            }
+          }
+        },
+        "cs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Přidá se %lld spojení i se složkami a hesly."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Přidají se %lld spojení i se složkami a hesly."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Přidá se %lld spojení i se složkami a hesly."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Added %lld connections.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Added %lld connection."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Added %lld connections."
+                }
+              }
+            }
+          }
+        },
+        "cs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Přidáno %lld spojení."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Přidána %lld spojení."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Přidáno %lld spojení."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "All %lld connections, with their folders and passwords, are written to an encrypted .tessera file. Open it in Tessera on another Mac to add them there.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "The %lld connection, with its folder and password, is written to an encrypted .tessera file. Open it in Tessera on another Mac to add it there."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "All %lld connections, with their folders and passwords, are written to an encrypted .tessera file. Open it in Tessera on another Mac to add them there."
+                }
+              }
+            }
+          }
+        },
+        "cs": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld spojení i se složkou a heslem se zapíše do šifrovaného souboru .tessera. Otevřete ho v Tesseře na jiném Macu a spojení se tam přidá."
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Všechna %lld spojení i se složkami a hesly se zapíšou do šifrovaného souboru .tessera. Otevřete ho v Tesseře na jiném Macu a spojení se tam přidají."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Všech %lld spojení i se složkami a hesly se zapíše do šifrovaného souboru .tessera. Otevřete ho v Tesseře na jiném Macu a spojení se tam přidají."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "All connections": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Všechna spojení"
+          }
+        }
+      }
+    },
+    "Copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zkopírováno"
+          }
+        }
+      }
+    },
+    "Copies connections, folders and passwords to another Tessera as an encrypted .tessera file. Importing only adds; nothing here is overwritten.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zkopíruje spojení, složky a hesla do jiné Tessery jako šifrovaný soubor .tessera. Import jen přidává, nic stávajícího nepřepíše."
+          }
+        }
+      }
+    },
+    "Copy Password": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopírovat heslo"
+          }
+        }
+      }
+    },
+    "Decrypting…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dešifruji…"
+          }
+        }
+      }
+    },
+    "Encrypting…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šifruji…"
+          }
+        }
+      }
+    },
+    "Enter the password shown when the file was exported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadejte heslo, které se zobrazilo při exportu souboru."
+          }
+        }
+      }
+    },
+    "Every connection in this file is already here. Nothing to import.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Všechna spojení z tohoto souboru tu už jsou. Není co importovat."
+          }
+        }
+      }
+    },
+    "Export Connections": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export spojení"
+          }
+        }
+      }
+    },
+    "Export Connections…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportovat spojení…"
+          }
+        }
+      }
+    },
+    "Import Connections": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import spojení"
+          }
+        }
+      }
+    },
+    "Import Connections…": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importovat spojení…"
+          }
+        }
+      }
+    },
+    "Saved %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uloženo: %@"
+          }
+        }
+      }
+    },
+    "Tessera couldn't read the passwords from the Keychain, so nothing was exported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tessera nemohla načíst hesla z Klíčenky, takže se nic neexportovalo."
+          }
+        }
+      }
+    },
+    "Tessera doesn't keep this password. Without it the file can't be opened — store it now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tessera si toto heslo nepamatuje. Bez něj soubor nepůjde otevřít — uložte si ho hned."
+          }
+        }
+      }
+    },
+    "Tessera generates the file's password. You'll see it once, after saving.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heslo k souboru vygeneruje Tessera. Uvidíte ho jen jednou, po uložení."
+          }
+        }
+      }
+    },
+    "The file couldn't be read: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soubor nelze přečíst: %@"
+          }
+        }
+      }
+    },
+    "The file couldn't be written: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soubor nelze zapsat: %@"
+          }
+        }
+      }
+    },
+    "The file is damaged.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soubor je poškozený."
+          }
+        }
+      }
+    },
+    "The passwords couldn't be saved to the Keychain, so nothing was imported.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hesla nešla uložit do Klíčenky, takže se nic neimportovalo."
+          }
+        }
+      }
+    },
+    "This file was exported by a newer Tessera. Update Tessera to import it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soubor exportovala novější Tessera. Pro import Tesseru aktualizujte."
+          }
+        }
+      }
+    },
+    "This isn't a Tessera connections file.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toto není soubor se spojeními Tessery."
+          }
+        }
+      }
+    },
+    "Your existing connections and folders are left as they are.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stávající spojení a složky zůstanou beze změny."
+          }
+        }
+      }
+    },
+    "Wrong password.": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nesprávné heslo."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

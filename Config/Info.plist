@@ -11,5 +11,41 @@
 	<string>Yusbhtp7h9xAxRaJdRCLtX124QDZaoioRJ4cNptSLpA=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
+	<!-- Encrypted connection exports (.tessera): Tessera owns and opens them. -->
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>io.github.tedyno.tessera.connections</string>
+			<key>UTTypeDescription</key>
+			<string>Tessera Connections</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>tessera</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Tessera Connections</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>io.github.tedyno.tessera.connections</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

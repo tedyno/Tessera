@@ -474,6 +474,38 @@ final class ConnectionsModel {
         organizer.path(toProfile: profileID)
     }
 
+    // MARK: Transfer (.tessera files)
+
+    /// Every connection with its passwords, for an encrypted export. Throws when the
+    /// user denies Keychain access — an export silently missing its passwords would
+    /// only be discovered on the other Mac.
+    func makeBundle() throws -> ConnectionBundle {
+        var secrets: [UUID: Secrets] = [:]
+        for profile in profiles { secrets[profile.id] = try loadSecrets(for: profile) }
+        return ConnectionBundle(organizer: organizer, profiles: profiles, secrets: secrets)
+    }
+
+    /// What importing `bundle` would add and skip, without changing anything.
+    func importPlan(for bundle: ConnectionBundle) -> ConnectionImportPlan {
+        ConnectionImportPlan(bundle: bundle, into: organizer, existingProfiles: profiles)
+    }
+
+    /// Adds the bundle's new connections. Planned afresh against the current state,
+    /// so anything added since the preview is still never duplicated or overwritten.
+    @discardableResult
+    func importBundle(_ bundle: ConnectionBundle) throws -> ConnectionImportPlan {
+        let plan = importPlan(for: bundle)
+        guard !plan.added.isEmpty else { return plan }
+        // Secrets first: a connection that lands without its password is the one
+        // failure the user wouldn't notice until connecting.
+        try secretsStore.save(plan.added)
+        profiles.append(contentsOf: plan.added.map(\.profile))
+        saveProfiles()
+        organizer = plan.organizer
+        saveOrganizer()
+        return plan
+    }
+
     // MARK: Reversible delete (MCP trash)
 
     /// Removes a profile and its tree nodes but **keeps** its Keychain entry, so the
@@ -488,6 +520,9 @@ final class ConnectionsModel {
 
     /// Erases the Keychain entries of a profile that is already gone from the tree.
     func destroySecrets(for profile: ConnectionProfile) {
+        // An import can bring the same connection (same id, same Keychain entry)
+        // back while it sits in the trash; its password is live again by then.
+        guard self.profile(id: profile.id) == nil else { return }
         try? secretsStore.deleteAll(for: profile)
     }
 

@@ -59,6 +59,17 @@ public final class ProfileSecretsStore: @unchecked Sendable {
         }
     }
 
+    /// Saves several profiles' secrets with a single vault write — an import adds a
+    /// whole set at once, and one write is one Keychain prompt at most.
+    public func save(_ entries: [(profile: ConnectionProfile, secrets: Secrets)]) throws {
+        guard !entries.isEmpty else { return }
+        try lock.withLock {
+            var vault = try loadVault()
+            for (profile, secrets) in entries { vault.apply(secrets, for: profile.keychainAccount) }
+            try saveVault(vault)
+        }
+    }
+
     public func load(for profile: ConnectionProfile) throws -> Secrets {
         try lock.withLock {
             let account = profile.keychainAccount

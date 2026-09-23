@@ -94,6 +94,12 @@ private struct ContentModals: ViewModifier {
             }
             .tesseraModalBackground()
         }
+        .sheet(item: $app.connectionTransfer) { transfer in
+            ConnectionTransferSheet(transfer: transfer, connections: app.connections) {
+                app.connectionTransfer = nil
+            }
+            .tesseraModalBackground()
+        }
         .sheet(item: $app.pendingParameterRun) { pending in
             QueryParametersSheet(names: pending.names,
                                  initial: app.lastParameterValues,

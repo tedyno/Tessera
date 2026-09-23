@@ -37,6 +37,7 @@ extension Notification.Name {
 }
 
 struct SettingsView: View {
+    let connections: ConnectionsModel
     @State private var tab: SettingsTab = .general
 
     var body: some View {
@@ -47,7 +48,7 @@ struct SettingsView: View {
             AppearanceSettingsTab()
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }
                 .tag(SettingsTab.appearance)
-            ExportSettingsTab()
+            ExportSettingsTab(connections: connections)
                 .tabItem { Label("Export", systemImage: "square.and.arrow.up") }
                 .tag(SettingsTab.export)
             MCPSettingsTab()
