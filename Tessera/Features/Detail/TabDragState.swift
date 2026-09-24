@@ -16,6 +16,9 @@ final class TabDragState {
     /// The coordinate space every frame here is measured in — the detail area,
     /// so panes can be compared against each other.
     static let space = "tessera.detailArea"
+    /// The strip's chip-to-chip spacing. Part of the gap maths, so it lives with
+    /// it rather than only in the `HStack` that applies it.
+    static let chipSpacing: CGFloat = 3
 
     /// The tab in flight, or nil when nothing is being dragged.
     private(set) var draggedID: UUID?
@@ -32,9 +35,13 @@ final class TabDragState {
     /// a wider chip — which would land a few points off.
     private(set) var draggedWasActive = false
 
-    /// How wide a gap to open. The dragged chip's own width, so when it lands it
-    /// fills the space exactly and nothing around it has to shuffle over.
-    var gapWidth: CGFloat { chipSize.width }
+    /// How wide a gap to open: the dragged chip's width *plus one spacing*.
+    ///
+    /// The spacing matters. The gap is padding on the neighbouring chip, so it
+    /// carries no spacing of its own — but once the tab lands it becomes a real
+    /// chip with a gap on each side. Sized to the chip alone, everything after
+    /// it would shift by those few points at the moment of the drop.
+    var gapWidth: CGFloat { chipSize.width + Self.chipSpacing }
     /// Where a release right now would put the tab.
     private(set) var target: TabDropTarget?
     /// True while the released chip is gliding into its slot. The floating chip
@@ -50,12 +57,17 @@ final class TabDragState {
 
     func begin(tab: UUID, in group: UUID, at point: CGPoint,
                grabOffset: CGSize, chipSize: CGSize, isActive: Bool) {
-        draggedID = tab
+        // Pointer-derived values first, and deliberately un-animated: the
+        // floating chip has to sit under the cursor immediately, not glide to it.
         sourceGroupID = group
         draggedWasActive = isActive
         location = point
         self.grabOffset = grabOffset
         self.chipSize = chipSize
+        // The collapse, however, is a layout change — everything to the right of
+        // the chip shifts left by its width. Unanimated, the whole strip (the
+        // "+" button included) jumps the instant the drag starts.
+        withAnimation(.snappy(duration: 0.18)) { draggedID = tab }
         updateTarget(to: point)
     }
 
@@ -82,7 +94,7 @@ final class TabDragState {
             return CGPoint(x: chip.frame.minX - gapWidth, y: chip.frame.minY)
         }
         if let last = strip.chips.last {
-            return CGPoint(x: last.frame.maxX + 3, y: last.frame.minY)
+            return CGPoint(x: last.frame.maxX + Self.chipSpacing, y: last.frame.minY)
         }
         // An otherwise empty strip: its own leading inset.
         return CGPoint(x: strip.frame.minX + 6, y: strip.frame.minY + 4)

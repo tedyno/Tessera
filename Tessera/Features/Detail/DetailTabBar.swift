@@ -25,7 +25,12 @@ struct DetailTabBar: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 3) {
+                // Spacing lives on the chips, not on the stack: `HStack` spacing
+                // is charged even for a zero-width view, so a collapsed chip
+                // would still hold 3 pt open and the whole strip would sit that
+                // much wider during a drag than after it. (A negative padding
+                // does not cancel it — measured.)
+                HStack(spacing: 0) {
                     if let onCloseGroup {
                         Button(action: onCloseGroup) {
                             Image(systemName: "xmark")
@@ -35,7 +40,7 @@ struct DetailTabBar: View {
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.borderless)
-                        .padding(.trailing, 2)
+                        .padding(.trailing, 2 + TabDragState.chipSpacing)
                         .help("Close this pane and its tabs")
                     }
                     ForEach(tabs) { tab in
@@ -49,11 +54,16 @@ struct DetailTabBar: View {
                         Image(systemName: "plus").padding(.horizontal, 8)
                     }
                     .buttonStyle(.borderless)
-                    // The empty run past the last chip: releasing here puts the tab
-                    // at the end of this pane, so it opens a gap of its own.
+                    // The gap for "drop at the end" opens here, in front of the
+                    // "+", because that is where the tab actually goes — the "+"
+                    // stays last. Opening it past the button instead left the
+                    // button standing still and suggested the tab would land
+                    // beyond it.
+                    .padding(.leading, drag.insertionGapAtEnd(inGroup: group.id) ? drag.gapWidth : 0)
+                    // The empty run past the "+" is still a drop target; it just
+                    // no longer carries the gap.
                     Color.clear
                         .frame(minWidth: 30, maxWidth: .infinity, minHeight: 1)
-                        .padding(.leading, drag.insertionGapAtEnd(inGroup: group.id) ? drag.gapWidth : 0)
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 4)
@@ -138,6 +148,9 @@ struct DetailTabBar: View {
             .opacity(isDragging ? 0 : 1)
             .frame(width: isDragging ? 0 : nil)
             .clipped()
+            // The gap to the next chip. Dropped while collapsed, so the chip in
+            // flight occupies genuinely nothing.
+            .padding(.trailing, isDragging ? 0 : TabDragState.chipSpacing)
             // `moveTab` inserts *before* this chip, so the gap opens on its
             // leading edge: what you see during the drag is where the tab lands.
             .padding(.leading, drag.insertionGap(inGroup: group.id, before: tab.id) ? drag.gapWidth : 0)
@@ -251,9 +264,19 @@ struct TabChipBody: View {
             // Always present, so a tab never loses its connection status just
             // because it isn't reconnected yet.
             StatusDot(tab.session?.status)
-            Text(tab.title)
-                .font(.system(size: 12, weight: isActive ? .medium : .regular))
-                .foregroundStyle(isActive ? .primary : .secondary)
+            // The title always reserves the width of its *heavier* form. Active
+            // and inactive differ by a font weight, so the same tab is two
+            // different widths — and every change of which tab is active would
+            // shuffle the whole strip, most visibly at the end of a drag.
+            ZStack {
+                Text(tab.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .hidden()
+                    .accessibilityHidden(true)
+                Text(tab.title)
+                    .font(.system(size: 12, weight: isActive ? .medium : .regular))
+                    .foregroundStyle(isActive ? .primary : .secondary)
+            }
             if tab.hasEdits {
                 Circle().fill(.orange).frame(width: 6, height: 6)
                     .help("Uncommitted changes")
