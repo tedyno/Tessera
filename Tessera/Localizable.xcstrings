@@ -3281,6 +3281,17 @@
         }
       }
     },
+    "Pull to re-run the query": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatažením znovu spustíte dotaz"
+          }
+        }
+      }
+    },
     "Query": {
       "extractionState": "manual",
       "localizations": {

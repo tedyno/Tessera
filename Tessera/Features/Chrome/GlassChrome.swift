@@ -72,12 +72,18 @@ private struct BehindWindowBlur: NSViewRepresentable {
 /// A floating rounded card over the backdrop — the sidebar panels (and later
 /// sheets) share this chrome: frosted fill, hairline edge, soft drop shadow.
 struct FloatingPanel: ViewModifier {
+    /// Floor for the concentric radius. Away from a window corner the container
+    /// resolves to a small — or zero — radius, and a square-cornered card isn't
+    /// the look; this keeps the card's own rounding wherever it sits.
     var cornerRadius: CGFloat = 16
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(BackdropStyle.key) private var backdropRaw = BackdropStyle.monokai.rawValue
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        // Concentric corners: a card tucked against the window's rounded corner
+        // now curves in step with it rather than holding a fixed radius, so the
+        // gap between card and window edge stays even all the way round.
+        let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(cornerRadius)))
         let style = BackdropStyle(rawValue: backdropRaw) ?? .monokai
         content
             .scrollContentBackground(.hidden)
@@ -156,11 +162,17 @@ struct GlassPillButtonStyle: ButtonStyle {
             .padding(.horizontal, PillMetrics.horizontal)
             .padding(.vertical, PillMetrics.vertical)
             .foregroundStyle(prominent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
-            .background(prominent ? AnyShapeStyle(Color.accentColor)
-                                  : AnyShapeStyle(.primary.opacity(0.06)),
-                        in: Capsule())
-            .overlay(Capsule().strokeBorder(.primary.opacity(prominent ? 0 : 0.12)))
-            .opacity(!isEnabled ? 0.4 : configuration.isPressed ? 0.8 : 1)
+            // Real glass rather than a flat 6%-white capsule: it refracts what
+            // scrolls under the toolbar and picks up the accent tint when the
+            // button is the pane's primary action.
+            .glassEffect(prominent ? .regular.tint(.accentColor).interactive()
+                                   : .regular.interactive(),
+                         in: Capsule())
+            // No scale on press: `interactive()` already gives the glass its own
+            // press response, and scaling the pill changes the shape the
+            // surrounding `GlassEffectContainer` merges against — which makes
+            // every neighbouring pill twitch, not just this one.
+            .opacity(isEnabled ? 1 : 0.4)
             .contentShape(Capsule())
     }
 }
@@ -179,8 +191,9 @@ struct PillChrome: ViewModifier {
             .frame(minHeight: PillMetrics.minContentHeight)
             .padding(.horizontal, PillMetrics.horizontal)
             .padding(.vertical, PillMetrics.vertical)
-            .background(.primary.opacity(0.06), in: Capsule())
-            .overlay(Capsule().strokeBorder(.primary.opacity(0.12)))
+            // Matches `GlassPillButtonStyle`, so a menu sitting between two
+            // buttons in the toolbar is the same material as its neighbours.
+            .glassEffect(.regular.interactive(), in: Capsule())
     }
 }
 

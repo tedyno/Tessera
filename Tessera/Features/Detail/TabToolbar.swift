@@ -38,6 +38,11 @@ struct TabToolbar<Controls: View>: View {
         // Horizontal scroll: a narrow pane can't fit every control, and clipping
         // them with no way to reach them is worse than a scroll.
         ScrollView(.horizontal, showsIndicators: false) {
+            // Deliberately *not* a `GlassEffectContainer`. Merging is for glass
+            // that forms one control — the diagram's zoom and style tracks — and
+            // these are eight unrelated actions. Inside a container every pill
+            // sits within merging distance of its neighbours, so pressing one
+            // re-resolves the whole row and the others visibly twitch.
             HStack(spacing: 10) {
                 TabHeaderLabel(name: name, systemImage: systemImage)
                 controls()
@@ -49,5 +54,8 @@ struct TabToolbar<Controls: View>: View {
             .animation(.snappy(duration: 0.22), value: name)
         }
         .frame(height: TabChrome.toolbarHeight)
+        // Controls scrolled past either end dissolve under the pane edge rather
+        // than being sliced off mid-pill.
+        .scrollEdgeEffectStyle(.soft, for: .horizontal)
     }
 }

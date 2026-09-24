@@ -36,6 +36,9 @@ struct DetailView: View {
     /// Opens the New Connection sheet (empty state on a fresh install).
     var onNewConnection: () -> Void = { }
 
+    /// Owns the tab drag for this window's detail area; handed to every pane
+    /// through `PaneEnv`.
+    @State private var tabDrag = TabDragState()
     @State private var showingConnectionLog = false
     // Shared with every pane (the data view saves queries too).
     @State private var showingSaveQuery = false
@@ -52,7 +55,8 @@ struct DetailView: View {
                 onNewConnection: onNewConnection,
                 showingHistory: $showingHistory,
                 showingSaveQuery: $showingSaveQuery,
-                saveQueryTitle: $saveQueryTitle)
+                saveQueryTitle: $saveQueryTitle,
+                tabDrag: tabDrag)
     }
 
     var body: some View {
@@ -65,6 +69,12 @@ struct DetailView: View {
                             isReadOnly: isReadOnly,
                             showingConnectionLog: $showingConnectionLog,
                             onExportResult: onExportResult)
+        }
+        // One space for every pane's measurements, so a chip dragged out of one
+        // strip can be compared against the others.
+        .coordinateSpace(name: TabDragState.space)
+        .overlay(alignment: .topLeading) {
+            DraggedTabChip(drag: tabDrag, model: model)
         }
         .sheet(isPresented: $showingConnectionLog) {
             ConnectionLogView(log: model.connectionLog)
@@ -107,6 +117,42 @@ struct DetailView: View {
                 onClear: { model.clearHistory(profileID: $0) },
                 onDelete: { model.deleteHistoryEntries($0) })
                 .tesseraModalBackground()
+        }
+    }
+}
+
+/// The chip that follows the cursor during a drag: an ordinary view rather than
+/// a system drag image, so it lives exactly as long as the drag does.
+///
+/// Deliberately its own `View`. The pointer position changes on every mouse
+/// move, and read from `DetailView`'s body it would invalidate the whole detail
+/// area — pane tree, grid and all — sixty times a second. Here only this
+/// overlay redraws.
+private struct DraggedTabChip: View {
+    let drag: TabDragState
+    let model: QueryConsoleModel
+
+    var body: some View {
+        if let id = drag.draggedID, let tab = model.tab(id) {
+            TabChipBody(tab: tab,
+                        // Exactly as it was in the strip, or it lands a few
+                        // points off: an active title is a heavier weight.
+                        isActive: drag.draggedWasActive,
+                        showConnection: model.sessions.count > 1,
+                        // Grows back during the settle, ending at the width of
+                        // the real chip it is about to be replaced by.
+                        showsClose: drag.isSettling)
+                .fixedSize()
+                // Lifted off the strip while in flight, set back down as it
+                // settles: by the time the real chip takes over there is nothing
+                // left to fade, so the swap can't be seen.
+                .opacity(drag.isSettling ? 1 : 0.92)
+                .shadow(color: .black.opacity(drag.isSettling ? 0 : 0.28),
+                        radius: drag.isSettling ? 0 : 10,
+                        y: drag.isSettling ? 0 : 4)
+                .offset(x: drag.location.x - drag.grabOffset.width,
+                        y: drag.location.y - drag.grabOffset.height)
+                .allowsHitTesting(false)
         }
     }
 }

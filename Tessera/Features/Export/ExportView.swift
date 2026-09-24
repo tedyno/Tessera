@@ -169,6 +169,7 @@ struct ExportView: View {
             if let success = resultSuccess {
                 Label(resultMessage.isEmpty ? (success ? "Done" : "Failed") : resultMessage,
                       systemImage: success ? "checkmark.circle" : "exclamationmark.triangle")
+                    .contentTransition(.symbolEffect(.replace))
                     .foregroundStyle(success ? .green : .red)
                     .font(.callout)
                     .textSelection(.enabled)

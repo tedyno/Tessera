@@ -15,6 +15,10 @@ struct PaneEnv {
     var showingHistory: Binding<Bool>
     var showingSaveQuery: Binding<Bool>
     var saveQueryTitle: Binding<String>
+    /// Shared tab-drag state. Passed down rather than put in the environment:
+    /// an environment default would have to be built outside the main actor,
+    /// and this is main-actor state by nature.
+    var tabDrag: TabDragState
 }
 
 /// Renders one pane node: a leaf becomes a `PaneView`, a split becomes two child
@@ -39,7 +43,8 @@ struct PaneTreeView: View {
                      showingSaveQuery: env.showingSaveQuery,
                      saveQueryTitle: env.saveQueryTitle,
                      canClosePane: model.workspace.groups.count > 1,
-                     onNewConnection: env.onNewConnection)
+                     onNewConnection: env.onNewConnection,
+                     drag: env.tabDrag)
         } else {
             SplitView(model: model, node: node, env: env)
         }

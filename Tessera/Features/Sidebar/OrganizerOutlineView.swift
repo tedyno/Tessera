@@ -997,6 +997,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 entry.target = self
                 entry.representedObject = name
                 entry.image = Self.swatch(color)
+                entry.keepImageVisible()   // the swatch *is* the colour choice
                 submenu.addItem(entry)
             }
             submenu.addItem(.separator())
@@ -1102,6 +1103,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 notice.target = self
                 notice.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill",
                                        accessibilityDescription: nil)
+                notice.keepImageVisible()
                 submenu.addItem(notice)
                 submenu.addItem(.separator())
             }
@@ -1166,6 +1168,7 @@ struct OrganizerOutlineView: NSViewRepresentable {
                 entry.target = self
                 entry.representedObject = ColorChoice(item: item, color: name)
                 entry.image = Self.swatch(color)
+                entry.keepImageVisible()   // the swatch *is* the colour choice
                 entry.state = current == name ? .on : .off
                 submenu.addItem(entry)
             }

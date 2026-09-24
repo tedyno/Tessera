@@ -117,7 +117,9 @@ struct ExportConnectionsView: View {
                 } label: {
                     Label(copied ? "Copied" : "Copy Password",
                           systemImage: copied ? "checkmark" : "doc.on.doc")
+                        .contentTransition(.symbolEffect(.replace))
                 }
+                .animation(.snappy(duration: 0.2), value: copied)
             }
             .padding(12)
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))

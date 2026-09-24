@@ -27,6 +27,9 @@ struct DiagramTabView: View {
     @State private var exportError: String?
     /// Briefly flips the copy button to a checkmark after a successful copy.
     @State private var pngCopied = false
+    /// Ties each selector's puck to its own track, so the two resolve as one
+    /// sheet of glass rather than two stacked ones.
+    @Namespace private var glassGroup
     @AppStorage("tessera.diagram.edgeStyle") private var edgeStyleRaw = DiagramEdgeStyle.curved.rawValue
     @AppStorage("tessera.diagram.background") private var backgroundRaw = DiagramBackgroundStyle.plain.rawValue
     @Environment(\.colorScheme) private var colorScheme
@@ -92,68 +95,77 @@ struct DiagramTabView: View {
     /// the Maps-style floating-glass look (the in-window segmented control
     /// still renders in the legacy flat style, so it can't be used here).
     private var stylePill: some View {
-        HStack(spacing: 10) {
-            selectorGroup(index: edgeStyleRaw == DiagramEdgeStyle.curved.rawValue ? 0 : 1) {
-                pillButton("point.topleft.down.curvedto.point.bottomright.up", help: "Curved",
-                           isOn: edgeStyleRaw == DiagramEdgeStyle.curved.rawValue) {
-                    edgeStyleRaw = DiagramEdgeStyle.curved.rawValue
+        // One container for the whole bottom rail: the two selector tracks and
+        // the zoom capsule merge into a single sheet of glass when they sit
+        // close, which is what makes the row read as one control rather than
+        // three floating pills.
+        GlassEffectContainer(spacing: 10) {
+            HStack(spacing: 10) {
+                selectorGroup(id: "edgeStyle",
+                          index: edgeStyleRaw == DiagramEdgeStyle.curved.rawValue ? 0 : 1) {
+                    pillButton("point.topleft.down.curvedto.point.bottomright.up", help: "Curved",
+                               isOn: edgeStyleRaw == DiagramEdgeStyle.curved.rawValue) {
+                        edgeStyleRaw = DiagramEdgeStyle.curved.rawValue
+                    }
+                    pillButton("arrow.turn.down.right", help: "Right-angled",
+                               isOn: edgeStyleRaw == DiagramEdgeStyle.orthogonal.rawValue) {
+                        edgeStyleRaw = DiagramEdgeStyle.orthogonal.rawValue
+                    }
                 }
-                pillButton("arrow.turn.down.right", help: "Right-angled",
-                           isOn: edgeStyleRaw == DiagramEdgeStyle.orthogonal.rawValue) {
-                    edgeStyleRaw = DiagramEdgeStyle.orthogonal.rawValue
+                selectorGroup(id: "backdrop", index: backdropIndex) {
+                    pillButton("square", help: "Plain",
+                               isOn: backgroundRaw == DiagramBackgroundStyle.plain.rawValue) {
+                        backgroundRaw = DiagramBackgroundStyle.plain.rawValue
+                    }
+                    pillButton("circle.grid.3x3.fill", help: "Dots",
+                               isOn: backgroundRaw == DiagramBackgroundStyle.dots.rawValue) {
+                        backgroundRaw = DiagramBackgroundStyle.dots.rawValue
+                    }
+                    pillButton("grid", help: "Grid",
+                               isOn: backgroundRaw == DiagramBackgroundStyle.grid.rawValue) {
+                        backgroundRaw = DiagramBackgroundStyle.grid.rawValue
+                    }
                 }
+                HStack(spacing: 4) {
+                    pillButton("minus.magnifyingglass", help: "Zoom out") {
+                        zoom = max(zoom / 1.25, Self.zoomRange.lowerBound)
+                    }
+                    zoomSlider
+                    pillButton("plus.magnifyingglass", help: "Zoom in") {
+                        zoom = min(zoom * 1.25, Self.zoomRange.upperBound)
+                    }
+                }
+                .padding(4)
+                .glassEffect(.regular, in: Capsule())
             }
-            selectorGroup(index: backdropIndex) {
-                pillButton("square", help: "Plain",
-                           isOn: backgroundRaw == DiagramBackgroundStyle.plain.rawValue) {
-                    backgroundRaw = DiagramBackgroundStyle.plain.rawValue
-                }
-                pillButton("circle.grid.3x3.fill", help: "Dots",
-                           isOn: backgroundRaw == DiagramBackgroundStyle.dots.rawValue) {
-                    backgroundRaw = DiagramBackgroundStyle.dots.rawValue
-                }
-                pillButton("grid", help: "Grid",
-                           isOn: backgroundRaw == DiagramBackgroundStyle.grid.rawValue) {
-                    backgroundRaw = DiagramBackgroundStyle.grid.rawValue
-                }
-            }
-            HStack(spacing: 4) {
-                pillButton("minus.magnifyingglass", help: "Zoom out") {
-                    zoom = max(zoom / 1.25, Self.zoomRange.lowerBound)
-                }
-                zoomSlider
-                pillButton("plus.magnifyingglass", help: "Zoom in") {
-                    zoom = min(zoom * 1.25, Self.zoomRange.upperBound)
-                }
-            }
-            .padding(4)
-            .glassEffect(.regular, in: Capsule())
+            .padding(14)
         }
-        .padding(14)
     }
 
     /// The mockups' floating action rail: round glass buttons on the canvas'
     /// right edge — layout, fit, whole-schema jump and export live here, the
     /// top toolbar keeps only the display toggles.
     private var actionRail: some View {
-        VStack(spacing: 10) {
-            railButton("square.grid.2x2", help: "Default Layout") {
-                // Fresh layout AND a fit — on the infinite canvas the new
-                // arrangement can land outside the current viewport.
-                model.performLayout()
-                zoomToFitToken += 1
-            }
-            railButton("arrow.down.right.and.arrow.up.left", help: "Zoom to Fit") {
-                zoomToFitToken += 1
-            }
-            if model.scope != .schema {
-                railButton("point.3.connected.trianglepath.dotted", help: "Show Whole Schema") {
-                    onShowWholeSchema()
+        GlassEffectContainer(spacing: 10) {
+            VStack(spacing: 10) {
+                railButton("square.grid.2x2", help: "Default Layout") {
+                    // Fresh layout AND a fit — on the infinite canvas the new
+                    // arrangement can land outside the current viewport.
+                    model.performLayout()
+                    zoomToFitToken += 1
                 }
+                railButton("arrow.down.right.and.arrow.up.left", help: "Zoom to Fit") {
+                    zoomToFitToken += 1
+                }
+                if model.scope != .schema {
+                    railButton("point.3.connected.trianglepath.dotted", help: "Show Whole Schema") {
+                        onShowWholeSchema()
+                    }
+                }
+                railButton(pngCopied ? "checkmark" : "doc.on.clipboard",
+                           help: "Copy PNG to Clipboard") { copyPNG() }
+                railButton("square.and.arrow.up", help: "Export PNG…") { exportPNG() }
             }
-            railButton(pngCopied ? "checkmark" : "doc.on.clipboard",
-                       help: "Copy PNG to Clipboard") { copyPNG() }
-            railButton("square.and.arrow.up", help: "Export PNG…") { exportPNG() }
         }
     }
 
@@ -168,7 +180,10 @@ struct DiagramTabView: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: Circle())
+        // `.clear` rather than `.regular`: these float over the user's own
+        // drawing, not over UI, and the lighter material keeps the tables and
+        // relationship lines beneath them readable.
+        .glassEffect(.clear.interactive(), in: Circle())
         .help(help)
     }
 
@@ -182,7 +197,7 @@ struct DiagramTabView: View {
 
     /// A glass-capsule track whose active column carries a clear glass puck;
     /// changing the selection slides the puck to the new column.
-    private func selectorGroup(index: Int,
+    private func selectorGroup(id: String, index: Int,
                                @ViewBuilder buttons: () -> some View) -> some View {
         HStack(spacing: 6, content: buttons)
             // The puck sits *behind* the icons — over them, the glass would
@@ -193,12 +208,17 @@ struct DiagramTabView: View {
                     .frame(width: 28, height: 28)
                     .glassEffect(.regular.tint(.accentColor).interactive(),
                                  in: Circle())
+                    // Same union as the track below: without it the puck is a
+                    // second pane of glass laid on the first, and the doubled
+                    // refraction is what made it need to hide behind the icons.
+                    .glassEffectUnion(id: id, namespace: glassGroup)
                     // Column pitch: 28 pt button + 6 pt spacing.
                     .offset(x: CGFloat(index) * 34)
                     .allowsHitTesting(false)
             }
             .padding(4)
             .glassEffect(.regular, in: Capsule())
+            .glassEffectUnion(id: id, namespace: glassGroup)
     }
 
     /// Zoom slider in log space, so equal travel feels like an equal zoom

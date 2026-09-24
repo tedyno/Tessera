@@ -8,6 +8,11 @@ struct DetailResultsArea: View {
     @Bindable var model: QueryConsoleModel
     /// The pane's active tab whose results this area shows.
     var tab: QueryTab
+    /// The pane's Run action — the same one behind the toolbar's Run/Refresh
+    /// pill. Pull-to-refresh routes through it rather than calling
+    /// `model.run` itself, so it inherits the parameter prompt, the
+    /// destructive-SQL confirmation, and the per-kind refresh branching.
+    var onRun: () -> Void = {}
     /// Grid row density; shared via `tessera.gridDensity` with the status bar and
     /// the Appearance settings tab.
     @AppStorage("tessera.gridDensity") private var gridComfortable = false
@@ -106,7 +111,15 @@ struct DetailResultsArea: View {
             } : nil,
             onDiscardPending: { model.discardPending(tab) },
             onFocus: { model.activate(tab) },
-            rowHeight: gridComfortable ? 24 : 18)
+            rowHeight: gridComfortable ? 24 : 18,
+            // Pull past the top edge does exactly what the Run/Refresh pill does.
+            // Staged edits block it: to the pill they mean "commit", and a stray
+            // drag must not be able to write to the database.
+            onPullToRefresh: {
+                guard !tab.isRunning, !tab.hasEdits, tab.session != nil else { return }
+                model.activate(tab)
+                onRun()
+            })
         .overlay(alignment: .topTrailing) {
             if tab.isSearchBarVisible {
                 findBar(tab, result: result)
@@ -218,6 +231,11 @@ struct DetailResultsArea: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .foregroundStyle(isError ? .red : .green)
+                .contentTransition(.symbolEffect(.replace))
+                // Keyed on the text, not on `isError`: the banner is already on
+                // screen for a second failure in a row, so without this the only
+                // thing that moves is wording you may not be looking at.
+                .symbolEffect(.bounce, value: message)
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(message)
                     .font(isError ? .callout.monospaced() : .callout)

@@ -32,11 +32,17 @@ struct TesseraApp: App {
                 // A file opened from Finder goes to the existing window rather than
                 // spawning a second one.
                 .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
+                .symbolColorRenderingMode(.gradient)
         }
         .handlesExternalEvents(matching: ["*"])
         // Frameless chrome: the gradient backdrop and floating cards own the
         // window; the traffic lights float over the top-left card area.
         .windowStyle(.hiddenTitleBar)
+        // With no title bar there's little left to grab the window by, so the
+        // bare gradient between the cards becomes a drag handle. Interactive
+        // content (grid, editor, diagram) keeps its own gestures — only the
+        // backdrop itself moves the window.
+        .windowBackgroundDragBehavior(.enabled)
         .defaultSize(width: 1240, height: 760)
         .commands {
             TesseraCommands(app: app)
@@ -47,6 +53,9 @@ struct TesseraApp: App {
 
         Settings {
             SettingsView(connections: app.connections)
+                // Both scenes, or the Settings window would be the one place in
+                // the app still drawing flat symbols.
+                .symbolColorRenderingMode(.gradient)
         }
     }
 }

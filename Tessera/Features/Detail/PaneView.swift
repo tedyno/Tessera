@@ -20,19 +20,18 @@ struct PaneView: View {
     @Binding var saveQueryTitle: String
     var canClosePane: Bool
     var onNewConnection: () -> Void
+    /// Shared tab-drag state, one instance for the whole detail area.
+    var drag: TabDragState
 
-    @State private var dropEdge: DropEdge?
     @State private var paneSize: CGSize = .zero
     @State private var showConnectionPicker = false
-    /// Guarantees the split preview clears when the drag ends (see `DropEndMonitor`).
-    @State private var dropEndMonitor = DropEndMonitor()
 
     private var activeTab: QueryTab? { model.activeTab(in: group) }
     private var isFocused: Bool { model.workspace.focusedGroupID == group.id }
 
     var body: some View {
         VStack(spacing: 0) {
-            DetailTabBar(model: model, group: group,
+            DetailTabBar(model: model, group: group, drag: drag,
                          onCloseGroup: canClosePane ? { model.closePane(group.id) } : nil)
             Divider()
             content
@@ -47,22 +46,18 @@ struct PaneView: View {
                     }
                     .allowsHitTesting(false)
                 }
-                // The drop lives on the content itself (not a covering overlay), so
-                // the editor, grid and toolbar stay fully interactive; the preview
-                // is drawn on top but ignores hit-testing.
+                // Drawn on top but never hit-tested, so the editor, grid and
+                // toolbar stay fully interactive underneath.
                 .overlay { splitPreview }
-                .onDrop(of: [.text], delegate: SplitDropDelegate(
-                    size: paneSize, edge: $dropEdge,
-                    perform: { edge, id in model.splitDrop(id, into: group.id, edge: edge) }))
+                // The pane's body as a drop target, for `TabDragTargeting` to
+                // compare against every other pane.
+                .onGeometryChange(for: CGRect.self) {
+                    $0.frame(in: .named(TabDragState.space))
+                } action: { frame in
+                    drag.bodies[group.id] = PaneBodyGeometry(groupID: group.id, frame: frame)
+                }
         }
-        // SwiftUI can skip both `dropExited` and `performDrop` when a dragged tab
-        // is released back onto its own pane, stranding the preview highlight.
-        // Arm a mouse-up fallback whenever a preview is showing so it can't stick.
-        .onChange(of: dropEdge) { _, edge in
-            if edge == nil { dropEndMonitor.disarm() }
-            else { dropEndMonitor.arm { dropEdge = nil } }
-        }
-        .onDisappear { dropEndMonitor.disarm() }
+        .onDisappear { drag.bodies[group.id] = nil }
     }
 
     // MARK: Content
@@ -106,7 +101,7 @@ struct PaneView: View {
                                       onSelect: { model.showBatchStep(tab, number: $0) })
                         Divider()
                     }
-                    DetailResultsArea(model: model, tab: tab)
+                    DetailResultsArea(model: model, tab: tab, onRun: onRun)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if group.showInspector, tab.result != nil {
                         Divider()
@@ -153,7 +148,7 @@ struct PaneView: View {
     /// The translucent preview of where a dropped tab will land — drawn on top of
     /// the pane, never hit-testable, so it can't swallow interaction.
     @ViewBuilder private var splitPreview: some View {
-        if let edge = dropEdge {
+        if let edge = drag.splitEdge(inGroup: group.id) {
             let size = previewSize(edge, paneSize)
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(Color.accentColor.opacity(0.22))
@@ -161,7 +156,7 @@ struct PaneView: View {
                 .frame(width: size.width, height: size.height)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: previewAlignment(edge))
                 .allowsHitTesting(false)
-                .animation(.easeOut(duration: 0.12), value: dropEdge)
+                .animation(.easeOut(duration: 0.12), value: edge)
         }
     }
 
@@ -208,7 +203,12 @@ struct PaneView: View {
             Button { model.activate(tab); onRun() } label: {
                 let editing = tab.hasEdits
                 Label(editing ? "Commit" : "Run", systemImage: editing ? "checkmark" : "play.fill")
+                    // Staging the first edit turns Run into Commit; the glyph
+                    // should swap in place so the change is read as the same
+                    // button changing meaning, not a different button.
+                    .contentTransition(.symbolEffect(.replace))
             }
+            .animation(.snappy(duration: 0.2), value: tab.hasEdits)
             .buttonStyle(.glassPillProminent)
             .disabled(tab.session?.status == .connecting || tab.isRunning || tab.session == nil)
 
@@ -227,6 +227,10 @@ struct PaneView: View {
                 }
                 .buttonStyle(.glassPill)
                 .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                // Glass forms and dissolves rather than cross-fading: the pill
+                // that appears when a tab becomes editable now condenses into
+                // place the way system chrome does.
+                .glassEffectTransition(.materialize)
             }
             savedQueriesMenu(tab)
             Button { model.activate(tab); showingHistory = true } label: {
@@ -340,7 +344,9 @@ struct PaneView: View {
             Button { model.activate(tab); onRun() } label: {
                 Label(tab.hasEdits ? "Commit" : "Refresh",
                       systemImage: tab.hasEdits ? "checkmark" : "arrow.clockwise")
+                    .contentTransition(.symbolEffect(.replace))
             }
+            .animation(.snappy(duration: 0.2), value: tab.hasEdits)
             .buttonStyle(.glassPillProminent)
             .disabled(tab.session?.status == .connecting || tab.isRunning || tab.session == nil)
 
@@ -350,6 +356,10 @@ struct PaneView: View {
                 }
                 .buttonStyle(.glassPill)
                 .transition(.opacity.combined(with: .scale(scale: 0.85)))
+                // Glass forms and dissolves rather than cross-fading: the pill
+                // that appears when a tab becomes editable now condenses into
+                // place the way system chrome does.
+                .glassEffectTransition(.materialize)
             }
 
             filterBar(tab)
@@ -550,63 +560,4 @@ struct PaneView: View {
     }
 }
 
-/// Reads the pointer's nearest edge inside a pane and splits it there on drop.
-private struct SplitDropDelegate: DropDelegate {
-    let size: CGSize
-    @Binding var edge: DropEdge?
-    let perform: (DropEdge, UUID) -> Void
 
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        edge = Self.edge(for: info.location, in: size)
-        return DropProposal(operation: .move)
-    }
-
-    func dropExited(info: DropInfo) { edge = nil }
-
-    func performDrop(info: DropInfo) -> Bool {
-        let target = Self.edge(for: info.location, in: size)
-        edge = nil
-        guard let provider = info.itemProviders(for: [.text]).first else { return false }
-        provider.loadObject(ofClass: NSString.self) { object, _ in
-            guard let string = object as? String, let id = UUID(uuidString: string) else { return }
-            DispatchQueue.main.async { perform(target, id) }
-        }
-        return true
-    }
-
-    /// The pane is split into four triangles from its centre; the pointer's triangle
-    /// picks the edge.
-    static func edge(for point: CGPoint, in size: CGSize) -> DropEdge {
-        let fx = point.x / max(size.width, 1)
-        let fy = point.y / max(size.height, 1)
-        let distances: [(DropEdge, CGFloat)] = [
-            (.left, fx), (.right, 1 - fx), (.top, fy), (.bottom, 1 - fy)]
-        return distances.min { $0.1 < $1.1 }?.0 ?? .right
-    }
-}
-
-/// Fallback that clears a stranded split-drop preview. SwiftUI sometimes fires
-/// neither `dropExited` nor `performDrop` when a dragged tab is released back onto
-/// its own pane, so the preview would linger forever. While a preview is on
-/// screen this watches for the mouse-up that ends the drag and clears it — a tick
-/// late, so a legitimate `performDrop` (which clears the preview itself) wins.
-@MainActor
-final class DropEndMonitor {
-    private var monitor: Any?
-
-    func arm(_ clear: @escaping @MainActor () -> Void) {
-        guard monitor == nil else { return }
-        // The monitor fires on the main thread; clearing the preview here is safe
-        // even if `performDrop` also runs — it reads the drop location, not this
-        // state, so the split still lands.
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
-            MainActor.assumeIsolated { clear() }
-            return event
-        }
-    }
-
-    func disarm() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
-    }
-}

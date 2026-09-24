@@ -97,6 +97,17 @@ struct HistoryView: View {
             } else {
                 List(filtered, selection: $selected) { entry in
                     row(entry)
+                        .swipeActions(edge: .trailing) {
+                            Button("Delete", role: .destructive) {
+                                deleteEntries([entry.id])
+                            }
+                        }
+                        // No full swipe on this side: a swipe that runs all the
+                        // way would fire the query at the database, and that is
+                        // not something a slip of the finger should be able to do.
+                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                            Button("Run") { onRun(entry) }.tint(.green)
+                        }
                 }
                 .scrollContentBackground(.hidden)
                 // ⌫ removes the selected entries; row identity survives, so the

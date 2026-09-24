@@ -139,7 +139,9 @@ struct NewConnectionView: View {
                     Picker("Type", selection: $kind) {
                         ForEach(DatabaseKind.allCases, id: \.self) { Text($0.displayName).tag($0) }
                     }
-                    .pickerStyle(.segmented)
+                    // The choice decides which fields the form shows below it,
+                    // so it reads as a set of tabs rather than a stored value.
+                    .viewSwitcherPickerStyle()
                     if kind.isFileBased {
                         // SQLite: a file, not a server — the path lives in `database`.
                         HStack {
@@ -240,7 +242,7 @@ struct NewConnectionView: View {
                                 Text("From ~/.ssh/config").tag(true)
                                 Text("Enter manually").tag(false)
                             }
-                            .pickerStyle(.segmented)
+                            .viewSwitcherPickerStyle()
 
                             if sshUseConfig {
                                 if sshAliases.isEmpty {
@@ -277,7 +279,7 @@ struct NewConnectionView: View {
                                     Text("Password").tag(SSHAuthKind.password)
                                     Text("Private key").tag(SSHAuthKind.privateKey)
                                 }
-                                .pickerStyle(.segmented)
+                                .viewSwitcherPickerStyle()
                                 if sshAuth == .password {
                                     revealableField("SSH password", text: $sshPassword, reveal: $revealSSHPassword)
                                 } else {
@@ -389,7 +391,11 @@ struct NewConnectionView: View {
             }
             Button { reveal.wrappedValue.toggle() } label: {
                 Image(systemName: reveal.wrappedValue ? "eye.slash" : "eye")
+                    // These two differ only by the slash, so magic replace draws
+                    // that stroke on and off instead of swapping whole glyphs.
+                    .contentTransition(.symbolEffect(.replace.magic(fallback: .downUp)))
             }
+            .animation(.snappy(duration: 0.2), value: reveal.wrappedValue)
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .help("Show/hide")

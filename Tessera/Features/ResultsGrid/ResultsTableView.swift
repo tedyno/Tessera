@@ -601,6 +601,9 @@ struct ResultsTableView: NSViewRepresentable {
     var onFocus: () -> Void = {}
     /// Row height: 18 (compact) or 24 (comfortable), from the density toggle.
     var rowHeight: CGFloat = 18
+    /// Re-runs the query behind the grid, for a macOS 27 pull past the top edge.
+    /// Nil leaves the grid without a refresh control.
+    var onPullToRefresh: (() -> Void)?
 
     func makeNSView(context: Context) -> NSScrollView {
         let tableView = GridTableView()
@@ -689,7 +692,7 @@ struct ResultsTableView: NSViewRepresentable {
         tableView.hasUndo = { [c = context.coordinator] in c.tabCanUndo }
         tableView.hasRedo = { [c = context.coordinator] in c.tabCanRedo }
 
-        let scrollView = NSScrollView()
+        let scrollView = ConcentricScrollView()
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -709,6 +712,16 @@ struct ResultsTableView: NSViewRepresentable {
         context.coordinator.onDeleteRowsExternal = onDeleteExternalRows
         context.coordinator.onDiscardPending = onDiscardPending
         context.coordinator.installEscapeMonitor()
+        context.coordinator.onPullToRefresh = onPullToRefresh
+        if onPullToRefresh != nil {
+            // The controller holds the coordinator, not the (short-lived) struct,
+            // so a pull always runs whatever the latest `updateNSView` handed over.
+            let pull = PullToRefresh { [weak coordinator = context.coordinator] in
+                coordinator?.onPullToRefresh?()
+            }
+            pull.attach(to: scrollView, title: String(localized: "Pull to re-run the query"))
+            context.coordinator.pullToRefresh = pull
+        }
         context.coordinator.configure(for: tab)
         return scrollView
     }
@@ -720,6 +733,7 @@ struct ResultsTableView: NSViewRepresentable {
         context.coordinator.onOpenRow = onOpenRow
         context.coordinator.onDeleteRowsExternal = onDeleteExternalRows
         context.coordinator.onDiscardPending = onDiscardPending
+        context.coordinator.onPullToRefresh = onPullToRefresh
         if let table = nsView.documentView as? NSTableView, table.rowHeight != rowHeight,
            !context.coordinator.isEditingActive {
             table.rowHeight = rowHeight
@@ -741,6 +755,8 @@ struct ResultsTableView: NSViewRepresentable {
         private var tab: QueryTab
         weak var tableView: NSTableView?
         var onSort: (String) -> Void = { _ in }
+        var onPullToRefresh: (() -> Void)?
+        var pullToRefresh: PullToRefresh?
         var onFollowForeignKey: (ForeignKeyTarget, String) -> Void = { _, _ in }
         var onOpenRow: ((Int) -> Bool)?
         var onDeleteRowsExternal: (([Int]) -> Bool)?

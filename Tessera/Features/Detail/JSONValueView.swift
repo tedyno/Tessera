@@ -35,7 +35,7 @@ struct JSONValueView: View {
                         Text("Formatted").tag(false)
                         Text("Raw").tag(true)
                     }
-                    .pickerStyle(.segmented)
+                    .viewSwitcherPickerStyle()
                     .labelsHidden()
                     .controlSize(.small)
                     .fixedSize()

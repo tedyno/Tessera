@@ -101,6 +101,7 @@ struct ImportView: View {
             if let success = resultSuccess {
                 Label(resultMessage.isEmpty ? (success ? "Imported" : "Failed") : resultMessage,
                       systemImage: success ? "checkmark.circle" : "exclamationmark.triangle")
+                    .contentTransition(.symbolEffect(.replace))
                     .foregroundStyle(success ? .green : .red)
                     .font(.callout).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)

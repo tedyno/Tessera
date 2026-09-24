@@ -51,6 +51,10 @@ private struct JobProgressBar: View {
     var body: some View {
         if !isRunning {
             Image(systemName: hasFailure ? "exclamationmark.triangle.fill" : "checkmark.circle")
+                .contentTransition(.symbolEffect(.replace))
+                // A job that failed in the background has no other way to get
+                // your attention — the status bar is quiet by design.
+                .symbolEffect(.bounce, value: hasFailure)
         } else if let progress {
             ProgressView(value: progress)
                 .progressViewStyle(.linear)
