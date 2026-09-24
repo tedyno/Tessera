@@ -36,9 +36,68 @@ enum ThemeIcon {
         // then only on real theme/appearance flips).
         guard key != lastAppliedKey else { return }
         lastAppliedKey = key
-        NSWorkspace.shared.setIcon(image, forFile: Bundle.main.bundlePath, options: [])
+        // `nil` clears the override; anything else has to arrive as a full icon
+        // family (see `iconFamily(from:)`).
+        let resting = image.map(iconFamily(from:))
+        let written = NSWorkspace.shared.setIcon(resting, forFile: Bundle.main.bundlePath,
+                                                 options: [])
+        if !written {
+            // The result used to be discarded, so the resting icon quietly not
+            // persisting looked like nothing had happened at all. Say so, and
+            // let the next launch try again rather than believing it's done.
+            NSLog("ThemeIcon: could not write the resting icon for \(key)")
+            lastAppliedKey = nil
+        }
 #endif
     }
+
+#if !DEBUG
+    /// The sizes an `.icns` actually stores, in points; each is also rendered at
+    /// @2x.
+    private static let iconSizes: [CGFloat] = [16, 32, 128, 256, 512]
+
+    /// Rebuilds the artwork as a multi-representation image.
+    ///
+    /// The theme icons ship as a single 1024×1024 PNG. Handed straight to
+    /// `NSWorkspace.setIcon`, IconServices has to derive a whole `.icns` family
+    /// from that one representation, and its `addCGImage:scale:` fails — it logs
+    /// an `os_log` fault, which macOS escalates into killing the process. The
+    /// resting icon was therefore never written, which is also why a themed icon
+    /// never survived quitting the app.
+    private static func iconFamily(from image: NSImage) -> NSImage {
+        let family = NSImage(size: NSSize(width: 512, height: 512))
+        for points in iconSizes {
+            for scale in [1, 2] where !(points == 512 && scale == 2) {
+                if let rep = representation(of: image, points: points, scale: scale) {
+                    family.addRepresentation(rep)
+                }
+            }
+        }
+        // If not one size rendered, the original is still better than nothing —
+        // and `setIcon` reporting failure is better than handing over an empty
+        // image.
+        return family.representations.isEmpty ? image : family
+    }
+
+    /// One bitmap of the artwork: `points` logical size at `scale` pixels each.
+    private static func representation(of image: NSImage,
+                                       points: CGFloat, scale: Int) -> NSBitmapImageRep? {
+        let pixels = Int(points) * scale
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
+        else { return nil }
+        // Logical size drives the scale factor IconServices reads off the rep.
+        rep.size = NSSize(width: points, height: points)
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        image.draw(in: NSRect(x: 0, y: 0, width: points, height: points),
+                   from: .zero, operation: .copy, fraction: 1)
+        return rep
+    }
+#endif
 
     /// The mode the icon should use: the explicit theme override, or the live
     /// system appearance when following it.
