@@ -119,6 +119,17 @@ public enum DumpTool {
         }
     }
 
+    /// Where the dump/restore tool should connect. A tunnelled profile's host is the
+    /// address *behind* the tunnel (often 127.0.0.1:3306 on the server), so without a
+    /// live tunnel endpoint there is no valid target — nil, never the profile's host,
+    /// which would silently hit a database on this Mac instead.
+    public static func endpoint(for profile: ConnectionProfile,
+                                live: NetworkEndpoint?) -> NetworkEndpoint? {
+        if let live { return live }
+        guard profile.ssh == nil else { return nil }
+        return NetworkEndpoint(host: profile.host, port: profile.port)
+    }
+
     /// Arguments (excluding the binary path); dump content goes to the tool's stdout,
     /// which the caller redirects to the output file.
     public static func arguments(kind: DatabaseKind, host: String, port: Int, user: String,

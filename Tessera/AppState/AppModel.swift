@@ -154,9 +154,18 @@ final class AppModel {
         return session.isReady ? session : nil
     }
 
+    /// See `presentAfterTunnel`: the MCP paths need the live tunnel just the same.
+    private func openTunnelIfNeeded(for profile: ConnectionProfile) async throws {
+        guard profile.ssh != nil else { return }
+        guard await ensureSessionReady(profileID: profile.id) != nil else {
+            throw MCPToolError("Could not open the SSH tunnel for “\(profile.name)”.")
+        }
+    }
+
     /// Export driven by MCP: destination is ours, never the caller's.
     func runMCPExport(profile: ConnectionProfile, schemas: [String], tables: [String],
                       structure: Bool, data: Bool, gzip: Bool) async throws -> MCPExportResult {
+        try await openTunnelIfNeeded(for: profile)
         let target = ExportTarget(profileID: profile.id, schemas: schemas, tables: tables)
         guard let context = exportContext(for: target) else {
             throw MCPToolError("Could not resolve connection details.")
@@ -183,6 +192,7 @@ final class AppModel {
 
     /// Import driven by MCP, after approval.
     func runMCPImport(profile: ConnectionProfile, filePath: String) async throws -> MCPImportResult {
+        try await openTunnelIfNeeded(for: profile)
         guard let context = exportContext(for: ExportTarget(profileID: profile.id)) else {
             throw MCPToolError("Could not resolve connection details.")
         }
@@ -1363,7 +1373,7 @@ final class AppModel {
     }
 
     func importConnection(profileID: UUID) {
-        importTarget = ImportTarget(profileID: profileID)
+        presentAfterTunnel(profileID) { $0.importTarget = ImportTarget(profileID: profileID) }
     }
 
     /// Import reuses the same resolved connection details as export.
@@ -1373,27 +1383,42 @@ final class AppModel {
 
     /// Whole database — from the connection's Export… or the database node.
     func exportConnection(profileID: UUID) {
-        exportTarget = ExportTarget(profileID: profileID)
+        presentAfterTunnel(profileID) { $0.exportTarget = ExportTarget(profileID: profileID) }
     }
 
     func exportSchema(profileID: UUID, schema: String) {
-        exportTarget = ExportTarget(profileID: profileID, schemas: [schema])
+        presentAfterTunnel(profileID) { $0.exportTarget = ExportTarget(profileID: profileID, schemas: [schema]) }
     }
 
     /// Dumps several schemas (all in the connection's current database) into one
     /// file — pg_dump takes a --schema flag per schema in a single invocation.
     func exportSchemas(profileID: UUID, schemas: [String]) {
-        exportTarget = ExportTarget(profileID: profileID, schemas: schemas)
+        presentAfterTunnel(profileID) { $0.exportTarget = ExportTarget(profileID: profileID, schemas: schemas) }
     }
 
     func exportTable(profileID: UUID, schema: String, table: String) {
-        exportTarget = ExportTarget(profileID: profileID, schemas: [schema], tables: [table])
+        presentAfterTunnel(profileID) {
+            $0.exportTarget = ExportTarget(profileID: profileID, schemas: [schema], tables: [table])
+        }
     }
 
     /// Dumps several tables (all in the same schema) into one file — pg_dump/mysqldump
     /// both already accept a list of tables in a single invocation.
     func exportTables(profileID: UUID, schema: String, tables: [String]) {
-        exportTarget = ExportTarget(profileID: profileID, schemas: [schema], tables: tables)
+        presentAfterTunnel(profileID) {
+            $0.exportTarget = ExportTarget(profileID: profileID, schemas: [schema], tables: tables)
+        }
+    }
+
+    /// Dump/restore tools reach a tunnelled database only through the live tunnel, so
+    /// such a connection is opened first; a failed connect shows on the session and
+    /// the sheet stays closed. Direct connections present straight away.
+    private func presentAfterTunnel(_ profileID: UUID, _ present: @escaping (AppModel) -> Void) {
+        guard connections.profile(id: profileID)?.ssh != nil else { present(self); return }
+        Task {
+            guard await ensureSessionReady(profileID: profileID) != nil else { return }
+            present(self)
+        }
     }
 
     /// Everything the export sheet needs, resolved from the live session when possible
@@ -1402,11 +1427,12 @@ final class AppModel {
         guard let profile = connections.profile(id: target.profileID),
               !profile.kind.isFileBased, !profile.kind.isKeyValue else { return nil }   // no SQL dump
         let session = console.session(for: target.profileID)
+        guard let endpoint = DumpTool.endpoint(for: profile, live: session?.endpoint) else { return nil }
         return ExportContext(
             kind: profile.kind,
             connectionName: profile.name,
-            host: session?.endpoint?.host ?? profile.host,
-            port: session?.endpoint?.port ?? profile.port,
+            host: endpoint.host,
+            port: endpoint.port,
             user: profile.username,
             database: session?.database ?? profile.database,
             password: (try? connections.loadSecrets(for: profile))?.databasePassword,

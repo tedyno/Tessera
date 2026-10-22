@@ -15,6 +15,24 @@ final class DumpToolTests: XCTestCase {
         XCTAssertNil(DumpTool.majorVersion("no digits here"))
     }
 
+    func testEndpointPrefersLiveSession() {
+        let profile = ConnectionProfile(name: "p", kind: .mysql, host: "db.example", port: 3306,
+                                        database: "shop", username: "u")
+        let live = NetworkEndpoint(host: "127.0.0.1", port: 54321)
+        XCTAssertEqual(DumpTool.endpoint(for: profile, live: live), live)
+        XCTAssertEqual(DumpTool.endpoint(for: profile, live: nil),
+                       NetworkEndpoint(host: "db.example", port: 3306))
+    }
+
+    func testTunnelledEndpointNeverFallsBackToProfileHost() {
+        let ssh = SSHConfig(host: "bastion", username: "me", authMethod: .password)
+        let profile = ConnectionProfile(name: "p", kind: .mysql, host: "127.0.0.1", port: 3306,
+                                        database: "shop", username: "u", ssh: ssh)
+        XCTAssertNil(DumpTool.endpoint(for: profile, live: nil))
+        let live = NetworkEndpoint(host: "127.0.0.1", port: 54321)
+        XCTAssertEqual(DumpTool.endpoint(for: profile, live: live), live)
+    }
+
     func testPasswordGoesToEnvironmentNotArgs() {
         XCTAssertEqual(DumpTool.environment(kind: .postgres, password: "secret"), ["PGPASSWORD": "secret"])
         XCTAssertEqual(DumpTool.environment(kind: .mysql, password: "secret"), ["MYSQL_PWD": "secret"])
