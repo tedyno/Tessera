@@ -57,6 +57,8 @@ struct ExportView: View {
     @State private var running = false
     @State private var resultSuccess: Bool?
     @State private var resultMessage = ""
+    /// The file the last successful dump wrote — offered to reveal or copy.
+    @State private var savedURL: URL?
     /// Size of the output file while the dump runs — see `watchOutputSize`.
     @State private var writtenBytes: Int64 = 0
 
@@ -174,6 +176,19 @@ struct ExportView: View {
                     .font(.callout)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if success, let savedURL {
+                    HStack {
+                        Button("Show in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([savedURL])
+                        }
+                        Button("Copy Path") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(savedURL.path, forType: .string)
+                        }
+                    }
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
 
             HStack {
@@ -384,6 +399,7 @@ struct ExportView: View {
         guard let outputURL else { return }
         running = true
         resultSuccess = nil
+        savedURL = nil
         let options = DumpOptions(
             schemas: isPostgres ? splitList(schemasText) : [],
             tables: splitList(tablesText),
@@ -413,6 +429,7 @@ struct ExportView: View {
             running = false
             resultSuccess = result.cancelled ? nil : result.success
             resultMessage = result.success ? String(localized: "Saved to \(outputURL.path)") : result.message
+            savedURL = result.success ? outputURL : nil
             if result.cancelled {
                 jobs.finish(job, state: .cancelled)
             } else if result.success {

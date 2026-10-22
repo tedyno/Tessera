@@ -6763,6 +6763,17 @@
         }
       }
     },
+    "Copy Path": {
+      "extractionState": "manual",
+      "localizations": {
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopírovat cestu"
+          }
+        }
+      }
+    },
     "Decrypting…": {
       "extractionState": "manual",
       "localizations": {
